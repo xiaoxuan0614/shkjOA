@@ -22,6 +22,14 @@ const material: AppRouteModule = {
         title: '物料列表',
       },
     },
+    {
+      path: 'apply',
+      name: 'MaterialApply',
+      component: () => import('/@/views/material/apply/MaterialApply.vue'),
+      meta: {
+        title: '物料申请',
+      },
+    },
   ],
 };
 

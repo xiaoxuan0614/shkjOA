@@ -57,9 +57,8 @@ export function createFakeUserList() {
 }
 
 const fakeCodeList: any = {
-  '1': ['1000', '3000', '5000'],
-
-  '2': ['2000', '4000', '6000'],
+  '1': ['1000', '3000', '5000'],   // admin userId=1
+  '2': ['2000', '4000', '6000'],  // jeecg userId=2
 };
 
 export default [
@@ -86,6 +85,7 @@ export default [
         token,
         realname,
         desc,
+       
       });
     },
   },
@@ -102,7 +102,7 @@ export default [
       return resultSuccess(checkUser);
     },
   },
-  {
+ {
     url: `${sysUrl}/sys/permission/getPermCode`,
     timeout: 200,
     method: 'get',
@@ -113,9 +113,18 @@ export default [
       if (!checkUser) {
         return resultError('Invalid token!');
       }
-      const codeList = fakeCodeList[checkUser.userId];
-
-      return resultSuccess(codeList);
+      // 直接返回全部权限，页面v‑auth放行，页面代码完全不动
+      return resultSuccess([
+        '1000',
+        '3000',
+        '5000',
+        'materiallist:add',
+        'materiallist:edit',
+        'materiallist:delete',
+        'materiallist:deleteBatch',
+        'materiallist:exportXls',
+        'materiallist:importExcel',
+      ]);
     },
   },
   {

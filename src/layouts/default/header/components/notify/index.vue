@@ -245,6 +245,7 @@
        * 验证是否为默认密码
        */
       function verifyIzDefaultPwd() {
+        console.log("verifyIzDefaultPwd") 
         defHttp.get({ url: "/sys/user/verifyIzDefaultPwd" } ,{ isTransformResponse: false }).then((res) =>{
           if(res.success){
             if(res.message.indexOf('yes') != -1){
