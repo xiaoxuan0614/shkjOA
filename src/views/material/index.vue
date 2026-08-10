@@ -4,10 +4,12 @@
    <BasicTable @register="registerTable" :rowSelection="rowSelection">
      <!--插槽:table标题-->
       <template #tableTitle>
-          <a-button type="primary" v-auth="'mtl:materiallist:add'" @click="handleAdd" preIcon="ant-design:plus-outlined"> 新增</a-button>
+          <a-button type="primary"   @click="handleAdd" preIcon="ant-design:plus-outlined"> 新增</a-button>
           <a-button type="primary" preIcon="ant-design:file-add-outlined" @click="handleApply"> 发起申请</a-button>
-          <a-button  type="primary" v-auth="'mtl:materiallist:exportXls'" preIcon="ant-design:export-outlined" @click="onExportXls"> 导出</a-button>
-          <j-upload-button type="primary" v-auth="'mtl:materiallist:importExcel'" preIcon="ant-design:import-outlined" @click="onImportXls">导入</j-upload-button>
+          <a-button
+type="primary"
+          preIcon="ant-design:export-outlined" @click="onExportXls"> 导出</a-button>
+          <j-upload-button type="primary" v-auth="'materiallist:importExcel'" preIcon="ant-design:import-outlined" @click="onImportXls">导入</j-upload-button>
 
           <a-dropdown v-if="selectedRowKeys.length > 0">
               <template #overlay>
@@ -18,7 +20,7 @@
                   </a-menu-item>
                 </a-menu>
               </template>
-              <a-button v-auth="'mtl:materiallist:deleteBatch'">批量操作
+              <a-button v-auth="'materiallist:deleteBatch'">批量操作
                 <Icon icon="mdi:chevron-down"></Icon>
               </a-button>
         </a-dropdown>

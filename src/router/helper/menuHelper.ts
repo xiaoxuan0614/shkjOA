@@ -70,7 +70,6 @@ export function transformRouteToMenu(routeModList: AppRouteModule[], routerMappi
   // 借助 lodash 深拷贝
   const cloneRouteModList = cloneDeep(routeModList);
   const routeList: AppRouteRecordRaw[] = [];
-
   // 对路由项进行修改
   cloneRouteModList.forEach((item) => {
     if (routerMapping && item.meta.hideChildrenInMenu && typeof item.redirect === 'string') {
