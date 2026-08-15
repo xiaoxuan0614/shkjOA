@@ -41,15 +41,34 @@ export const businessAttrOptions = [
 ];
 
 // 项目状态(列表展示/搜索)
+// 生命周期: 创建(未开始) → 计划(筹备) → 实施开始(实施中) → 实施完成 → 内部验收 → 客户验收 → 质保中 → 质保结束(完结)；关闭为例外终态
 export const projectStatusOptions = [
   { label: '未开始', value: '未开始' },
   { label: '筹备', value: '筹备' },
   { label: '实施中', value: '实施中' },
-  { label: '待验收', value: '待验收' },
+  { label: '实施完成', value: '实施完成' },
+  { label: '内部验收', value: '内部验收' },
+  { label: '客户验收', value: '客户验收' },
   { label: '质保中', value: '质保中' },
   { label: '完结', value: '完结' },
   { label: '关闭', value: '关闭' },
 ];
+
+/**
+ * 项目状态流转配置(外部按钮操作 + 角色顺序权限)
+ * 每步只能推进到下一状态；action 为推进按钮文案；auth 为执行该步所需权限码(角色划分)
+ */
+export const statusFlow: Recordable = {
+  未开始: { next: '筹备', action: '开始计划', auth: 'project:plan' },
+  筹备: { next: '实施中', action: '开始实施', auth: 'project:implement' },
+  实施中: { next: '实施完成', action: '完成实施', auth: 'project:implement' },
+  实施完成: { next: '内部验收', action: '提交内部验收', auth: 'project:internalAccept' },
+  内部验收: { next: '客户验收', action: '提交客户验收', auth: 'project:accept' },
+  客户验收: { next: '质保中', action: '确认验收', auth: 'project:accept' },
+  质保中: { next: '完结', action: '质保结束', auth: 'project:warranty' },
+  完结: null,
+  关闭: null,
+};
 
 // 项目负责人(后续接用户接口)
 export const managerOptions = [
@@ -67,6 +86,12 @@ export const columns: BasicColumn[] = [
     title: '项目ID',
     align: 'center',
     dataIndex: 'projectNo',
+  },
+  {
+    title: '主项目名称',
+    align: 'center',
+    dataIndex: 'mainProjectName',
+    customRender: ({ text }) => text || '—',
   },
   {
     title: '项目名称',
@@ -111,6 +136,12 @@ export const searchFormSchema: FormSchema[] = [
     componentProps: { placeholder: '请输入项目ID' },
   },
   {
+    label: '主项目名称',
+    field: 'mainProjectName',
+    component: 'Input',
+    componentProps: { placeholder: '请输入主项目名称' },
+  },
+  {
     label: '项目名称',
     field: 'projectName',
     component: 'Input',
@@ -147,10 +178,38 @@ export const searchFormSchema: FormSchema[] = [
  */
 export const projectFormSchema: FormSchema[] = [
   {
+    label: '所属主项目',
+    field: 'parentId',
+    component: 'Select',
+    componentProps: {
+      allowClear: true,
+      showSearch: true,
+      optionFilterProp: 'label',
+      placeholder: '不选则本记录作为主项目',
+    },
+    helpMessage: '选择已有主项目，则本记录作为该主项目下的「期」项目；不选则本记录为主项目',
+  },
+  {
+    label: '主项目名称',
+    field: 'mainProjectName',
+    component: 'Input',
+    componentProps: { placeholder: '新建主项目时请输入主项目名称' },
+    // 项目创建完成后(id 存在)不可修改主项目名称；已挂到某主项目下时也由所选主项目带出(禁用)
+    dynamicDisabled: ({ model }) => !!model.id || !!model.parentId,
+    dynamicRules: ({ model }) => {
+      if (!model.parentId) {
+        return [{ required: true, message: '请输入主项目名称!' }];
+      }
+      return [];
+    },
+  },
+  {
     label: '项目名称',
     field: 'projectName',
     component: 'Input',
-    componentProps: { placeholder: '请输入项目名称' },
+    componentProps: { placeholder: '请输入项目名称（期项目填写具体期次，如：一期工程）' },
+    // 项目创建完成后(id 存在)不可修改项目/分期项目名称
+    dynamicDisabled: ({ model }) => !!model.id,
     dynamicRules: () => [{ required: true, message: '请输入项目名称!' }],
   },
   {
@@ -250,5 +309,12 @@ export const projectFormSchema: FormSchema[] = [
     field: 'remark',
     component: 'InputTextArea',
     componentProps: { placeholder: '请输入备注', rows: 3 },
+  },
+  // 主键隐藏字段：编辑回显后 model 里有 id，用于判定「已创建」从而禁用主项目/项目名称
+  {
+    label: '',
+    field: 'id',
+    component: 'Input',
+    show: false,
   },
 ];

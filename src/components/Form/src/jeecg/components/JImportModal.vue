@@ -8,6 +8,12 @@
           <a-switch :checked="validateStatus == 1" @change="handleChangeValidateStatus" checked-children="是" un-checked-children="否" />
         </span>
       </div>
+      <!--下载模板(可选 prop template:{name,url}；全局约定：下载模板统一放导入弹窗内，不放外面)-->
+      <div v-if="template && template.url" style="margin: 0 5px 10px">
+        <a-button type="link" preIcon="ant-design:download-outlined" @click="handleDownloadTemplate">{{
+          template.name || '下载模板'
+        }}</a-button>
+      </div>
       <!--上传-->
       <a-upload name="file" accept=".xls,.xlsx" :multiple="true" :fileList="fileList" @remove="handleRemove" :beforeUpload="beforeUpload">
         <a-button preIcon="ant-design:upload-outlined">选择导入文件</a-button>
@@ -29,6 +35,7 @@
   import { useAttrs } from '/@/hooks/core/useAttrs';
   import { defHttp } from '/@/utils/http/axios';
   import { useGlobSetting } from '/@/hooks/setting';
+  import { useMethods } from '/@/hooks/system/useMethods';
   import { useMessage } from '/@/hooks/web/useMessage';
   import { isObject } from '/@/utils/is';
 
@@ -54,10 +61,17 @@
         default: false,
         required: false,
       },
+      //下载模板 { name, url }——下载模板按钮放进导入弹窗内（全局约定，页面只传配置不自己放按钮）
+      template: {
+        type: Object,
+        default: () => null,
+        required: false,
+      },
     },
     emits: ['ok', 'register'],
-    setup(props, { emit, refs }) {
+    setup(props, { emit }) {
       const { createMessage, createWarningModal } = useMessage();
+      const { handleExportXls } = useMethods();
       //注册弹框
       const [register, { closeModal }] = useModalInner((data) => {
         reset(data);
@@ -90,6 +104,12 @@
       //校验状态切换
       function handleChangeValidateStatus(checked) {
         validateStatus.value = !!checked ? 1 : 0;
+      }
+
+      //下载模板：模板 url 配置了才显示按钮，走统一导出下载
+      function handleDownloadTemplate() {
+        const { name, url } = props.template || {};
+        if (url) handleExportXls(name || '导入模板', url);
       }
 
       //移除上传文件
@@ -183,6 +203,7 @@
         handleChangeValidateStatus,
         handleRemove,
         beforeUpload,
+        handleDownloadTemplate,
         handleImport,
       };
     },

@@ -86,13 +86,13 @@
   // 注册抽屉
   const [registerDrawer, { openDrawer }] = useDrawer();
 
-  // 明细表格列
+  // 明细表格列(对齐 StockApplyItem: materialCategory/materialName/brand/model/stockQty/unitQty/unitName)
   const detailColumns = [
-    { title: '物料类别', dataIndex: 'categoryName', key: 'categoryName', width: 110 },
-    { title: '物料名称', dataIndex: 'goodsName', key: 'goodsName', width: 160 },
+    { title: '物料类别', dataIndex: 'materialCategory', key: 'materialCategory', width: 110 },
+    { title: '物料名称', dataIndex: 'materialName', key: 'materialName', width: 160 },
     { title: '品牌', dataIndex: 'brand', key: 'brand', width: 120 },
     { title: '型号', dataIndex: 'model', key: 'model', width: 160 },
-    { title: '库存', dataIndex: 'stock', key: 'stock', width: 90 },
+    { title: '库存', dataIndex: 'stockQty', key: 'stockQty', width: 90 },
     { title: '*使用数量', key: 'useNum', width: 140 },
     { title: '*单位', key: 'unit', width: 120 },
     { title: '操作', key: 'action', width: 90, align: 'center', fixed: 'right' },
@@ -134,19 +134,19 @@
     selected.forEach((m) => {
       // 已存在同物料则提示跳过
       if (detailList.value.some((d) => d.id === m.id)) {
-        createMessage.warning(`「${m.goodsName}」已在明细中`);
+        createMessage.warning(`「${m.materialName}」已在明细中`);
         return;
       }
       detailList.value.push({
         _key: ++detailKeySeed,
         id: m.id,
-        categoryName: m.categoryName, // 物料类别 <- 大类
-        goodsName: m.goodsName, // 物料名称 <- 商品名称
+        materialCategory: m.materialCategory, // 物料类别
+        materialName: m.materialName, // 物料名称
         brand: m.brand,
-        model: m.model, // 型号 <- 规格型号
-        stock: m.stock, // 库存
+        model: m.model,
+        stockQty: m.stockQty, // 库存(以基准单位为准)
         useNum: 1,
-        unit: m.mainUnit, // 单位 <- 主计量单位
+        unit: m.unit, // 基准单位
       });
     });
   }
@@ -176,7 +176,16 @@
     }
     return {
       ...formValues,
-      detailList: detailList.value,
+      // 明细映射为 StockApplyItem 契约提交
+      itemList: detailList.value.map((d) => ({
+        materialId: d.id,
+        materialCategory: d.materialCategory,
+        materialName: d.materialName,
+        brand: d.brand,
+        model: d.model,
+        unitName: d.unit,
+        unitQty: d.useNum,
+      })),
     };
   }
 

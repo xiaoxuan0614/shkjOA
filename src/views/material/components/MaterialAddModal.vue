@@ -65,10 +65,11 @@
         componentProps: { placeholder: '请输入品牌' },
       },
       {
-        label: '型号',
+        label: '型号(规格)',
         field: 'model',
         component: 'Input',
-        componentProps: { placeholder: '请输入型号' },
+        componentProps: { placeholder: '请输入型号(规格)' },
+        dynamicRules: () => [{ required: true, message: '请输入型号(规格)!' }],
       },
       {
         label: '库存数量',

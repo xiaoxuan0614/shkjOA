@@ -1,53 +1,50 @@
 import { FormSchema } from '/@/components/Table';
 
 /**
- * 物料申请 - 申请信息表单
+ * 物料申请(出入库申请) - 申请信息表单
+ * ⚠️ 字段与正式后端接口契约(StockApply)对齐：applyType(IN/OUT)/applyNo/applyUserName/deptName/useDate/remark
  */
 export const applyFormSchema: FormSchema[] = [
   {
-    label: '申请类型',
+    label: '出入库类型',
     field: 'applyType',
-    component: 'Select',
-    componentProps: {
-      options: [
-        { label: '项目用料', value: 'project' },
-        { label: '设备领用', value: 'device' },
-        { label: '耗材领用', value: 'consumable' },
-      ],
-      placeholder: '请选择申请类型',
-    },
-    dynamicRules: () => {
-      return [{ required: true, message: '请选择申请类型!' }];
-    },
+    component: 'JDictSelectTag',
+    componentProps: { dictCode: 'stock_apply_type', placeholder: '请选择出入库类型' },
+    dynamicRules: () => [{ required: true, message: '请选择出入库类型!' }],
   },
   {
-    label: '关联单号',
+    label: '申请单号',
     field: 'applyNo',
     component: 'Input',
-    componentProps: {
-      placeholder: '请输入关联单号',
-    },
+    componentProps: { placeholder: '请输入申请单号' },
   },
   {
-    label: '使用时间',
-    field: 'useTime',
+    label: '申请人',
+    field: 'applyUserName',
+    component: 'Input',
+    componentProps: { placeholder: '请输入申请人' },
+    dynamicRules: () => [{ required: true, message: '请输入申请人!' }],
+  },
+  {
+    label: '部门',
+    field: 'deptName',
+    component: 'Input',
+    componentProps: { placeholder: '请输入部门名称' },
+  },
+  {
+    label: '使用日期',
+    field: 'useDate',
     component: 'DatePicker',
     componentProps: {
-      showTime: true,
-      valueFormat: 'YYYY-MM-DD HH:mm:ss',
-      placeholder: '请选择使用时间',
+      valueFormat: 'YYYY-MM-DD',
+      placeholder: '请选择使用日期',
     },
-    dynamicRules: () => {
-      return [{ required: true, message: '请选择使用时间!' }];
-    },
+    dynamicRules: () => [{ required: true, message: '请选择使用日期!' }],
   },
   {
     label: '备注',
     field: 'remark',
-    component: 'Input',
-    componentProps: {
-      placeholder: '请输入备注',
-    },
+    component: 'InputTextArea',
+    componentProps: { placeholder: '请输入备注', rows: 2 },
   },
 ];
-

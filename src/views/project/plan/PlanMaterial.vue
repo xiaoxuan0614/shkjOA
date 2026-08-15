@@ -179,25 +179,26 @@
 
   /**
    * 抽屉确定: 选中的物料回填为明细行(待采购)
+   * 字段对齐 /stock/material/list(materialName/materialCategory/stockQty/unit)
    */
   function handleDrawerSuccess(selected: any[]) {
     if (!selected || selected.length === 0) return;
     selected.forEach((m) => {
       if (detailList.value.some((d) => d.id === m.id && d.status !== STATUS.done)) {
-        createMessage.warning(`「${m.goodsName}」已在明细中`);
+        createMessage.warning(`「${m.materialName}」已在明细中`);
         return;
       }
       detailList.value.push({
         _key: ++detailKeySeed,
         id: m.id,
-        categoryName: m.categoryName,
-        goodsName: m.goodsName,
+        categoryName: m.materialCategory,
+        goodsName: m.materialName,
         brand: m.brand,
         model: m.model,
-        stock: m.stock,
+        stock: m.stockQty,
         status: STATUS.pending,
         useNum: 1,
-        unit: m.mainUnit,
+        unit: m.unit,
         expressNo: '',
       });
     });

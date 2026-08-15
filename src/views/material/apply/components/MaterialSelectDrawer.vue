@@ -23,14 +23,17 @@
       <!-- 右侧：搜索 + 表格 -->
       <div class="material-select__body">
         <div class="material-select__search">
-          <a-input v-model:value="queryParam.name" allowClear placeholder="名称" style="width: 160px" />
+          <a-input v-model:value="queryParam.materialName" allowClear placeholder="名称" style="width: 160px" />
           <a-input v-model:value="queryParam.model" allowClear placeholder="型号" style="width: 160px" />
           <a-select
             v-model:value="queryParam.brand"
             allowClear
-            placeholder="品牌"
+            showSearch
+            placeholder="品牌(输入后模糊搜索)"
             style="width: 160px"
             :options="brandOptions"
+            :filter-option="false"
+            @search="onBrandSearch"
           />
           <a-button type="primary" @click="handleSearch">筛选</a-button>
           <a-button @click="handleReset">重置</a-button>
@@ -69,7 +72,7 @@
         <div v-if="selectedList.length > 0" class="material-select__selected">
           <span class="material-select__selected-label">已选物料：</span>
           <a-tag v-for="item in selectedList" :key="item.id" closable @close="removeSelected(item)">
-            {{ item.goodsName }}
+            {{ item.materialName }}
           </a-tag>
         </div>
       </div>
@@ -84,7 +87,8 @@
   import { BasicDrawer, useDrawerInner } from '/@/components/Drawer';
   import { useModal } from '/@/components/Modal';
   import MaterialAddModal from '/@/views/material/components/MaterialAddModal.vue';
-  import { getCategoryTree, selectMaterialList, addMaterial } from '../MaterialApply.api';
+  import { selectMaterialList, addMaterial } from '../MaterialApply.api';
+  import { initDictOptions } from '/@/utils/dict/index';
 
   // Emits声明
   const emit = defineEmits(['register', 'success']);
@@ -105,26 +109,27 @@
     }
   }
 
-  // 表格列
+  // 表格列(对齐 StockMaterial: materialName/brand/model/stockQty)
   const columns = [
-    { title: '名称', dataIndex: 'goodsName', key: 'goodsName' },
+    { title: '名称', dataIndex: 'materialName', key: 'materialName' },
     { title: '品牌', dataIndex: 'brand', key: 'brand' },
     { title: '型号', dataIndex: 'model', key: 'model' },
-    { title: '总库存', dataIndex: 'stock', key: 'stock' },
+    { title: '总库存', dataIndex: 'stockQty', key: 'stockQty' },
     { title: '操作', key: 'action', width: 100, align: 'center' },
   ];
 
   // 搜索参数
   const queryParam = reactive<any>({
-    name: '',
+    materialName: '',
     model: '',
     brand: undefined,
-    categoryCode: undefined,
+    materialCategory: undefined,
   });
 
   const tableData = ref<any[]>([]);
   const loading = ref(false);
-  const brandOptions = ref<any[]>([]);
+  const brandOptions = ref<any[]>([]); // 展示用(输入后过滤)
+  const brandAll = ref<any[]>([]); // 全量池(只读过滤用，来源: 当前列表数据去重)
 
   // 分页(服务端分页)
   const pagination = reactive({
@@ -138,10 +143,12 @@
   const treeData = ref<any[]>([]);
   const selectedKeys = ref<any[]>([]);
 
-  // 加载树
+  // 大类树：从后端数据字典 material_category 构建（后台「系统管理→数据字典」配置，重新登录生效）
+  // 顶部加「全部」节点，默认选中即展示全部物料
   async function loadTree() {
-    const data = await getCategoryTree();
-    treeData.value = data || [];
+    const items: any[] = (await initDictOptions('material_category')) || [];
+    const children = items.map((c) => ({ title: c.text, key: c.value, categoryCode: c.value }));
+    treeData.value = [{ title: '全部', key: 'all', categoryCode: undefined }, ...children];
   }
 
   // 加载列表
@@ -164,20 +171,32 @@
     }
   }
 
-  // 品牌下拉去重(来源: 当前列表数据)
+  // 品牌下拉去重(来源: 当前列表数据) → 全量池
   function collectBrands(list: any[]) {
     const brands = new Set<string>();
     (list || []).forEach((m) => {
       if (m.brand) brands.add(m.brand);
     });
-    brandOptions.value = Array.from(brands).map((b) => ({ label: b, value: b }));
+    brandAll.value = Array.from(brands).map((b) => ({ label: b, value: b }));
+  }
+
+  // 品牌下拉：初次点击不展示，输入后模糊查询
+  function onBrandSearch(keyword: string) {
+    if (!keyword) {
+      brandOptions.value = [];
+      return;
+    }
+    const kw = keyword.toLowerCase();
+    brandOptions.value = brandAll.value.filter((o) => String(o.label).toLowerCase().includes(kw));
   }
 
   // 树选中
   function handleTreeSelect(keys: any[]) {
     selectedKeys.value = keys;
-    const node = findNode(treeData.value, keys[0]);
-    queryParam.categoryCode = node?.categoryCode || keys[0];
+    const key = keys[0];
+    const node = findNode(treeData.value, key);
+    // 选中「全部」(或无分类节点) → 清空分类过滤，展示全部
+    queryParam.materialCategory = node && node.key !== 'all' ? node.categoryCode : undefined;
     loadData();
   }
 
@@ -201,11 +220,11 @@
 
   // 重置
   function handleReset() {
-    queryParam.name = '';
+    queryParam.materialName = '';
     queryParam.model = '';
     queryParam.brand = undefined;
-    queryParam.categoryCode = undefined;
-    selectedKeys.value = [];
+    queryParam.materialCategory = undefined;
+    selectedKeys.value = ['all']; // 默认选中「全部」→ 展示全部物料
     pagination.current = 1;
     loadData();
   }

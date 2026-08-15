@@ -23,7 +23,7 @@
       <!-- 右侧：搜索 + 表格 -->
       <div class="plan-material-select__body">
         <div class="plan-material-select__search">
-          <a-input v-model:value="queryParam.name" allowClear placeholder="名称" style="width: 150px" />
+          <a-input v-model:value="queryParam.materialName" allowClear placeholder="名称" style="width: 150px" />
           <a-input v-model:value="queryParam.model" allowClear placeholder="型号" style="width: 150px" />
           <a-select
             v-model:value="queryParam.brand"
@@ -65,7 +65,7 @@
         <div v-if="selectedList.length > 0" class="plan-material-select__selected">
           <span class="plan-material-select__selected-label">已选物料：</span>
           <a-tag v-for="item in selectedList" :key="item.id" closable @close="removeSelected(item)">
-            {{ item.goodsName }}
+            {{ item.materialName }}
           </a-tag>
         </div>
       </div>
@@ -76,7 +76,8 @@
 <script lang="ts" setup>
   import { ref, reactive, unref } from 'vue';
   import { BasicDrawer, useDrawerInner } from '/@/components/Drawer';
-  import { getCategoryTree, selectMaterialList } from '/@/views/material/apply/MaterialApply.api';
+  import { selectMaterialList } from '/@/views/material/apply/MaterialApply.api';
+  import { initDictOptions } from '/@/utils/dict/index';
 
   // Emits声明
   const emit = defineEmits(['register', 'success']);
@@ -94,21 +95,21 @@
     }
   }
 
-  // 表格列
+  // 表格列(对齐 /stock/material/list 契约)
   const columns = [
-    { title: '名称', dataIndex: 'goodsName', key: 'goodsName' },
+    { title: '名称', dataIndex: 'materialName', key: 'materialName' },
     { title: '品牌', dataIndex: 'brand', key: 'brand' },
     { title: '型号', dataIndex: 'model', key: 'model' },
-    { title: '总库存', dataIndex: 'stock', key: 'stock' },
+    { title: '总库存', dataIndex: 'stockQty', key: 'stockQty' },
     { title: '操作', key: 'action', width: 100, align: 'center' },
   ];
 
-  // 搜索参数
+  // 搜索参数(对齐 /stock/material/list 过滤字段)
   const queryParam = reactive<any>({
-    name: '',
+    materialName: '',
     model: '',
     brand: undefined,
-    categoryCode: undefined,
+    materialCategory: undefined,
   });
 
   const tableData = ref<any[]>([]);
@@ -127,10 +128,10 @@
   const treeData = ref<any[]>([]);
   const selectedKeys = ref<any[]>([]);
 
-  // 加载树
+  // 加载树(物料类别走后端数据字典 material_category)
   async function loadTree() {
-    const data = await getCategoryTree();
-    treeData.value = data || [];
+    const items: any[] = (await initDictOptions('material_category')) || [];
+    treeData.value = items.map((c: any) => ({ title: c.text, key: c.value, categoryCode: c.value }));
   }
 
   // 加载列表
@@ -166,7 +167,7 @@
   function handleTreeSelect(keys: any[]) {
     selectedKeys.value = keys;
     const node = findNode(treeData.value, keys[0]);
-    queryParam.categoryCode = node?.categoryCode || keys[0];
+    queryParam.materialCategory = node?.categoryCode || keys[0];
     loadData();
   }
 
@@ -190,10 +191,10 @@
 
   // 重置
   function handleReset() {
-    queryParam.name = '';
+    queryParam.materialName = '';
     queryParam.model = '';
     queryParam.brand = undefined;
-    queryParam.categoryCode = undefined;
+    queryParam.materialCategory = undefined;
     selectedKeys.value = [];
     pagination.current = 1;
     loadData();

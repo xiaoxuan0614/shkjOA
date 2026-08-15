@@ -22,6 +22,16 @@ const project: AppRouteModule = {
       },
     },
     {
+      path: 'detail/:id',
+      name: 'ProjectDetail',
+      component: () => import('/@/views/project/detail/index.vue'),
+      meta: {
+        hideMenu: true,
+        title: '项目详情',
+        currentActiveMenu: '/project/list',
+      },
+    },
+    {
       path: 'apply',
       name: 'ProjectApply',
       component: () => import('/@/views/project/apply/ProjectApply.vue'),
