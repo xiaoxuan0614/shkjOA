@@ -83,8 +83,11 @@ export default async ({ command, mode }: ConfigEnv): Promise<UserConfig> => {
       // Listening on all local IPs
       host: true,
       // @ts-ignore
+      allowedHosts: true,
       https: false,
       port: VITE_PORT,
+      // 固定开发端口：3101 被占用时直接报错提示，而不是自动 +1 变成 3102
+      strictPort: true,
       proxy: createProxy(VITE_PROXY),
       // update-begin--author:liaozhiyang---date:20260306---for:【QQYUN-14801】启动时预构建部分入口页面，访问时更快
       warmup: {
