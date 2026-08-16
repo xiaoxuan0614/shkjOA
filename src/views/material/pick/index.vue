@@ -1,5 +1,13 @@
 <template>
   <div class="pick-apply">
+    <!-- 面包屑：出入库管理 → 领料申请（点「出入库管理」返回） -->
+    <div class="pick-apply__breadcrumb">
+      <a-breadcrumb>
+        <a-breadcrumb-item><a @click="handleCancel">出入库管理</a></a-breadcrumb-item>
+        <a-breadcrumb-item>{{ editMode ? '编辑领料申请' : '领料申请' }}</a-breadcrumb-item>
+      </a-breadcrumb>
+    </div>
+
     <!-- 申请信息 -->
     <div class="pick-apply__card">
       <div class="pick-apply__card-title">
@@ -17,7 +25,11 @@
       </div>
       <a-table :columns="detailColumns" :data-source="detailList" :row-key="(r) => r._key" :pagination="false" size="middle" bordered>
         <template #bodyCell="{ column, record }">
-          <template v-if="column.key === 'unitQty'">
+          <template v-if="column.key === 'stockQty'">
+            <!-- 库存：接口 currentStockQty + baseUnitName（如 1个） -->
+            {{ formatStock(record) }}
+          </template>
+          <template v-else-if="column.key === 'unitQty'">
             <a-input-number v-model:value="record.unitQty" :min="1" placeholder="申请数量" style="width: 100%" />
           </template>
           <template v-else-if="column.key === 'unitName'">
@@ -52,7 +64,9 @@
   import { useMessage } from '/@/hooks/web/useMessage';
   import { pickFormSchema } from './Pick.data';
   import { submitPickApply, updatePickApply, searchProjectPeriod, getApplyById } from './Pick.api';
+  import { queryItems } from '../record/StockApply.api';
   import { getCurrentUser } from '../material.util';
+  import { ensurePeriodRecords, mapPeriodNoOptions } from '../material.options';
   import MaterialSelectDrawer from '../apply/components/MaterialSelectDrawer.vue';
 
   const router = useRouter();
@@ -91,6 +105,14 @@
   const detailList = ref<any[]>([]);
   let detailKeySeed = 0;
 
+  /** 库存展示：接口 currentStockQty + baseUnitName（如 1个） */
+  function formatStock(r: any) {
+    const qty = r.currentStockQty ?? r.stockQty;
+    const unit = r.baseUnitName ?? r.unitName ?? r.unit;
+    if (qty == null || qty === '' || qty === '-') return '—';
+    return `${qty}${unit || ''}`;
+  }
+
   /** 使用人/部门默认当前操作人 */
   function initUserInfo() {
     const cur = getCurrentUser();
@@ -99,19 +121,19 @@
 
   // 项目下拉选项(远程模糊搜索 /project/period/searchByName，防抖 300ms)
   const projectOptions = ref<any[]>([]);
+  /** 加载项目分期下拉：优先取预载的第 1 页(10 条)映射，避免「打开没数据/每次才请求」 */
+  async function loadProjectOptions() {
+    projectOptions.value = mapPeriodNoOptions(await ensurePeriodRecords());
+  }
 
   const onProjectSearch = useDebounceFn(async (keyword: string) => {
     if (!keyword) {
-      projectOptions.value = [];
+      // 空关键词回到预载的分期首页
+      projectOptions.value = mapPeriodNoOptions(await ensurePeriodRecords());
       return;
     }
     const data: any = await searchProjectPeriod({ keyword, pageNo: 1, pageSize: 20 });
-    projectOptions.value = (data?.records || data || []).map((r: any) => ({
-      label: r.periodName,
-      value: r.periodNo, // 分期编号
-      projectName: r.periodName, // 分期名称(带出显示)
-      periodNo: r.periodNo,
-    }));
+    projectOptions.value = mapPeriodNoOptions(data?.records || data || []);
   }, 300);
 
   /** 选择分期项目 → 带出分期编号/名称 */
@@ -122,6 +144,8 @@
   /** 表单挂载后再注入远程搜索 + 默认当前操作人 + 编辑模式回填 */
   onMounted(async () => {
     initUserInfo();
+    // 分期项目下拉预载(第 1 页 10 条)，页面渲染即请求，打开下拉即有数据
+    await loadProjectOptions();
     updateSchema([
       {
         field: 'projectNo',
@@ -146,14 +170,18 @@
         applyUserName: res.applyUserName,
         deptName: res.deptName,
       });
-      detailList.value = (res.itemList || []).map((it: any) => ({
+      // 明细走 /stock/apply/items 分页接口（queryById.itemList 已废弃）
+      const itemRes: any = await queryItems({ applyId, pageNo: 1, pageSize: 500 });
+      const items = itemRes?.records || itemRes || [];
+      detailList.value = items.map((it: any) => ({
         _key: ++detailKeySeed,
         id: it.materialId,
         materialName: it.materialName,
         materialCategory: it.materialCategory,
         brand: it.brand,
         model: it.model,
-        stockQty: it.stockQty ?? '-',
+        currentStockQty: it.currentStockQty ?? it.stockQty, // 库存(接口 currentStockQty)
+        baseUnitName: it.baseUnitName ?? it.unitName, // 基准单位名
         unitQty: it.unitQty ?? it.applyQty ?? 1,
         unitName: it.unitName,
         unitOptions: [{ label: it.unitName, value: it.unitName }],
@@ -186,7 +214,8 @@
         materialCategory: m.materialCategory,
         brand: m.brand,
         model: m.model,
-        stockQty: m.stockQty,
+        currentStockQty: m.currentStockQty ?? m.stockQty, // 库存(接口 currentStockQty)
+        baseUnitName: m.baseUnitName ?? m.unit, // 基准单位名
         unitQty: 1,
         unitName: m.unit, // 默认基准单位
         unitOptions: (m.unitList || []).map((u: any) => ({ label: u.unitName, value: u.unitName })),
@@ -257,6 +286,10 @@
 <style lang="less" scoped>
   .pick-apply {
     padding: 16px;
+
+    &__breadcrumb {
+      margin-bottom: 12px;
+    }
 
     &__card {
       background: #fff;

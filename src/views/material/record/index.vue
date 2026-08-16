@@ -234,13 +234,13 @@
     });
   }
 
-  /** 批量删除：仅删除自己的 未审批/已驳回/已撤回 申请，其余跳过 */
+  /** 批量删除：仅删除自己的 待审批/已撤回 申请，其余跳过 */
   function handleBatchDelete() {
     const rows = (selectedRows.value || []).filter(
-      (r: any) => isMyApply(r) && ['PENDING', 'REJECTED', 'WITHDRAWN'].includes(r.status)
+      (r: any) => isMyApply(r) && ['PENDING', 'WITHDRAWN'].includes(r.status)
     );
     if (!rows.length) {
-      createMessage.warning('请勾选自己「待审批/已撤回/已驳回」的申请');
+      createMessage.warning('请勾选自己「待审批/已撤回」的申请');
       return;
     }
     const skipped = (selectedRows.value || []).length - rows.length;
@@ -323,12 +323,12 @@
     const isMine = isMyApply(record);
 
     if (record.status === 'PENDING') {
+      // 仅待审批显示审批按钮
       actions.push({ label: '审批', onClick: handleApprove.bind(null, record) });
       // 申请人：库管未出库前可撤回
       if (isMine) actions.push({ label: '撤回', onClick: handleWithdraw.bind(null, record) });
     } else if (record.status === 'PARTIAL_APPROVED') {
-      // 部分通过：库管继续审批剩余明细 + 可执行已通过明细；申请人不提供撤回/改/删(部分已生效)
-      actions.push({ label: '审批', onClick: handleApprove.bind(null, record) });
+      // 部分通过：可执行已通过明细(部分已生效，不再审批)
       if (record.bizType === 'PICK' || record.applyType === 'OUT') actions.push({ label: '出库', onClick: openExecute.bind(null, record) });
       else actions.push({ label: '入库', onClick: openExecute.bind(null, record) });
     } else if (record.status === 'APPROVED') {
@@ -337,12 +337,12 @@
       else actions.push({ label: '入库', onClick: openExecute.bind(null, record) });
     }
 
-    // 申请人：已撤回(WITHDRAWN)/已驳回(REJECTED)可修改后重新提交
+    // 申请人：已撤回/待审批/已驳回 可修改申请单后重新提交
     if (isMine && ['WITHDRAWN', 'REJECTED'].includes(record.status)) {
       actions.push({ label: '修改', onClick: handleEditApply.bind(null, record) });
     }
-    // 申请人：未审批/已撤回/已驳回 可删除
-    if (isMine && ['PENDING', 'REJECTED', 'WITHDRAWN'].includes(record.status)) {
+    // 申请人：待审批/已撤回 可删除（已驳回不可删）
+    if (isMine && ['PENDING', 'WITHDRAWN'].includes(record.status)) {
       actions.push({ label: '删除', onClick: handleDeleteApply.bind(null, record) });
     }
     return actions;

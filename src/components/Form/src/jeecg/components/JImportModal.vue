@@ -8,16 +8,16 @@
           <a-switch :checked="validateStatus == 1" @change="handleChangeValidateStatus" checked-children="是" un-checked-children="否" />
         </span>
       </div>
-      <!--下载模板(可选 prop template:{name,url}；全局约定：下载模板统一放导入弹窗内，不放外面)-->
+      <!--上传-->
+      <a-upload name="file" accept=".xls,.xlsx" :multiple="true" :fileList="fileList" @remove="handleRemove" :beforeUpload="beforeUpload">
+        <a-button preIcon="ant-design:upload-outlined">选择导入文件</a-button>
+      </a-upload>
+       <!--下载模板(可选 prop template:{name,url}；全局约定：下载模板统一放导入弹窗内，不放外面)-->
       <div v-if="template && template.url" style="margin: 0 5px 10px">
         <a-button type="link" preIcon="ant-design:download-outlined" @click="handleDownloadTemplate">{{
           template.name || '下载模板'
         }}</a-button>
       </div>
-      <!--上传-->
-      <a-upload name="file" accept=".xls,.xlsx" :multiple="true" :fileList="fileList" @remove="handleRemove" :beforeUpload="beforeUpload">
-        <a-button preIcon="ant-design:upload-outlined">选择导入文件</a-button>
-      </a-upload>
       <!--页脚-->
       <template #footer>
         <a-button @click="handleClose">关闭</a-button>

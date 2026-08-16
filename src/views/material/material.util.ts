@@ -55,6 +55,20 @@ export function dictToOptions(map: Record<string, { text: string; color: string 
   return Object.entries(map).map(([value, it]) => ({ label: it.text, value }));
 }
 
+let unitOptionsCache: { label: string; value: string }[] | null = null;
+/**
+ * 物料单位下拉选项（数据源：数据字典 inv_unit，不再前端写死）。
+ * ⚠️ 单位存储/展示用单位名称(unitName/unit 存字典 text)；故下拉 label/value 均取字典 text，
+ *    与后端契约一致（执行出入库时由 resolveDictUnitId 按 text 反查字典 value 上送）。
+ * 改后台 inv_unit 字典 → 重新登录生效。
+ */
+export async function loadUnitOptions(): Promise<{ label: string; value: string }[]> {
+  if (unitOptionsCache) return unitOptionsCache;
+  const dict = await loadDictMap('inv_unit');
+  unitOptionsCache = Object.values(dict).map((it) => ({ label: it.text, value: it.text }));
+  return unitOptionsCache;
+}
+
 /**
  * 明细审批状态推算：从审批动态 approvalList 中取该明细的最新一条
  * 匹配方式：优先顶层 approval.itemId === 明细id；否则在 approval.items[] 里找 itemId === 明细id。

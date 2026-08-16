@@ -14,6 +14,7 @@ import { setupGlobDirectives } from '/@/directives';
 import { setupI18n } from '/@/locales/setupI18n';
 import { registerGlobComp } from '/@/components/registerGlobComp';
 import { registerThirdComp } from '/@/settings/registerThirdComp';
+import { setupAutocompleteOff } from '/@/utils/autocompleteOff';
 
 // 注册online模块lib
 import { registerPackages } from '/@/utils/monorepo/registerPackages';
@@ -69,6 +70,9 @@ async function bootstrap() {
 
   // 挂载应用
   app.mount('#app', true);
+
+  // 全局禁用输入框浏览器自动填充下拉(autocomplete="off")，含动态渲染的弹窗/抽屉/表格
+  setupAutocompleteOff(document.body);
 
   return app
 }

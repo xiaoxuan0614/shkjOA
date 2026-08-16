@@ -3,7 +3,7 @@ import { FormSchema } from '/@/components/Table';
 /**
  * 还料申请 - 申请信息表单
  * 字段对齐 StockApply（扩展：projectNo/projectName/bizType/returnUser）
- * 使用人/部门默认当前操作人(页面注入)
+ * 还料人/部门默认当前操作人(页面 initUserInfo 注入)；提交时 returnUser=当前用户
  */
 export const returnFormSchema: FormSchema[] = [
   {
@@ -26,23 +26,17 @@ export const returnFormSchema: FormSchema[] = [
     dynamicRules: () => [{ required: true, message: '请选择分期项目带出项目名称!' }],
   },
   {
-    label: '使用人',
+    label: '还料人',
     field: 'applyUserName',
     component: 'Input',
     componentProps: { disabled: true },
+    // 还料人自动取当前用户(页面 initUserInfo 注入)；不再单独手填，提交时 returnUser=当前用户
   },
   {
     label: '部门',
     field: 'deptName',
     component: 'Input',
     componentProps: { disabled: true },
-  },
-  {
-    label: '还料人',
-    field: 'returnUser',
-    component: 'Input',
-    componentProps: { placeholder: '请输入还料人' },
-    dynamicRules: () => [{ required: true, message: '请输入还料人!' }],
   },
   {
     label: '备注',

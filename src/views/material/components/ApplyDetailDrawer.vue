@@ -40,6 +40,10 @@
               <template v-else-if="column.dataIndex === 'status'">
                 <a-tag :color="dictColor(itemStatusMap, record.status)">{{ dictText(itemStatusMap, record.status) }}</a-tag>
               </template>
+              <template v-else-if="column.key === 'approver'">
+                <!-- 审批人：直接用接口回传的 approvalUserName 字段展示 -->
+                {{ record.approvalUserName || '—' }}
+              </template>
               <template v-else-if="column.dataIndex === 'executeStatus'">
                 <a-tag :color="dictColor(execMap, record.executeStatus)">{{ dictText(execMap, record.executeStatus) }}</a-tag>
               </template>
@@ -57,8 +61,8 @@
                 <a-tag :color="dictColor(resultMap, record.approvalResult)">{{ dictText(resultMap, record.approvalResult) }}</a-tag>
               </template>
               <template v-else-if="column.dataIndex === 'approvalUserName'">
-                <!-- 全局规定第 3 条：id 对应人名展示，后端姓名优先 -->
-                {{ userMap[record.approvalUserId] || record.approvalUserName || '—' }}
+                <!-- 审批人：直接用接口回传的 approvalUserName 字段展示 -->
+                {{ record.approvalUserName || '—' }}
               </template>
             </template>
           </BasicTable>
@@ -135,6 +139,7 @@
     { title: '单位', dataIndex: 'unitName', key: 'unitName', width: 70 },
     { title: '申请数量', key: 'applyQty', width: 90 },
     { title: '审批状态', dataIndex: 'status', key: 'status', width: 100 },
+    { title: '审批人', key: 'approver', width: 100 },
     { title: '已执行数量', dataIndex: 'executedQty', key: 'executedQty', width: 90 },
     { title: '执行状态', dataIndex: 'executeStatus', key: 'executeStatus', width: 100 },
     { title: '执行人', dataIndex: 'executeUserName', key: 'executeUserName', width: 100 },

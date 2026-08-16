@@ -152,7 +152,7 @@ const menuList = (() => {
                             '/dashboard/welcome/index',
                             '/dashboard/Analysis/index',
                             '/dashboard/workbench/index',
-                            '/material/index',
+                            '/dashboard/welcome/index',
                         ][j],
                         orderNo: j + 1,
                         createTime: '@datetime',

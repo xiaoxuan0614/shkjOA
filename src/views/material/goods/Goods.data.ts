@@ -10,25 +10,9 @@ import { FormSchema } from '/@/components/Table';
  *    unitPrice 基准单位单价 / stockAmount 库存金额 / safetyStock 安全库存 / remark 备注
  *    子表 unitList: unitName 单位名称 / isBaseUnit 是否基准单位 / conversionQty 换算系数
  * 说明：
- * 1. 单位(unitOptions)当前使用静态选项；
- *    后续单位在字典里维护后，可将「单位」选择控件换成 JSelectDict(dict: 'unit')，直接对接字典。
+ * 1. 物料单位统一走数据字典 `inv_unit`（前端不再写死）：下拉选项由
+ *    `material.util.ts` 的 `loadUnitOptions()` 加载，存/展示均为单位名称(字典 text)。
  */
-
-/**
- * 单位选项（后续在字典里维护，届时替换为字典加载即可）
- */
-export const unitOptions = [
-  { label: '个', value: '个' },
-  { label: '箱', value: '箱' },
-  { label: '件', value: '件' },
-  { label: '套', value: '套' },
-  { label: '台', value: '台' },
-  { label: '支', value: '支' },
-  { label: '公斤', value: '公斤' },
-  { label: '吨', value: '吨' },
-  { label: '米', value: '米' },
-  { label: '升', value: '升' },
-];
 
 /**
  * 列表列定义(与 StockMaterial 字段对齐)
@@ -153,7 +137,7 @@ export const formSchema: FormSchema[] = [
     field: 'materialCode',
     component: 'Input',
     componentProps: { placeholder: '系统自动生成', disabled: true },
-    // 编码由 mock 的 generateCode 接口自动生成(正式后端可自行生成)，新增时自动填充、编辑时只读
+    // 编号显示规则：新增隐藏、后端生成，创建后只读展示
   },
   {
     label: '品牌',
@@ -198,13 +182,6 @@ export const formSchema: FormSchema[] = [
     label: '',
     field: 'id',
     component: 'Input',
-    show: false,
-  },
-  // 乐观锁版本号(隐藏，编辑时随表单回传)
-  {
-    label: '',
-    field: 'version',
-    component: 'InputNumber',
     show: false,
   },
 ];

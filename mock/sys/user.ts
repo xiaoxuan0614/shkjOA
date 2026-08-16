@@ -60,37 +60,12 @@ export function createFakeUserList() {
   ];
 }
 
-const fakeCodeList: any = {
-  '1': ['1000', '3000', '5000'],   // admin userId=1
-  '2': ['2000', '4000', '6000'],  // jeecg userId=2
-};
-
 /**
- * 物料模块字典（与正式后端 sys_dict 库中配置一致，供前端 dictCode 消费；mock 模式专用）
- * 结构：{ dictCode: [{ text, value }] }
+ * 数据字典：不再维护 mock 字典项（统一取正式后端 sys_dict 数据字典，如 purchase_order_status 等）。
+ * 前端 loadDictMap 优先读登录/用户信息返回的 sysAllDictItems（此处为空）→ 实时调 /sys/dict/getDictItems/{code}。
  */
 function createDictItems() {
-  const arr = (items: [string, string][]) => items.map(([text, value]) => ({ text, value }));
-  return {
-    stock_apply_biz_type: arr([['领料', 'PICK'], ['还料', 'RETURN'], ['采购', 'PURCHASE']]),
-    stock_apply_type: arr([['入库', 'IN'], ['出库', 'OUT']]),
-    stock_apply_status: arr([
-      ['待审批', 'PENDING'], ['部分通过', 'PARTIAL_APPROVED'], ['已通过', 'APPROVED'],
-      ['已驳回', 'REJECTED'], ['已撤回', 'WITHDRAWN'], ['已取消', 'CANCELED'],
-    ]),
-    stock_execute_status: arr([
-      ['待出库', '待出库'], ['已出库', '已出库'], ['待入库', '待入库'], ['已入库', '已入库'],
-      ['待采购', '待采购'], ['采购中', '采购中'], ['已到货', '已到货'], ['已挂起', '已挂起'],
-    ]),
-    stock_item_status: arr([['待审批', 'PENDING'], ['已通过', 'APPROVED'], ['已驳回', 'REJECTED']]),
-    approval_result: arr([['同意', 'AGREE'], ['驳回', 'REJECT']]),
-    purchase_order_status: arr([['待采购', '待采购'], ['采购中', '采购中'], ['已到货', '已到货'], ['已入库', '已入库']]),
-    material_category: arr([['智能闸口', '智能闸口'], ['地磅材料', '地磅材料'], ['材料类', '材料类'], ['其他配件', '其他配件']]),
-    material_brand: arr([
-      ['海康威视', '海康威视'], ['艾礼安', '艾礼安'], ['托利多', '托利多'], ['晋亿', '晋亿'],
-      ['欧姆龙', '欧姆龙'], ['沙钢', '沙钢'], ['海螺', '海螺'],
-    ]),
-  };
+  return {};
 }
 
 export default [
@@ -206,7 +181,7 @@ export default [
     url: new RegExp(`${sysUrl}/sys/randomImage/.*`),
     timeout: 200,
     method: 'get',
-    response: (request: requestParams) => {
+    response: (_request: requestParams) => {
       const result =
         'data:image/jpg;base64,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';
       return resultSuccess(result);
@@ -223,7 +198,7 @@ export default [
     url: `${sysUrl}/sys/loginGetUserDeparts`,
     timeout: 200,
     method: 'post',
-    response: (request: requestParams) => {
+    response: (_request: requestParams) => {
       return resultSuccess({
         departs: [],
         currentOrgCode: '',
@@ -234,7 +209,7 @@ export default [
     url: `${sysUrl}/sys/annountCement/getUnreadMessageCount`,
     timeout: 200,
     method: 'get',
-    response: (request: requestParams) => {
+    response: (_request: requestParams) => {
       return resultSuccess(0);
     },
   },
@@ -242,7 +217,7 @@ export default [
     url: `${sysUrl}/sys/annountCement/listByUser`,
     timeout: 200,
     method: 'get',
-    response: (request: requestParams) => {
+    response: (_request: requestParams) => {
       return resultSuccess({
         records: [],
         total: 0,

@@ -9,8 +9,8 @@
       <a-descriptions-item label="申请备注">{{ record.remark || '—' }}</a-descriptions-item>
     </a-descriptions>
 
-    <!-- 明细逐条审批：已审批行只读，未审批行三态(通过/驳回/暂不处理) -->
-    <div class="approve-title">申请明细（已审批行只读；未审批行逐条 通过/驳回，暂不处理=保持待审批下次再批）</div>
+    <!-- 明细审批：整条申请单一起审批；每行默认「通过」，驳回手动选并填备注 -->
+    <div class="approve-title">申请明细（每行默认「通过」；需驳回的行手动选「驳回」并填写审批备注；提交=整单所有物料审批结果一起提交）</div>
     <a-table :columns="columns" :data-source="rows" :row-key="(r) => r._key" :pagination="false" size="small" bordered>
       <template #bodyCell="{ column, record: row }">
         <template v-if="column.key === 'result'">
@@ -20,7 +20,6 @@
           <a-radio-group v-else v-model:value="row.result" size="small">
             <a-radio value="agree">通过</a-radio>
             <a-radio value="reject">驳回</a-radio>
-            <a-radio value="hold">暂不处理</a-radio>
           </a-radio-group>
         </template>
         <template v-else-if="column.key === 'comment'">
@@ -30,21 +29,15 @@
       </template>
     </a-table>
 
-    <!-- 整单备注 -->
-    <a-form layout="vertical" class="approve-form">
-      <a-form-item label="审批备注">
-        <a-textarea v-model:value="form.approvalComment" :rows="2" placeholder="请输入整单审批备注/驳回原因" />
-      </a-form-item>
-    </a-form>
     <div v-if="loadError" class="approve-error">{{ loadError }}</div>
   </BasicModal>
 </template>
 
 <script lang="ts" setup>
-  import { ref, reactive, computed } from 'vue';
+  import { ref, computed } from 'vue';
   import { BasicModal, useModalInner } from '/@/components/Modal';
   import { useMessage } from '/@/hooks/web/useMessage';
-  import { queryItems, queryApprovals, approveApply, rejectApply } from '../StockApply.api';
+  import { queryItems, queryApprovals, approveApply } from '../StockApply.api';
   import { calcItemApproval, loadDictMap, getCurrentUser } from '../../material.util';
 
   const { createMessage } = useMessage();
@@ -53,7 +46,6 @@
   const record = ref<any>({});
   const rows = ref<any[]>([]);
   const loadError = ref('');
-  const form = reactive<any>({ approvalComment: '' });
 
   // 方向/明细审批状态字典(英文码→中文/颜色)
   const typeMap = ref<Record<string, { text: string; color: string }>>({});
@@ -65,8 +57,8 @@
     { title: '物料名称', dataIndex: 'materialName', key: 'materialName', width: 150 },
     { title: '品牌', dataIndex: 'brand', key: 'brand', width: 90 },
     { title: '型号', dataIndex: 'model', key: 'model', width: 110 },
-    { title: '单位', dataIndex: 'unitName', key: 'unitName', width: 60 },
     { title: '申请数量', dataIndex: 'applyQty', key: 'applyQty', width: 80 },
+    { title: '单位', dataIndex: 'unitName', key: 'unitName', width: 60 },
     { title: '审批结果', key: 'result', width: 210 },
     { title: '审批备注', key: 'comment', width: 180 },
   ];
@@ -75,7 +67,6 @@
 
   const [register, { closeModal, setModalProps }] = useModalInner(async (data) => {
     record.value = data.record || {};
-    form.approvalComment = '';
     rows.value = [];
     loadError.value = '';
     const id = record.value.id;
@@ -117,8 +108,8 @@
   });
 
   /**
-   * 提交审批：整单全通过/全驳回走整单接口；混合/部分审批/继续审批 → 明细结果经 items 提交
-   * items[].approve 三态：true 通过 / false 驳回 / null 暂不处理(不传该项 = 保持待审批)
+   * 提交审批：整条申请单所有物料审批结果一起提交到 `/stock/apply/approve`（唯一接口）。
+   * items 一次带全：通过 `approve:true`、驳回 `approve:false`；任一条驳回 → 整单状态变更为「已驳回」
    */
   async function handleSubmit() {
     if (loadError.value || !rows.value.length) {
@@ -126,39 +117,25 @@
       return;
     }
     const pending = rows.value.filter((r) => !r.approved); // 未审批明细
-    const toSubmit = pending.filter((r) => r.result !== 'hold');
-    const holds = pending.length - toSubmit.length; // 暂不处理条数
-    if (!toSubmit.length) {
-      createMessage.warning('请至少选择一条明细 通过/驳回（暂不处理 = 本次不审批）');
+    if (!pending.length) {
+      createMessage.warning('没有待审批的明细');
       return;
     }
-    const hasApprovedRows = rows.value.some((r) => r.approved); // 历史已审批明细
-    const agreeItems = toSubmit
-      .filter((r) => r.result === 'agree')
-      .map((r) => ({ itemId: r.id, approve: true, unitQty: r.applyQty, remark: r.itemRemark }));
-    const rejectItems = toSubmit
-      .filter((r) => r.result === 'reject')
-      .map((r) => ({ itemId: r.id, approve: false, remark: r.itemRemark }));
-    // 驳回时必须填写审批备注（驳回原因），否则拦截提交
-    if (rejectItems.length && !form.approvalComment?.trim()) {
-      createMessage.warning('驳回时必须填写审批备注（驳回原因）');
+    // 驳回的明细必须填写行级审批备注(驳回原因)
+    if (pending.some((r) => r.result === 'reject' && !r.itemRemark?.trim())) {
+      createMessage.warning('驳回的明细请填写审批备注（驳回原因）');
       return;
     }
-    // 全局规定：审批必须传当前操作人id(approvalUserId)
-    const base = { applyId: record.value.id, approvalUserId: getCurrentUser().applyUserId, approvalComment: form.approvalComment };
-
-    if (!hasApprovedRows && rejectItems.length === 0 && holds === 0) {
-      // 整单全通过
-      await approveApply({ ...base, approvalResult: 'AGREE' });
-    } else if (!hasApprovedRows && agreeItems.length === 0 && holds === 0) {
-      // 整单全驳回
-      await rejectApply({ ...base, approvalResult: 'REJECT' });
-    } else {
-      // 混合 / 部分审批 / PARTIAL_APPROVED 继续审批剩余 → 明细经 items 提交
-      if (agreeItems.length) await approveApply({ ...base, approvalResult: 'AGREE', items: agreeItems });
-      if (rejectItems.length) await rejectApply({ ...base, approvalResult: 'REJECT', items: rejectItems });
-      if (holds) createMessage.warning(`${holds} 条明细暂不处理，保持待审批，可下次再批`);
-    }
+    // 全局规定：审批传当前操作人id(approvalUserId)；通过+驳回一起经 items 提交
+    await approveApply({
+      applyId: record.value.id,
+      approvalUserId: getCurrentUser().applyUserId,
+      items: pending.map((r) => ({
+        itemId: r.id,
+        approve: r.result === 'agree',
+        remark: r.itemRemark || '',
+      })),
+    });
     closeModal();
     emit('success');
   }

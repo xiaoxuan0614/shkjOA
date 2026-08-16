@@ -59,12 +59,12 @@ export const queryItems = (params) => defHttp.get({ url: Api.queryItems, params 
 export const queryApprovals = (params) => defHttp.get({ url: Api.queryApprovals, params });
 
 /**
- * 审批通过
+ * 审批提交（整单审批唯一接口，通过+驳回一次提交）
  * @param params StockApplyApproval:
- *   { applyId, approvalUserId?, approvalResult:'AGREE', approvalComment?, items? }
+ *   { applyId, approvalUserId?, items }
  *   approvalUserId 当前操作人id（全局规定：审批必须传，= getCurrentUser().applyUserId）
- *   items 明细审批结果(空=整单通过)：{ itemId, approve, unitQty?, remark? }
- *   approve 三态：true 通过 / false 驳回 / null 暂不处理(不提交该项则保持待审批)
+ *   items 整单所有物料审批结果一起传：{ itemId, approve(bool), remark? }
+ *     approve=true 通过 / approve=false 驳回（任一条驳回 → 整单状态「已驳回」）
  */
 export const approveApply = (params) =>
   defHttp.post({ url: Api.approve, params }, { successMessageMode: 'success' });

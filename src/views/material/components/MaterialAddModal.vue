@@ -31,32 +31,25 @@
     schemas: [
       {
         label: '物料名称',
-        field: 'goodsName',
+        field: 'materialName',
         component: 'Input',
         componentProps: { placeholder: '请输入物料名称' },
         dynamicRules: () => [{ required: true, message: '请输入物料名称!' }],
       },
       {
         label: '类别',
-        field: 'categoryName',
-        component: 'Select',
-        componentProps: {
-          placeholder: '请选择类别',
-          options: [
-            { label: '智能闸口', value: '智能闸口' },
-            { label: '地磅材料', value: '地磅材料' },
-            { label: '材料类', value: '材料类' },
-            { label: '其他配件', value: '其他配件' },
-          ],
-        },
+        field: 'materialCategory',
+        component: 'JDictSelectTag',
+        componentProps: { dictCode: 'material_category', placeholder: '请选择类别' },
         dynamicRules: () => [{ required: true, message: '请选择类别!' }],
       },
       {
         label: '物料编码',
-        field: 'goodsCode',
+        field: 'materialCode',
         component: 'Input',
-        componentProps: { placeholder: '请输入物料编码' },
-        dynamicRules: () => [{ required: true, message: '请输入物料编码!' }],
+        componentProps: { placeholder: '系统自动生成', disabled: true },
+        // 编号显示规则：新增时隐藏编号（后端生成），创建后显示只读
+        ifShow: () => !!unref(isUpdate),
       },
       {
         label: '品牌',
@@ -72,10 +65,16 @@
         dynamicRules: () => [{ required: true, message: '请输入型号(规格)!' }],
       },
       {
-        label: '库存数量',
-        field: 'stock',
+        label: '基准单价',
+        field: 'unitPrice',
         component: 'InputNumber',
-        componentProps: { placeholder: '请输入库存数量', min: 0, style: { width: '100%' } },
+        componentProps: { placeholder: '请输入基准单位单价', min: 0, precision: 2, style: { width: '100%' } },
+      },
+      {
+        label: '初始库存',
+        field: 'stockQty',
+        component: 'InputNumber',
+        componentProps: { placeholder: '请输入初始库存(基准单位)', min: 0, style: { width: '100%' } },
       },
     ],
   });
@@ -94,7 +93,8 @@
   async function handleSubmit() {
     try {
       const values = await validate();
-      emit('success', { ...values, id: Date.now() });
+      // 基准单价/初始库存未填默认 0（对齐后端「没写默认就是 0」），保证这两个字段始终随新增请求上送；不传伪造 id（编码/主键由后端生成）
+      emit('success', { ...values, unitPrice: values.unitPrice ?? 0, stockQty: values.stockQty ?? 0 });
       closeModal();
     } catch ({ errorFields }) {
       if (errorFields) {

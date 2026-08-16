@@ -34,8 +34,9 @@
   import { useListPage } from '/@/hooks/system/useListPage';
   import { useMessage } from '/@/hooks/web/useMessage';
   import { purchaseColumns } from './Purchase.data';
-  import { list, editOrder, listPeriod, purchaseArrival, queryOrderById } from './Purchase.api';
+  import { list, listPeriod, changeStatus } from './Purchase.api';
   import { loadDictMap } from '../material.util';
+  import { ensureSupplierOptions, ensurePeriodOptions } from '../material.options';
   import PurchaseModal from './PurchaseModal.vue';
   import StockInModal from './components/StockInModal.vue';
   import CloseModal from './components/CloseModal.vue';
@@ -47,6 +48,9 @@
   const statusMap = ref<Record<string, { text: string; color: string }>>({});
   onMounted(async () => {
     statusMap.value = await loadDictMap('purchase_order_status');
+    // 弹窗下拉数据在页面渲染时就预载(第 1 页 10 条)，打开「新增采购订单」弹窗直接展示，不再请求
+    ensureSupplierOptions();
+    ensurePeriodOptions();
   });
 
   const [registerPurchaseModal, { openModal: openPurchaseModal }] = useModal();
@@ -101,7 +105,7 @@
     openPurchaseModal(true, { record, isUpdate: true });
   }
 
-  /** 关闭采购单(未入库可关闭，填原因)：打开关闭弹窗 */
+  /** 关闭采购单(状态 1/2/3 可关闭，终止流程→0)：打开关闭弹窗 */
   function handleClose(record: Recordable) {
     openCloseModal(true, { record });
   }
@@ -112,41 +116,43 @@
       iconType: 'warning',
       title: '确认采购',
       content: `确认开始采购「${record.orderNo}」？`,
-      onOk: () => editOrder({ id: record.id, orderNo: record.orderNo, status: '2', periodId: record.periodId }).then(reload),
+      onOk: () => changeStatus({ orderId: record.id, status: '2' }).then(reload),
     });
   }
 
-  /** 采购完成：采购中(2) → 已到货(3)（先登记到货数量 arrival，再置状态；入库时按到货数量生成台账） */
+  /** 采购完成：采购中(2) → 已到货(3) */
   function handleComplete(record: Recordable) {
     createConfirm({
       iconType: 'warning',
       title: '采购完成',
-      content: `确认采购完成「${record.orderNo}」？状态将变为「已到货」，登记到货数量后可进行入库。`,
-      onOk: async () => {
-        try {
-          // 登记采购到货数量：POST /project/purchaseOrder/arrival（不生成台账）
-          const detail: any = await queryOrderById({ id: record.id }).catch(() => null);
-          const itemList = detail?.itemList || [];
-          if (itemList.length) {
-            await purchaseArrival({
-              orderId: record.id,
-              items: itemList
-                .filter((it: any) => Number(it.quantity) > 0)
-                .map((it: any) => ({ itemId: it.id, arrivalQty: it.quantity })),
-            });
-          }
-        } catch (e) {
-          // 到货登记失败不阻塞状态流转，用户可在入库时手动修正实际入库数量
-        }
-        await editOrder({ id: record.id, orderNo: record.orderNo, status: '3', periodId: record.periodId });
-        reload();
-      },
+      content: `确认采购完成「${record.orderNo}」？状态将变为「已到货」。`,
+      onOk: () => changeStatus({ orderId: record.id, status: '3' }).then(reload),
     });
   }
 
-  /** 入库：已到货 → 已入库(可改实际入库信息) */
+  /** 开始入库：已到货(3) → 入库中(4) */
+  function handleStartInbound(record: Recordable) {
+    createConfirm({
+      iconType: 'warning',
+      title: '开始入库',
+      content: `确认开始入库「${record.orderNo}」？状态将变为「入库中」，可逐物料登记实际入库数量。`,
+      onOk: () => changeStatus({ orderId: record.id, status: '4' }).then(reload),
+    });
+  }
+
+  /** 入库：入库中(4) 打开入库弹窗(逐物料填实际入库数量，调 /project/purchaseOrder/inbound) */
   function handleStockIn(record: Recordable) {
     openStockInModal(true, { record });
+  }
+
+  /** 入库完成：入库中(4) → 已完成(5)，所有物料入库完成后点击（后端校验） */
+  function handleInboundComplete(record: Recordable) {
+    createConfirm({
+      iconType: 'warning',
+      title: '入库完成',
+      content: `确认「${record.orderNo}」全部物料已入库完成？状态将变为「已完成」。`,
+      onOk: () => changeStatus({ orderId: record.id, status: '5' }).then(reload),
+    });
   }
 
   /** 查看采购订单明细(调详情接口 queryById) */
@@ -154,7 +160,7 @@
     openDetailDrawer(true, { record });
   }
 
-  /** 行操作(按订单状态)：待采购(1)可修改/确认；采购中(2)完成；已到货(3)入库；未入库均可关闭 */
+  /** 行操作(按订单状态)：1待采购→确认采购；2采购中→采购完成；3已到货→开始入库；4入库中→入库/入库完成；1/2/3 可关闭 */
   function getTableAction(record) {
     const status = record.status;
     const actions: any[] = [];
@@ -164,9 +170,12 @@
     } else if (status === '2') {
       actions.push({ label: '采购完成', onClick: handleComplete.bind(null, record) });
     } else if (status === '3') {
+      actions.push({ label: '开始入库', onClick: handleStartInbound.bind(null, record) });
+    } else if (status === '4') {
       actions.push({ label: '入库', onClick: handleStockIn.bind(null, record) });
+      actions.push({ label: '入库完成', onClick: handleInboundComplete.bind(null, record) });
     }
-    // 未入库(待采购/采购中/已到货)可关闭，关闭需填原因
+    // 开始入库前(待采购/采购中/已到货)可关闭，终止流程→0
     if (['1', '2', '3'].includes(status)) {
       actions.push({ label: '关闭', onClick: handleClose.bind(null, record) });
     }

@@ -45,6 +45,7 @@
   import { purchaseFormSchema } from './Purchase.data';
   import { addOrder, editOrder, getSuppliers, searchProjectPeriod, queryOrderById } from './Purchase.api';
   import MaterialSelectDrawer from '../apply/components/MaterialSelectDrawer.vue';
+  import { ensureSupplierOptions, ensurePeriodOptions } from '../material.options';
 
   const { createMessage } = useMessage();
   const emit = defineEmits(['register', 'success']);
@@ -56,29 +57,26 @@
   const editOrderNo = ref('');
   const modalTitle = computed(() => (isUpdate.value ? '编辑采购订单' : '新增采购订单'));
 
-  // 供应商下拉(/project/supplier/list)：初次点击不展示，输入后模糊过滤
-  const supplierOptions = ref<any[]>([]); // 展示用(输入后过滤)
-  const supplierAll = ref<any[]>([]); // 全量池(只读过滤用)
+  // 供应商下拉(/project/supplier/list)：主页面渲染时已预载第 1 页(10 条)，打开即展示；输入后服务端模糊查询
+  const supplierOptions = ref<any[]>([]); // 展示用(输入后服务端过滤)
+  const supplierAll = ref<any[]>([]); // 预载首页(打开时注入展示，编辑回显兜底)
   const supplierIdRef = ref('');
-  async function loadSuppliers() {
-    const data: any = await getSuppliers({ pageNo: 1, pageSize: 100 });
-    const list = data?.records || data || [];
-    supplierAll.value = list.map((s: any) => ({ label: s.supplierName, value: s.supplierName, id: s.id }));
-  }
-  const onSupplierSearch = useDebounceFn((keyword: string) => {
+  const onSupplierSearch = useDebounceFn(async (keyword: string) => {
     if (!keyword) {
-      supplierOptions.value = [];
+      // 空关键词回到预载的首页
+      supplierOptions.value = [...supplierAll.value];
       return;
     }
-    const kw = keyword.toLowerCase();
-    supplierOptions.value = supplierAll.value.filter((o) => String(o.label).toLowerCase().includes(kw));
+    const data: any = await getSuppliers({ pageNo: 1, pageSize: 10, supplierName: keyword });
+    const list = data?.records || (Array.isArray(data) ? data : []);
+    supplierOptions.value = list.map((s: any) => ({ label: s.supplierName, value: s.supplierName, id: s.id }));
   }, 300);
-  /** 编辑回显：把当前供应商选项塞回 options(值=名称，保证可显示) */
+  /** 编辑回显：把当前供应商选项塞回 options(值=名称，保证可显示)；预载首页没有时直接注入 */
   function preselectSupplier(value?: string) {
+    if (!value) return;
+    if (supplierOptions.value.some((o) => o.value === value)) return;
     const hit = supplierAll.value.find((o) => o.value === value);
-    if (hit && !supplierOptions.value.some((o) => o.value === value)) {
-      supplierOptions.value = [hit, ...supplierOptions.value];
-    }
+    supplierOptions.value = [hit || { label: value, value, id: '' }, ...supplierOptions.value];
   }
 
   // 表单
@@ -94,7 +92,8 @@
   const projectIdRef = ref('');
   const onProjectSearch = useDebounceFn(async (keyword: string) => {
     if (!keyword) {
-      projectOptions.value = [];
+      // 空关键词回到预载的项目分期首页
+      projectOptions.value = [...(await ensurePeriodOptions())];
       return;
     }
     const data: any = await searchProjectPeriod({ keyword, pageNo: 1, pageSize: 20 });
@@ -180,12 +179,11 @@
     detailList.value = [];
     supplierIdRef.value = '';
     projectIdRef.value = '';
-    // 先加载供应商(表单重置可能未就绪，供应商加载独立不阻塞)
-    try {
-      await loadSuppliers();
-    } catch (e) {
-      createMessage.error('供应商数据加载失败');
-    }
+    // 下拉数据在主页面渲染时已预载(第 1 页 10 条)，打开直接读缓存，不再请求/等待
+    const [suppliers, periods] = await Promise.all([ensureSupplierOptions(), ensurePeriodOptions()]);
+    supplierAll.value = suppliers;
+    supplierOptions.value = [...suppliers]; // 打开即展示预载的供应商首页
+    projectOptions.value = periods; // 打开即展示预载的项目分期首页
     resetFields().catch(() => {});
     updateSchema([
       {

@@ -1,5 +1,13 @@
 <template>
   <div class="return-apply">
+    <!-- 面包屑：出入库管理 → 还料申请（点「出入库管理」返回） -->
+    <div class="return-apply__breadcrumb">
+      <a-breadcrumb>
+        <a-breadcrumb-item><a @click="handleCancel">出入库管理</a></a-breadcrumb-item>
+        <a-breadcrumb-item>{{ editMode ? '编辑还料申请' : '还料申请' }}</a-breadcrumb-item>
+      </a-breadcrumb>
+    </div>
+
     <!-- 申请信息 -->
     <div class="return-apply__card">
       <div class="return-apply__card-title">
@@ -43,7 +51,9 @@
   import { useMessage } from '/@/hooks/web/useMessage';
   import { returnFormSchema, returnListMock } from './Return.data';
   import { submitReturnApply, updateReturnApply, searchProjectPeriod, getReturnList, getApplyById } from './Return.api';
+  import { queryItems } from '../record/StockApply.api';
   import { getCurrentUser } from '../material.util';
+  import { ensurePeriodRecords, mapPeriodNoOptions } from '../material.options';
 
   const router = useRouter();
   const route = useRoute();
@@ -85,19 +95,19 @@
 
   // 项目下拉选项(远程模糊搜索 /project/period/searchByName，防抖 300ms)
   const projectOptions = ref<any[]>([]);
+  /** 加载项目分期下拉：优先取预载的第 1 页(10 条)映射，避免「打开没数据/每次才请求」 */
+  async function loadProjectOptions() {
+    projectOptions.value = mapPeriodNoOptions(await ensurePeriodRecords());
+  }
 
   const onProjectSearch = useDebounceFn(async (keyword: string) => {
     if (!keyword) {
-      projectOptions.value = [];
+      // 空关键词回到预载的分期首页
+      projectOptions.value = mapPeriodNoOptions(await ensurePeriodRecords());
       return;
     }
     const data: any = await searchProjectPeriod({ keyword, pageNo: 1, pageSize: 20 });
-    projectOptions.value = (data?.records || data || []).map((r: any) => ({
-      label: r.periodName,
-      value: r.periodNo, // 分期编号
-      projectName: r.periodName, // 分期名称(带出显示)
-      periodNo: r.periodNo,
-    }));
+    projectOptions.value = mapPeriodNoOptions(data?.records || data || []);
   }, 300);
 
   /**
@@ -120,6 +130,8 @@
   /** 表单挂载后再注入远程搜索 + 默认当前操作人 + 编辑模式回填 */
   onMounted(async () => {
     initUserInfo();
+    // 分期项目下拉预载(第 1 页 10 条)，页面渲染即请求，打开下拉即有数据
+    await loadProjectOptions();
     updateSchema([
       {
         field: 'projectNo',
@@ -139,12 +151,14 @@
       setFieldsValue({
         projectNo: res.projectNo,
         projectName: res.projectName,
-        returnUser: res.returnUser,
         remark: res.remark,
-        applyUserName: res.applyUserName,
+        applyUserName: res.applyUserName, // 还料人
         deptName: res.deptName,
       });
-      detailList.value = (res.itemList || []).map((it: any) => ({
+      // 明细走 /stock/apply/items 分页接口（queryById.itemList 已废弃）
+      const itemRes: any = await queryItems({ applyId, pageNo: 1, pageSize: 500 });
+      const items = itemRes?.records || itemRes || [];
+      detailList.value = items.map((it: any) => ({
         _key: ++detailKeySeed,
         materialId: it.materialId,
         materialName: it.materialName,
@@ -182,6 +196,7 @@
       applyType: 'IN', // 还料 = 入库
       bizType: 'RETURN', // 还料业务类型(后端扩展字段)
       applyUserId: cur.applyUserId,
+      returnUser: cur.applyUserName, // 还料人=当前用户(表单已自动填充)
       ...values,
       itemList: hasReturn.map((d) => ({
         materialId: d.materialId,
@@ -223,6 +238,10 @@
 <style lang="less" scoped>
   .return-apply {
     padding: 16px;
+
+    &__breadcrumb {
+      margin-bottom: 12px;
+    }
 
     &__card {
       background: #fff;

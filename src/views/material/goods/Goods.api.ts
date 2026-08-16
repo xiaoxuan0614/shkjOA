@@ -9,12 +9,10 @@ const { createConfirm } = useMessage();
  * ⚠️ 路径与正式后端接口契约对齐(mock 前缀 /stock/*，对应正式服务 /shouhuiApi/stock/*)：
  *    物料  /stock/material/list|queryById|add|edit|delete|deleteBatch
  *    台账  /stock/ioRecord/manualIn|manualOut   （库存变动走手动入库/出库，无直接改库存接口）
- *    generateCode 为 mock 专用辅助接口(正式后端物料编码由后端生成，前端仅作展示)
  */
 enum Api {
   list = '/stock/material/list',
   queryById = '/stock/material/queryById',
-  generateCode = '/stock/material/generateCode',
   save = '/stock/material/add',
   edit = '/stock/material/edit',
   deleteOne = '/stock/material/delete',
@@ -34,11 +32,6 @@ export const list = (params) => defHttp.get({ url: Api.list, params });
  * 根据 id 查询详情(含单位子表 unitList)
  */
 export const queryById = (params) => defHttp.get({ url: Api.queryById, params });
-
-/**
- * 自动生成物料编码（mock 专用；正式后端由后端生成）
- */
-export const generateCode = (params?) => defHttp.get({ url: Api.generateCode, params });
 
 /**
  * 删除单个

@@ -7,8 +7,8 @@ import { defHttp } from '/@/utils/http/axios';
  *   明细  add/edit 请求体携带 itemList 一并保存（后端落 purchase_order_item，orderId 回填）
  *   供应商 /project/supplier/list
  *   项目分期 /project/period/searchByName
- *   到货  /project/purchaseOrder/arrival   （登记采购到货数量，不生成库存台账）
- *   入库  /project/purchaseOrder/inbound   （按到货数量生成库存入库台账）
+ *   入库  /project/purchaseOrder/inbound   （按实际入库数量生成库存入库台账）
+ *   状态  /project/purchaseOrder/status    （采购订单状态变更：传 orderId + 目标状态）
  */
 enum Api {
   orderList = '/project/purchaseOrder/list',
@@ -18,8 +18,8 @@ enum Api {
   supplierList = '/project/supplier/list',
   searchPeriod = '/project/period/searchByName',
   periodList = '/project/period/list',
-  arrival = '/project/purchaseOrder/arrival',
   inbound = '/project/purchaseOrder/inbound',
+  status = '/project/purchaseOrder/status',
 }
 
 /**
@@ -62,15 +62,15 @@ export const searchProjectPeriod = (params) => defHttp.get({ url: Api.searchPeri
 export const listPeriod = (params) => defHttp.get({ url: Api.periodList, params });
 
 /**
- * 采购到货登记：登记采购到货数量，不生成库存台账
- * @param params { orderId, items: [{ itemId(采购明细id), arrivalQty(本次累计到货数量,按采购单位) }] }
- */
-export const purchaseArrival = (params) =>
-  defHttp.post({ url: Api.arrival, params }, { successMessageMode: 'success' });
-
-/**
- * 采购入库：按到货数量生成库存入库台账（后端更新明细已入库数量并写台账）
+ * 采购入库：按实际入库数量生成库存入库台账（后端更新明细已入库数量并写台账）
  * @param params { orderId, items: [{ itemId(采购明细id), inboundQty(本次累计入库数量,按采购单位) }] }
  */
 export const purchaseInbound = (params) =>
   defHttp.post({ url: Api.inbound, params }, { successMessageMode: 'success' });
+
+/**
+ * 采购订单状态变更（状态机：1待采购→2采购中→3已到货→4入库中→5已完成；1/2/3 可关闭→0）
+ * @param params { orderId, status } 采购订单ID + 目标状态码
+ */
+export const changeStatus = (params) =>
+  defHttp.post({ url: Api.status, params }, { successMessageMode: 'success' });

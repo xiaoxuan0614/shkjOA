@@ -16,7 +16,7 @@
   import { ref } from 'vue';
   import { BasicModal, useModalInner } from '/@/components/Modal';
   import { useMessage } from '/@/hooks/web/useMessage';
-  import { editOrder } from '../Purchase.api';
+  import { changeStatus } from '../Purchase.api';
 
   const { createMessage } = useMessage();
   const emit = defineEmits(['register', 'success']);
@@ -29,13 +29,13 @@
     reason.value = '';
   });
 
-  /** 关闭采购单：status=已关闭(字典码0) + closeReason；补带 orderNo 防止后端重生成单号 */
+  /** 关闭采购单：状态机接口改状态为已关闭(0) + closeReason */
   async function handleSubmit() {
     if (!reason.value.trim()) {
       createMessage.warning('请填写关闭原因');
       return;
     }
-    await editOrder({ id: record.value.id, orderNo: record.value.orderNo, status: '0', closeReason: reason.value.trim(), periodId: record.value.periodId });
+    await changeStatus({ orderId: record.value.id, status: '0', closeReason: reason.value.trim() });
     createMessage.success('采购单已关闭');
     closeModal();
     emit('success');

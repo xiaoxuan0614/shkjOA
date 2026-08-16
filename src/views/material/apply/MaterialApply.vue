@@ -23,7 +23,11 @@
         bordered
       >
         <template #bodyCell="{ column, record }">
-          <template v-if="column.key === 'useNum'">
+          <template v-if="column.key === 'stockQty'">
+            <!-- 库存：接口 currentStockQty + baseUnitName（如 1个） -->
+            {{ formatStock(record) }}
+          </template>
+          <template v-else-if="column.key === 'useNum'">
             <a-input-number
               v-model:value="record.useNum"
               :min="1"
@@ -63,7 +67,7 @@
 </template>
 
 <script lang="ts" setup>
-  import { ref } from 'vue';
+  import { ref, onMounted } from 'vue';
   import { useRouter } from 'vue-router';
   import { BasicForm, useForm } from '/@/components/Form/index';
   import { useDrawer } from '/@/components/Drawer';
@@ -71,6 +75,7 @@
   import { applyFormSchema } from './MaterialApply.data';
   import { saveApply, submitApply } from './MaterialApply.api';
   import MaterialSelectDrawer from './components/MaterialSelectDrawer.vue';
+  import { loadUnitOptions } from '../material.util';
 
   const router = useRouter();
   const { createMessage } = useMessage();
@@ -101,16 +106,19 @@
   // 明细数据(本地数组)
   const detailList = ref<any[]>([]);
 
-  // 单位下拉
-  const unitOptions = [
-    { label: '台', value: '台' },
-    { label: '个', value: '个' },
-    { label: '米', value: '米' },
-    { label: '根', value: '根' },
-    { label: '套', value: '套' },
-    { label: '条', value: '条' },
-    { label: '件', value: '件' },
-  ];
+  /** 库存展示：接口 currentStockQty + baseUnitName（如 1个） */
+  function formatStock(r: any) {
+    const qty = r.currentStockQty ?? r.stockQty;
+    const unit = r.baseUnitName ?? r.unitName ?? r.unit;
+    if (qty == null || qty === '' || qty === '-') return '—';
+    return `${qty}${unit || ''}`;
+  }
+
+  // 单位下拉（走数据字典 inv_unit，material.util.loadUnitOptions 加载；改字典重新登录即生效）
+  const unitOptions = ref<{ label: string; value: string }[]>([]);
+  onMounted(async () => {
+    unitOptions.value = await loadUnitOptions();
+  });
 
   // 自增key, 用于唯一标识明细行
   let detailKeySeed = 0;
@@ -144,7 +152,8 @@
         materialName: m.materialName, // 物料名称
         brand: m.brand,
         model: m.model,
-        stockQty: m.stockQty, // 库存(以基准单位为准)
+        currentStockQty: m.currentStockQty ?? m.stockQty, // 库存(接口 currentStockQty)
+        baseUnitName: m.baseUnitName ?? m.unit, // 基准单位名
         useNum: 1,
         unit: m.unit, // 基准单位
       });
