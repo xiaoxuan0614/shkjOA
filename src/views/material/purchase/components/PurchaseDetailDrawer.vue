@@ -1,5 +1,5 @@
 <template>
-  <BasicDrawer v-bind="$attrs" @register="register" title="采购订单明细" :width="820">
+  <BasicDrawer v-bind="$attrs" @register="register" title="采购订单明细" :width="1020">
     <div v-if="detail.orderNo" class="purchase-detail">
       <!-- 订单头信息 -->
       <a-descriptions :column="2" size="small" bordered>
@@ -74,11 +74,12 @@
     { title: '物料名称', dataIndex: 'materialName', key: 'materialName', width: 160 },
     { title: '类别', dataIndex: 'materialCategory', key: 'materialCategory', width: 110 },
     { title: '型号', dataIndex: 'model', key: 'model', width: 120 },
-    { title: '单位', dataIndex: 'unit', key: 'unit', width: 80 },
     { title: '数量', dataIndex: 'quantity', key: 'quantity', width: 90 },
-    { title: '单价', dataIndex: 'unitPrice', key: 'unitPrice', width: 100 },
-    { title: '金额', key: 'amount', width: 110 },
-  ];
+    { title: '单位', dataIndex: 'unit', key: 'unit', width: 80 },
+    { title: '单价', dataIndex: 'unitPrice', key: 'unitPrice', width: 80 },
+    { title: '金额', dataIndex: 'amount', key: 'amount', width: 110 },
+    { title: '入库量', dataIndex: 'inboundQty', key: 'inboundQty', width: 100 },
+    { title: '未入库量', dataIndex: 'remainingQty', key: 'remainingQty', width: 100 },];
 
   function formatAmount(record: any): string {
     const qty = Number(record.quantity || 0);

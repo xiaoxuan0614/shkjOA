@@ -18,6 +18,50 @@ export const purchaseColumns: BasicColumn[] = [
   { title: '创建时间', align: 'center', dataIndex: 'createTime', width: 170 },
 ];
 
+/**
+ * 采购订单列表搜索表单
+ * orderNo 采购单号(输入) / supplierName 供应商(远程模糊) / periodName 分期项目(远程模糊) / status 状态(数据字典 purchase_order_status)
+ * 供应商/分期下拉选项由页面注入(预载首页 + 输入后服务端模糊查询，与 PurchaseModal 一致)
+ */
+export const searchFormSchema: FormSchema[] = [
+  {
+    label: '采购单号',
+    field: 'orderNo',
+    component: 'Input',
+    componentProps: { placeholder: '请输入采购单号' },
+  },
+  {
+    label: '供应商',
+    field: 'supplierName',
+    component: 'Select',
+    componentProps: {
+      placeholder: '选择供应商',
+      showSearch: true,
+      allowClear: true,
+      filterOption: false, // 远程模糊搜索
+      options: [], // 页面 onMounted 注入
+    },
+  },
+  {
+    label: '分期项目',
+    field: 'periodName',
+    component: 'Select',
+    componentProps: {
+      placeholder: '选择分期项目',
+      showSearch: true,
+      allowClear: true,
+      filterOption: false, // 远程模糊搜索
+      options: [], // 页面 onMounted 注入
+    },
+  },
+  {
+    label: '状态',
+    field: 'status',
+    component: 'JDictSelectTag',
+    componentProps: { dictCode: 'purchase_order_status', placeholder: '请选择状态' },
+  },
+];
+
 /** 采购订单表单(订单头) */
 export const purchaseFormSchema: FormSchema[] = [
   {

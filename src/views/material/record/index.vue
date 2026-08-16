@@ -50,7 +50,7 @@
       </a-tab-pane>
     </a-tabs>
 
-    <!-- 明细逐条审批弹窗 -->
+    <!-- 审批弹窗(整单审批) -->
     <ApproveModal @register="registerApproveModal" @success="handleSuccess" />
     <!-- 整单批量审批弹窗 -->
     <BatchApproveModal @register="registerBatchApproveModal" @success="handleSuccess" />
@@ -160,7 +160,7 @@
     return res;
   }
 
-  // 明细逐条审批弹窗
+  // 审批弹窗(整单 通过/驳回)
   const [registerApproveModal, { openModal }] = useModal();
   // 整单批量审批弹窗
   const [registerBatchApproveModal, { openModal: openBatchApproveModal }] = useModal();
@@ -198,7 +198,7 @@
     return [{ label: '详情', onClick: handleRecordDetail.bind(null, record) }];
   }
 
-  /** 审批/拒绝：打开弹窗(明细逐条 通过/驳回/暂不处理) */
+  /** 审批：打开弹窗(整单 通过/驳回) */
   function handleApprove(record: Recordable) {
     openModal(true, { record });
   }
@@ -327,14 +327,13 @@
       actions.push({ label: '审批', onClick: handleApprove.bind(null, record) });
       // 申请人：库管未出库前可撤回
       if (isMine) actions.push({ label: '撤回', onClick: handleWithdraw.bind(null, record) });
-    } else if (record.status === 'PARTIAL_APPROVED') {
-      // 部分通过：可执行已通过明细(部分已生效，不再审批)
-      if (record.bizType === 'PICK' || record.applyType === 'OUT') actions.push({ label: '出库', onClick: openExecute.bind(null, record) });
-      else actions.push({ label: '入库', onClick: openExecute.bind(null, record) });
-    } else if (record.status === 'APPROVED') {
-      // 领料=PICK 出库；还料=RETURN / 采购=PURCHASE 入库(回退 applyType)
-      if (record.bizType === 'PICK' || record.applyType === 'OUT') actions.push({ label: '出库', onClick: openExecute.bind(null, record) });
-      else actions.push({ label: '入库', onClick: openExecute.bind(null, record) });
+    } else if (['PARTIAL_APPROVED', 'APPROVED'].includes(record.status)) {
+      // 已通过/部分通过：出库/入库按钮展示条件一致，均按执行状态区分(仅「待执行/部分执行」显示，执行完不再显示)
+      if (isExecutable(record)) {
+        // 领料=PICK 出库；还料=RETURN / 采购=PURCHASE 入库(回退 applyType)
+        const isOut = record.bizType === 'PICK' || record.applyType === 'OUT';
+        actions.push({ label: isOut ? '出库' : '入库', onClick: openExecute.bind(null, record) });
+      }
     }
 
     // 申请人：已撤回/待审批/已驳回 可修改申请单后重新提交
@@ -346,6 +345,11 @@
       actions.push({ label: '删除', onClick: handleDeleteApply.bind(null, record) });
     }
     return actions;
+  }
+
+  /** 出库/入库按钮是否展示：按执行状态区分，仅「待执行(PENDING)/部分执行(PARTIAL_EXECUTED)」显示（执行完不再显示） */
+  function isExecutable(record) {
+    return ['PENDING', 'PARTIAL_EXECUTED'].includes(record.executeStatus);
   }
 
   /** 状态展示 */

@@ -31,10 +31,11 @@
   import { useModal } from '/@/components/Modal';
   import { useDrawer } from '/@/components/Drawer';
   import { ref, onMounted } from 'vue';
+  import { useDebounceFn } from '@vueuse/core';
   import { useListPage } from '/@/hooks/system/useListPage';
   import { useMessage } from '/@/hooks/web/useMessage';
-  import { purchaseColumns } from './Purchase.data';
-  import { list, listPeriod, changeStatus } from './Purchase.api';
+  import { purchaseColumns, searchFormSchema } from './Purchase.data';
+  import { list, listPeriod, changeStatus, getSuppliers, searchProjectPeriod } from './Purchase.api';
   import { loadDictMap } from '../material.util';
   import { ensureSupplierOptions, ensurePeriodOptions } from '../material.options';
   import PurchaseModal from './PurchaseModal.vue';
@@ -51,7 +52,44 @@
     // 弹窗下拉数据在页面渲染时就预载(第 1 页 10 条)，打开「新增采购订单」弹窗直接展示，不再请求
     ensureSupplierOptions();
     ensurePeriodOptions();
+    // 搜索表单下拉注入(供应商/分期项目)：预载首页展示 + 输入后服务端模糊查询
+    supplierSearchOptions.value = await ensureSupplierOptions();
+    periodSearchOptions.value = (await ensurePeriodOptions()).map((o) => ({ label: o.label, value: o.periodName || o.label }));
+    getForm()?.updateSchema([
+      {
+        field: 'supplierName',
+        componentProps: { options: supplierSearchOptions, onSearch: onSupplierSearch },
+      },
+      {
+        field: 'periodName',
+        componentProps: { options: periodSearchOptions, onSearch: onPeriodSearch },
+      },
+    ]);
   });
+
+  // 搜索表单「供应商」下拉(远程模糊查询 /project/supplier/list，防抖 300ms)
+  const supplierSearchOptions = ref<any[]>([]);
+  const onSupplierSearch = useDebounceFn(async (keyword: string) => {
+    if (!keyword) {
+      // 空关键词回到预载的供应商首页
+      supplierSearchOptions.value = await ensureSupplierOptions();
+      return;
+    }
+    const data: any = await getSuppliers({ pageNo: 1, pageSize: 10, supplierName: keyword });
+    const list = data?.records || (Array.isArray(data) ? data : []);
+    supplierSearchOptions.value = list.map((s: any) => ({ label: s.supplierName, value: s.supplierName }));
+  }, 300);
+
+  // 搜索表单「分期项目」下拉(远程模糊查询 /project/period/searchByName，防抖 300ms)
+  const periodSearchOptions = ref<any[]>([]);
+  const onPeriodSearch = useDebounceFn(async (keyword: string) => {
+    if (!keyword) {
+      periodSearchOptions.value = (await ensurePeriodOptions()).map((o) => ({ label: o.label, value: o.periodName || o.label }));
+      return;
+    }
+    const data: any = await searchProjectPeriod({ keyword, pageNo: 1, pageSize: 20 });
+    periodSearchOptions.value = (data?.records || data || []).map((r: any) => ({ label: r.periodName, value: r.periodName }));
+  }, 300);
 
   const [registerPurchaseModal, { openModal: openPurchaseModal }] = useModal();
   const [registerStockInModal, { openModal: openStockInModal }] = useModal();
@@ -90,10 +128,18 @@
       api: listWithPeriod,
       columns: purchaseColumns,
       canResize: true,
+      // 列表筛选：采购单号/供应商/分期项目/状态
+      formConfig: {
+        schemas: searchFormSchema,
+        autoSubmitOnEnter: true,
+        showAdvancedButton: true,
+        fieldMapToNumber: [],
+        fieldMapToTime: [],
+      },
       actionColumn: { width: 240, fixed: 'right' },
     },
   });
-  const [registerTable, { reload }] = tableContext;
+  const [registerTable, { reload, getForm }] = tableContext;
 
   /** 新增采购单 */
   function handleAdd() {

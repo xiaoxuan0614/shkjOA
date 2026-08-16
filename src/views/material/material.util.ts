@@ -70,41 +70,6 @@ export async function loadUnitOptions(): Promise<{ label: string; value: string 
 }
 
 /**
- * 明细审批状态推算：从审批动态 approvalList 中取该明细的最新一条
- * 匹配方式：优先顶层 approval.itemId === 明细id；否则在 approval.items[] 里找 itemId === 明细id。
- * approve 三态：true 已通过 / false 已驳回 / null 待审批（无记录）。
- * 匹配不到且传入 fallbackStatus 时按整单兜底：APPROVED→通过、REJECTED→驳回
- * （整单审批时 approvalList 无明细级记录，靠整单状态兜底）。
- * @param itemId 明细ID(StockApplyItem.id)
- * @param approvalList queryById 返回的审批动态数组
- * @param fallbackStatus 整单状态(StockApply.status)
- */
-export function calcItemApproval(
-  itemId: string | number,
-  approvalList?: any[],
-  fallbackStatus?: string
-): { approve: boolean | null; comment: string } {
-  const list = Array.isArray(approvalList) ? approvalList : [];
-  for (let i = list.length - 1; i >= 0; i--) {
-    const a: any = list[i] || {};
-    // 1) 顶层 itemId 匹配
-    if (a.itemId != null && String(a.itemId) === String(itemId)) {
-      const approve = a.approve !== undefined ? a.approve : a.approvalResult === 'AGREE' ? true : a.approvalResult === 'REJECT' ? false : null;
-      return { approve, comment: a.remark || a.approvalComment || '' };
-    }
-    // 2) items[] 里匹配
-    const it = (Array.isArray(a.items) ? a.items : []).find((x: any) => x && String(x.itemId) === String(itemId));
-    if (it) {
-      return { approve: it.approve !== undefined ? it.approve : null, comment: it.remark || a.approvalComment || '' };
-    }
-  }
-  // 3) 兜底：整单状态
-  if (fallbackStatus === 'APPROVED') return { approve: true, comment: '' };
-  if (fallbackStatus === 'REJECTED') return { approve: false, comment: '' };
-  return { approve: null, comment: '' };
-}
-
-/**
  * 单位 ID 解析：按单位名称从数据字典 inv_unit 匹配取 value（字典里的单位ID）
  * 申请时明细只传单位名(unitName)，后端明细里的 unitId 不可靠，执行出入库统一以字典为准。
  * @param unitName 单位名称(明细 unitName)

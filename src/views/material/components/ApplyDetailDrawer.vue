@@ -37,13 +37,6 @@
               <template v-if="column.key === 'applyQty'">
                 {{ record.applyQty ?? record.unitQty ?? 0 }}
               </template>
-              <template v-else-if="column.dataIndex === 'status'">
-                <a-tag :color="dictColor(itemStatusMap, record.status)">{{ dictText(itemStatusMap, record.status) }}</a-tag>
-              </template>
-              <template v-else-if="column.key === 'approver'">
-                <!-- 审批人：直接用接口回传的 approvalUserName 字段展示 -->
-                {{ record.approvalUserName || '—' }}
-              </template>
               <template v-else-if="column.dataIndex === 'executeStatus'">
                 <a-tag :color="dictColor(execMap, record.executeStatus)">{{ dictText(execMap, record.executeStatus) }}</a-tag>
               </template>
@@ -94,7 +87,6 @@
   const typeMap = ref<DictMap>({});
   const statusMap = ref<DictMap>({});
   const execMap = ref<DictMap>({});
-  const itemStatusMap = ref<DictMap>({});
   const resultMap = ref<DictMap>({});
   const dictText = (m: DictMap, v: string) => (v ? m[v]?.text || v : '—');
   const dictColor = (m: DictMap, v: string) => m[v]?.color || undefined;
@@ -123,7 +115,6 @@
   loadDictMap('stock_apply_type').then((m) => (typeMap.value = m));
   loadDictMap('stock_apply_status').then((m) => (statusMap.value = m));
   loadDictMap('stock_execute_status').then((m) => (execMap.value = m));
-  loadDictMap('stock_item_status').then((m) => (itemStatusMap.value = m));
   loadDictMap('approval_result').then((m) => (resultMap.value = m));
 
   // 用户 id → 姓名(审批人/执行人展示；全局规定第 3 条：列表展示 id 对应的人名)
@@ -136,10 +127,9 @@
     { title: '类别', dataIndex: 'materialCategory', key: 'materialCategory', width: 90 },
     { title: '品牌', dataIndex: 'brand', key: 'brand', width: 90 },
     { title: '型号', dataIndex: 'model', key: 'model', width: 110 },
-    { title: '单位', dataIndex: 'unitName', key: 'unitName', width: 70 },
     { title: '申请数量', key: 'applyQty', width: 90 },
-    { title: '审批状态', dataIndex: 'status', key: 'status', width: 100 },
-    { title: '审批人', key: 'approver', width: 100 },
+    { title: '单位', dataIndex: 'unitName', key: 'unitName', width: 70 },
+    // 审批为整单审批，无「明细审批状态」概念；明细仅展示执行维度(已执行数量/执行状态/执行人/执行时间)
     { title: '已执行数量', dataIndex: 'executedQty', key: 'executedQty', width: 90 },
     { title: '执行状态', dataIndex: 'executeStatus', key: 'executeStatus', width: 100 },
     { title: '执行人', dataIndex: 'executeUserName', key: 'executeUserName', width: 100 },

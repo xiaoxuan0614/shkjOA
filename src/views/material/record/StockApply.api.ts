@@ -59,23 +59,22 @@ export const queryItems = (params) => defHttp.get({ url: Api.queryItems, params 
 export const queryApprovals = (params) => defHttp.get({ url: Api.queryApprovals, params });
 
 /**
- * 审批提交（整单审批唯一接口，通过+驳回一次提交）
+ * 审批通过（整单审批：整单通过）
  * @param params StockApplyApproval:
- *   { applyId, approvalUserId?, items }
+ *   { applyId, approvalUserId, approvalResult:'AGREE', approvalComment? }
  *   approvalUserId 当前操作人id（全局规定：审批必须传，= getCurrentUser().applyUserId）
- *   items 整单所有物料审批结果一起传：{ itemId, approve(bool), remark? }
- *     approve=true 通过 / approve=false 驳回（任一条驳回 → 整单状态「已驳回」）
+ *   approvalResult AGREE 整单通过（整单驳回走 rejectApply，REJECT）
+ *   approvalComment 审批备注
  */
 export const approveApply = (params) =>
   defHttp.post({ url: Api.approve, params }, { successMessageMode: 'success' });
 
 /**
- * 驳回
+ * 驳回（整单审批：整单驳回，approvalComment 必填）
  * @param params StockApplyApproval:
- *   { applyId, approvalUserId?, approvalResult:'REJECT', approvalComment?, items? }
+ *   { applyId, approvalUserId, approvalResult:'REJECT', approvalComment }
  *   approvalUserId 当前操作人id（全局规定：审批必须传，= getCurrentUser().applyUserId）
- *   items 明细审批结果(空=整单驳回)：{ itemId, approve, remark? }
- *   approve 三态：true 通过 / false 驳回 / null 暂不处理(不提交该项则保持待审批)
+ *   approvalComment 驳回原因（必填）
  */
 export const rejectApply = (params) =>
   defHttp.post({ url: Api.reject, params }, { successMessageMode: 'success' });
