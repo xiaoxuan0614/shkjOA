@@ -8,7 +8,7 @@
   import { BasicModal, useModalInner } from '/@/components/Modal';
   import { BasicForm, useForm } from '/@/components/Form/index';
   import { useMessage } from '/@/hooks/web/useMessage';
-  import { paybackTypeOptions } from './Payment.data';
+  import { loadPaybackTypeOptions } from './Payment.data';
   import { savePayback } from './Payment.api';
 
   const { createMessage } = useMessage();
@@ -23,8 +23,8 @@
       {
         label: '回款类型',
         field: 'type',
-        component: 'Select',
-        componentProps: { options: paybackTypeOptions, placeholder: '请选择回款类型' },
+        component: 'ApiSelect',
+        componentProps: { api: loadPaybackTypeOptions, placeholder: '请选择回款类型' },
         dynamicRules: () => [{ required: true, message: '请选择回款类型!' }],
       },
       {

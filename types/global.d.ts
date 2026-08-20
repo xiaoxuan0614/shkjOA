@@ -68,6 +68,9 @@ declare global {
     VITE_GLOB_RUN_PLATFORM?: 'web' | 'electron';
     // iconify图标使用在线还是本地。可选属性：online, local
     VITE_GLOB_ICONIFY_USE_TYPE?: 'online' | 'local';
+    // 高德地图 Web端(JS API) Key 与 安全密钥(securityJsCode, v2.0 必填)
+    VITE_AMAP_KEY?: string;
+    VITE_AMAP_SECURITY_CODE?: string;
   }
 
   declare function parseInt(s: string | number, radix?: number): number;

@@ -1,54 +1,29 @@
 <template>
   <div class="plan-payment">
-    <!-- 合同信息 -->
+    <!-- 合同主信息(只读, 来自合同信息页面) -->
     <div class="plan-payment__group">
-      <div class="plan-payment__group-title">合同信息</div>
-      <a-form layout="vertical">
-        <a-row :gutter="16">
-          <a-col :span="8">
-            <a-form-item label="项目名称">
-              <a-input v-model:value="contractInfo.projectName" :disabled="true" placeholder="自动带出" />
-            </a-form-item>
-          </a-col>
-          <a-col :span="8">
-            <a-form-item label="甲方名称">
-              <a-input v-model:value="contractInfo.customerName" :disabled="true" placeholder="自动带出" />
-            </a-form-item>
-          </a-col>
-          <a-col :span="8">
-            <a-form-item label="合同类型">
-              <a-select v-model:value="contractInfo.contractType" :disabled="!editable" placeholder="请选择合同类型" style="width: 100%" :options="contractTypeOptions" />
-            </a-form-item>
-          </a-col>
-          <a-col :span="8">
-            <a-form-item label="合同金额">
-              <a-input-number v-model:value="contractInfo.amount" :disabled="!editable" placeholder="请输入合同金额" style="width: 100%" :min="0" />
-            </a-form-item>
-          </a-col>
-          <a-col :span="8">
-            <a-form-item label="合同签订日期">
-              <a-date-picker v-model:value="contractInfo.signDate" :disabled="!editable" value-format="YYYY-MM-DD" style="width: 100%" placeholder="请选择签订日期" />
-            </a-form-item>
-          </a-col>
-          <a-col :span="8">
-            <a-form-item label="质保期">
-              <a-input-number v-model:value="contractInfo.warranty" :disabled="!editable" placeholder="请输入质保期" style="width: 60%" :min="0" />
-              <span style="margin-left: 8px">年</span>
-            </a-form-item>
-          </a-col>
-        </a-row>
-      </a-form>
+      <div class="plan-payment__group-title">合同主信息</div>
+      <a-descriptions :column="3" size="middle" bordered>
+        <a-descriptions-item label="合同编号">{{ contract.contractNo || '—' }}</a-descriptions-item>
+        <a-descriptions-item label="合同类型">{{ contract.contractType || '—' }}</a-descriptions-item>
+        <a-descriptions-item label="合同金额">{{ contract.contractAmount != null ? `${contract.contractAmount} 元` : '—' }}</a-descriptions-item>
+        <a-descriptions-item label="销售负责人">{{ contract.salesUserName || '—' }}</a-descriptions-item>
+        <a-descriptions-item label="质保期">{{ contract.warrantyPeriod != null ? `${contract.warrantyPeriod} 月` : '—' }}</a-descriptions-item>
+        <a-descriptions-item label="计划交付日期">{{ contract.plannedDeliveryDate || '—' }}</a-descriptions-item>
+        <a-descriptions-item label="备注" :span="3">{{ contract.remark || '—' }}</a-descriptions-item>
+      </a-descriptions>
     </div>
 
-    <!-- 回款计划 -->
+    <!-- 回款计划(节点 + 比例, 金额按合同金额自动计算) -->
     <div class="plan-payment__group">
       <div class="plan-payment__group-title">
         <span>回款计划</span>
-        <a-button v-if="editable" type="primary" size="small" preIcon="ant-design:plus-outlined" @click="addPayment">添加</a-button>
+        <span class="plan-payment__hint">维护节点与比例，金额 = 合同金额 × 比例</span>
+        <a-button v-if="editable" type="primary" size="small" preIcon="ant-design:plus-outlined" @click="addRow">添加</a-button>
       </div>
       <a-table
-        :columns="paymentColumns"
-        :data-source="paymentList"
+        :columns="columns"
+        :data-source="rows"
         :row-key="(record) => record._key"
         :pagination="false"
         size="middle"
@@ -58,117 +33,108 @@
           <template v-if="column.key === 'index'">
             {{ record._key }}
           </template>
-          <template v-else-if="column.key === 'type'">
-            <a-select v-model:value="record.type" :disabled="!editable" placeholder="请选择回款类型" style="width: 100%" :options="paymentTypeOptions" />
+          <template v-else-if="column.key === 'node'">
+            <a-select v-model:value="record.node" :disabled="!editable" placeholder="请选择节点" style="width: 100%" :options="nodeOptions" />
+          </template>
+          <template v-else-if="column.key === 'ratio'">
+            <a-input-number
+              v-model:value="record.ratio"
+              :min="0"
+              :max="100"
+              :disabled="!editable"
+              placeholder="比例%"
+              style="width: 100%"
+              addon-after="%"
+              @change="calcAmount(record)"
+            />
           </template>
           <template v-else-if="column.key === 'amount'">
-            <a-input-number v-model:value="record.amount" :disabled="!editable" :min="0" placeholder="计划回款金额" style="width: 100%" />
+            <b>{{ record.amount != null ? record.amount.toFixed(2) : '—' }} 元</b>
           </template>
-          <template v-else-if="column.key === 'date'">
-            <a-date-picker v-model:value="record.date" :disabled="!editable" value-format="YYYY-MM-DD" style="width: 100%" placeholder="计划回款日期" />
+          <template v-else-if="column.key === 'planDate'">
+            <a-date-picker v-model:value="record.planDate" :disabled="!editable" value-format="YYYY-MM-DD" style="width: 100%" placeholder="计划日期" />
           </template>
           <template v-else-if="column.key === 'action'">
-            <a-button v-if="editable" type="link" danger size="small" @click="removePayment(record._key)">删除</a-button>
+            <a-button v-if="editable" type="link" danger size="small" @click="removeRow(record._key)">删除</a-button>
           </template>
         </template>
       </a-table>
-    </div>
-
-    <!-- 合同文件 + 备注 -->
-    <div class="plan-payment__group">
-      <div class="plan-payment__group-title">合同文件</div>
-      <a-upload :disabled="!editable" :before-upload="() => false" :max-count="1">
-        <a-button preIcon="ant-design:upload-outlined">上传文件</a-button>
-      </a-upload>
-    </div>
-    <div class="plan-payment__group">
-      <div class="plan-payment__group-title">备注</div>
-      <a-textarea v-model:value="paymentRemark" :disabled="!editable" placeholder="请输入备注" :rows="3" />
     </div>
   </div>
 </template>
 
 <script lang="ts" setup>
-  import { ref, reactive, unref, watch } from 'vue';
-  import { contractTypeOptions } from '../Project.data';
+  import { ref, unref, watch, onMounted } from 'vue';
+  import { contractList } from '/@/views/payment/Payment.api';
+  import { initDictOptions } from '/@/utils/dict/index';
 
-  // 属性: editable 控制是否可编辑; project 项目信息(自动带出)
   const props = defineProps<{
+    periodId?: string;
     editable?: boolean;
-    project?: Recordable;
   }>();
 
-  // 回款类型(后续接字典)
-  const paymentTypeOptions = [
-    { label: '预付款', value: '预付款' },
-    { label: '进度款', value: '进度款' },
-    { label: '验收款', value: '验收款' },
-    { label: '质保金', value: '质保金' },
-  ];
+  const contract = ref<Recordable>({});
+  // 回款节点下拉(字典 payback_node)
+  const nodeOptions = ref<{ label: string; value: string }[]>([]);
 
-  // 合同信息
-  const contractInfo = reactive<any>({
-    projectName: '',
-    customerName: '',
-    contractType: undefined,
-    amount: undefined,
-    signDate: undefined,
-    warranty: undefined,
+  async function load() {
+    nodeOptions.value = (await initDictOptions('payback_node')) || [];
+    if (!props.periodId) return;
+    try {
+      const res: any = await contractList({ periodId: props.periodId, pageNo: 1, pageSize: 10 });
+      const records = res?.records || res || [];
+      contract.value = records[0] || {};
+    } catch {
+      contract.value = {};
+    }
+  }
+
+  onMounted(() => {
+    load();
   });
 
-  // 项目信息变化时自动带出
+  // 合同金额变化 → 重算所有行金额
   watch(
-    () => props.project,
-    (val) => {
-      if (val?.projectName) {
-        contractInfo.projectName = val.projectName;
-        contractInfo.customerName = val.customerName;
-      }
-    },
-    { immediate: true }
+    () => contract.value.contractAmount,
+    () => rows.value.forEach((r) => calcAmount(r))
   );
 
-  // 回款计划
-  const paymentColumns = [
+  // 回款计划行
+  const columns = [
     { title: '序号', key: 'index', width: 60 },
-    { title: '回款类型', key: 'type', width: 140 },
-    { title: '计划回款金额', key: 'amount', width: 160 },
-    { title: '计划回款日期', key: 'date', width: 160 },
+    { title: '回款节点', key: 'node', width: 160 },
+    { title: '比例(%)', key: 'ratio', width: 140 },
+    { title: '金额(自动)', key: 'amount', width: 160 },
+    { title: '计划日期', key: 'planDate', width: 160 },
     { title: '操作', key: 'action', width: 80, align: 'center' },
   ];
-  const paymentList = ref<any[]>([]);
-  let paymentSeed = 0;
+  const rows = ref<any[]>([]);
+  let rowSeed = 0;
 
-  // 备注
-  const paymentRemark = ref('');
+  function addRow() {
+    rows.value.push({ _key: ++rowSeed, node: undefined, ratio: 0, amount: 0, planDate: undefined });
+  }
 
-  // 暴露给父级
+  function removeRow(key: number) {
+    rows.value = rows.value.filter((r) => r._key !== key);
+  }
+
+  /** 金额 = 合同金额 × 比例% */
+  function calcAmount(record: any) {
+    const amount = Number(contract.value.contractAmount) || 0;
+    const ratio = Number(record.ratio) || 0;
+    record.amount = ratio > 0 ? (amount * ratio) / 100 : 0;
+  }
+
   defineExpose({
     getData() {
-      return {
-        contractInfo: { ...unref(contractInfo) },
-        paymentList: unref(paymentList),
-        remark: unref(paymentRemark),
-      };
+      return unref(rows);
     },
-    setData(data: any) {
-      if (data?.contractInfo) {
-        Object.assign(contractInfo, data.contractInfo);
-      }
-      paymentList.value = (data?.paymentList || []).map((item) => ({ ...item, _key: ++paymentSeed }));
-      paymentRemark.value = data?.remark || '';
+    setData(list: any[]) {
+      rows.value = (list || []).map((item) => ({ ...item, _key: ++rowSeed, amount: Number(item.amount) || 0 }));
+      rows.value.forEach((r) => calcAmount(r));
     },
   });
-
-  // 添加回款
-  function addPayment() {
-    paymentList.value.push({ _key: ++paymentSeed, type: undefined, amount: undefined, date: undefined });
-  }
-
-  // 移除回款
-  function removePayment(key: number) {
-    paymentList.value = paymentList.value.filter((p) => p._key !== key);
-  }
 </script>
 
 <style lang="less" scoped>
@@ -184,6 +150,12 @@
         font-size: 14px;
         color: #333;
         margin-bottom: 12px;
+      }
+
+      &-hint {
+        font-weight: 400;
+        font-size: 12px;
+        color: #999;
       }
     }
   }

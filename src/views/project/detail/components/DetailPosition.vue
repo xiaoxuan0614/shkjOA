@@ -29,7 +29,7 @@
   import { ref, watch } from 'vue';
   import { useModal } from '/@/components/Modal';
   import { useMessage } from '/@/hooks/web/useMessage';
-  import { getPositions } from '../ProjectDetail.api';
+  import { getPositions, deletePosition } from '../ProjectDetail.api';
   import PositionModal from './PositionModal.vue';
 
   const props = defineProps<{
@@ -40,17 +40,19 @@
   const positions = ref<any[]>([]);
   const [registerModal, { openModal }] = useModal();
 
+  // 后端 project_location 字段
   const columns = [
-    { title: '实施位置', dataIndex: 'name' },
-    { title: '经度', dataIndex: 'lng' },
-    { title: '纬度', dataIndex: 'lat' },
+    { title: '实施位置', dataIndex: 'locationName' },
+    { title: '经度', dataIndex: 'longitude' },
+    { title: '纬度', dataIndex: 'latitude' },
     { title: '位置描述', dataIndex: 'description' },
     { title: '操作', key: 'action', width: 130, align: 'center' },
   ];
 
   async function load() {
-    const data = await getPositions({ projectId: props.projectId });
-    positions.value = data || [];
+    const res: any = await getPositions({ periodId: props.projectId, pageNo: 1, pageSize: 100 });
+    const list = res?.records || res || [];
+    positions.value = list || [];
   }
 
   function openAdd() {
@@ -61,9 +63,9 @@
     openModal(true, { isUpdate: true, record, projectId: props.projectId });
   }
 
-  function handleDelete(record: any) {
-    // 占位: 后续接删除接口
-    createMessage.success(`删除位置「${record.name}」(演示)`);
+  async function handleDelete(record: any) {
+    await deletePosition({ id: record.id });
+    createMessage.success(`删除位置「${record.locationName}」成功`);
     load();
   }
 

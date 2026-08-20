@@ -48,9 +48,11 @@
   const plan = ref<any>({});
 
   async function load() {
-    const data = await planDetail({ id: projectId });
-    project.value = data || {};
-    plan.value = data?.plan || {};
+    const res: any = await planDetail({ periodId: projectId, pageNo: 1, pageSize: 100 });
+    const list = res?.records || res || [];
+    const record = list[0] || {};
+    project.value = record;
+    plan.value = record;
   }
 
   function goBack() {

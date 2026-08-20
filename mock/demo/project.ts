@@ -1,216 +1,99 @@
-import { resultSuccess, resultPageSuccess, resultError, sysUrl } from '../_util';
+import { resultSuccess, resultPageSuccess, sysUrl } from '../_util';
 import { MockMethod } from 'vite-plugin-mock';
-import Mock from 'mockjs';
 
 /**
- * 项目管理相关 mock 接口
+ * 项目管理 最小 mock(仅覆盖合同签订/审批验证所需)
  * 前缀: /jeecgboot
- * 接口:
- *   GET  /project/list            项目分页列表
- *   GET  /project/detail          项目详情(编辑回显)
- *   POST /project/add             新增项目
- *   POST /project/edit            编辑项目
- *   GET  /project/customerList    客户信息列表(甲方选择带出)
- *   GET  /project/mainProjectList 主项目列表(创建项目时选择所属主项目)
- *   POST /project/plan/save       保存计划(六标签整体提交)
+ *   GET  /project/project/projectPeriodList   项目分期分页列表
+ *   GET  /project/project/projectPeriodDetail 项目分期详情
+ *   POST /project/period/changeStatus         项目状态流转
  */
 
-// 项目状态字典(与列表搜索一致)
-// 生命周期: 创建(未开始) → 计划(筹备) → 实施开始(实施中) → 实施完成 → 内部验收 → 客户验收 → 质保中 → 质保结束(完结)；关闭为例外终态
-const projectStatus = ['未开始', '筹备', '实施中', '实施完成', '内部验收', '客户验收', '质保中', '完结', '关闭'];
+// 测试分期(未开始)
+const periodStore: Record<string, any> = {
+  '2089535920052830209': {
+    periodId: '2089535920052830209',
+    projectId: '2089535919834726401',
+    projectNo: 'XM2089535919780200450',
+    projectName: '0818主项目01',
+    periodNo: 'YQ2089535919897640961',
+    periodName: '0818主项目01一期工程',
+    projectType: '1',
+    projectLeaderName: '管理员',
+    businessAttribute: '2,1',
+    involvedProducts: '1,2',
+    projectAddress: '天津市滨海新区新港街道京门大道390号华纳公寓',
+    longitude: 117.7,
+    latitude: 39.03,
+    totalProgress: 0,
+    status: 'NOT_STARTED',
+    contractStatus: 1, // 合同状态: 待审批(由合同 mock 写入; 列表验证用)
+    remark: 'mock',
+  },
+};
 
-// 客户信息池(模拟客户信息页面已建好的客户)
-const customers = [
-  { id: 1, name: '天津港航智能科技有限公司', contact: '张经理', phone: '13800001234', info: '港口智能化系统建设客户，已合作多个智能闸口项目' },
-  { id: 2, name: '大连远洋物流有限公司', contact: '李经理', phone: '13800005678', info: '物流园区信息化客户，涉及货代系统与定制系统' },
-  { id: 3, name: '锦州鑫三利重工有限公司', contact: '王工', phone: '13800009012', info: '重工行业客户，主要采购铅封机与PDA设备' },
-  { id: 4, name: '青岛海信智能设备公司', contact: '赵总', phone: '13800003456', info: '设备集成商客户，批量采购打印机与智能闸口' },
-];
-
-// 项目负责人池
-const managers = ['张小刀', '李建国', '王海峰', '赵敏'];
-
-// 涉及产品(与前端常量保持一致, 仅用于 mock 展示)
-const products = ['铅封机', '智能闸口', '定制系统', '货代系统', 'PDA', '打印机'];
-
-// 项目类型
-const projectTypes = ['纯软件', '纯硬件', '软硬件一体化'];
-
-// 生成项目列表(含主项目 + 期项目两层结构)
-function createProjectList(count = 6) {
-  const list = [];
-  let id = 1;
-  for (let i = 1; i <= count; i++) {
-    const customer = customers[i % customers.length];
-    const product = products[i % products.length];
-    const mainName = customer.name.substring(0, 4) + product + '项目';
-    // 主项目(parentId = 0)
-    list.push({
-      id: id,
-      parentId: 0,
-      mainProjectName: mainName,
-      projectNo: 'XM' + String(100000 + id),
-      projectName: mainName,
-      projectType: projectTypes[i % projectTypes.length],
-      customerId: customer.id,
-      customerName: customer.name,
-      manager: managers[i % managers.length],
-      // 主项目从「未开始」开始(i-1 取模)，保证生命周期全链路可演示
-      status: projectStatus[(i - 1) % projectStatus.length],
-      contractDate: Mock.mock('@date(yyyy-MM-dd)'),
-    });
-    id++;
-    // 该主项目下挂两期
-    for (let j = 1; j <= 2; j++) {
-      list.push({
-        id: id,
-        parentId: id - 1,
-        mainProjectName: mainName,
-        projectNo: 'XM' + String(100000 + id),
-        projectName: `${j === 1 ? '一期' : '二期'}工程`,
-        projectType: projectTypes[(i + j) % projectTypes.length],
-        customerId: customer.id,
-        customerName: customer.name,
-        manager: managers[(i + j) % managers.length],
-        status: projectStatus[(i + j) % projectStatus.length],
-        contractDate: Mock.mock('@date(yyyy-MM-dd)'),
-      });
-      id++;
-    }
-  }
-  return list;
-}
-
-// 用 let 以便 mock 接口(新增/编辑)能往内存数组写入
-let projectList = createProjectList(6);
+// 甲方客户
+const customerList = [{ id: '2089535456431243266', customerName: '测试客户01', contactPerson: '刘经理', contactPhone: '18899909812', customerInfo: '333' }];
 
 export default [
-  // 项目分页列表
+  // 甲方客户列表
   {
-    url: `${sysUrl}/project/list`,
-    timeout: 300,
+    url: `${sysUrl}/project/customer/list`,
+    timeout: 100,
     method: 'get',
-    response: ({ query }) => {
-      const { pageNo = 1, pageSize = 10, projectNo, projectName, mainProjectName, customerName, projectType, manager, status } = query;
-      let data = projectList;
-      if (projectNo) data = data.filter((p) => p.projectNo.indexOf(projectNo) !== -1);
-      if (projectName) data = data.filter((p) => p.projectName.indexOf(projectName) !== -1);
-      if (mainProjectName) data = data.filter((p) => (p.mainProjectName || '').indexOf(mainProjectName) !== -1);
-      if (customerName) data = data.filter((p) => p.customerName.indexOf(customerName) !== -1);
-      if (projectType) data = data.filter((p) => p.projectType === projectType);
-      if (manager) data = data.filter((p) => p.manager === manager);
-      if (status) data = data.filter((p) => p.status === status);
-      return resultPageSuccess(pageNo, pageSize, data);
-    },
+    response: () => resultPageSuccess(1, 1000, customerList),
   },
-  // 项目详情
-  // 返回真实列表项, 并补充详情页头部/基本信息展示字段
+  // 项目文件库(合同物料清单文件选择)
   {
-    url: `${sysUrl}/project/detail`,
+    url: `${sysUrl}/project/file/list`,
+    timeout: 100,
+    method: 'get',
+    response: () =>
+      resultPageSuccess(1, 200, [
+        { id: 'file_1', fileName: '合同物料清单-闸口.xlsx', fileId: 'http://mock/合同物料清单-闸口.xlsx', fileType: '合同物料清单' },
+        { id: 'file_2', fileName: '闸口设备清单-2026.xlsx', fileId: 'http://mock/闸口设备清单-2026.xlsx', fileType: '' },
+        { id: 'file_3', fileName: '辅料清单.xlsx', fileId: 'http://mock/辅料清单.xlsx', fileType: '' },
+      ]),
+  },
+  // 主项目列表
+  {
+    url: `${sysUrl}/project/project/list`,
+    timeout: 100,
+    method: 'get',
+    response: () => resultPageSuccess(1, 1000, Object.values(periodStore).map((p) => ({ id: p.projectId, projectName: p.projectName }))),
+  },
+  // 项目分期分页列表
+  {
+    url: `${sysUrl}/project/project/projectPeriodList`,
     timeout: 200,
     method: 'get',
     response: ({ query }) => {
-      const { id } = query;
-      const item =
-        projectList.find((p) => String(p.id) === String(id)) ||
-        projectList[0] || {
-          projectNo: 'XM000001',
-          projectName: '示例项目',
-        };
-      return resultSuccess({
-        ...item,
-        progress: item.progress ?? 50,
-        deliverDate: item.deliverDate ?? '2025-12-09',
-        receivedAmount: item.receivedAmount ?? 100000,
-        warranty: item.warranty ?? '1年',
-        contractAmount: item.contractAmount ?? 1000000,
-        requirement: item.requirement ?? '',
-        address: item.address ?? '',
-        attachment: item.attachment ?? '',
-      });
+      const { pageNo = 1, pageSize = 10 } = query;
+      const records = Object.values(periodStore);
+      return resultPageSuccess(pageNo, pageSize, records);
     },
   },
-  // 新增项目
+  // 项目分期详情(编辑回显)
   {
-    url: `${sysUrl}/project/add`,
-    timeout: 300,
-    method: 'post',
-    response: ({ body }) => {
-      const newItem = { ...body, id: projectList.length + 1 };
-      projectList.unshift(newItem);
-      return resultSuccess(newItem, { message: '新增成功' });
+    url: `${sysUrl}/project/project/projectPeriodDetail`,
+    timeout: 200,
+    method: 'get',
+    response: ({ query }) => {
+      const p = periodStore[query.periodId];
+      return resultSuccess(p || null);
     },
   },
-  // 编辑项目
+  // 项目状态流转
   {
-    url: `${sysUrl}/project/edit`,
-    timeout: 300,
+    url: `${sysUrl}/project/period/status`,
+    timeout: 200,
     method: 'post',
     response: ({ body }) => {
-      const idx = projectList.findIndex((p) => String(p.id) === String(body.id));
-      if (idx !== -1) {
-        projectList[idx] = { ...projectList[idx], ...body };
+      const { periodId, status } = body;
+      if (periodStore[periodId]) {
+        periodStore[periodId].status = status;
       }
-      return resultSuccess(null, { message: '编辑成功' });
+      return resultSuccess(null, { message: '状态已更新' });
     },
-  },
-  // 客户信息列表(甲方选择带出)
-  {
-    url: `${sysUrl}/project/customerList`,
-    timeout: 200,
-    method: 'get',
-    response: () => resultSuccess(customers),
-  },
-  // 主项目列表(创建项目时选择所属主项目)
-  {
-    url: `${sysUrl}/project/mainProjectList`,
-    timeout: 200,
-    method: 'get',
-    response: () => resultSuccess(projectList.filter((p) => Number(p.parentId) === 0)),
-  },
-  // 项目分期/项目名称模糊搜索(领料/还料/采购选项目单号↔名称，输入名称带出编号)
-  {
-    url: `${sysUrl}/project/period/searchByName`,
-    timeout: 200,
-    method: 'get',
-    response: ({ query }) => {
-      const { keyword = '', pageNo = 1, pageSize = 20 } = query;
-      let data = projectList;
-      if (keyword) data = data.filter((p) => (p.projectName || '').indexOf(keyword) !== -1);
-      const list = data.map((p) => ({ periodNo: p.projectNo, periodName: p.projectName }));
-      return resultPageSuccess(pageNo, pageSize, list);
-    },
-  },
-  // 状态流转推进：按生命周期顺序推进到下一状态，不能跳步/回退
-  {
-    url: `${sysUrl}/project/status/advance`,
-    timeout: 300,
-    method: 'post',
-    response: ({ body }) => {
-      const { id, targetStatus } = body;
-      const item = projectList.find((p) => String(p.id) === String(id));
-      if (!item) return resultError('项目不存在');
-      const flowMap = {
-        未开始: '筹备',
-        筹备: '实施中',
-        实施中: '实施完成',
-        实施完成: '内部验收',
-        内部验收: '客户验收',
-        客户验收: '质保中',
-        质保中: '完结',
-      };
-      const expect = flowMap[item.status];
-      if (!expect) return resultError(`当前状态「${item.status}」无下一状态，无法推进`);
-      if (String(targetStatus) !== expect) return resultError(`只能推进到下一状态「${expect}」，不能跳步/回退`);
-      item.status = targetStatus;
-      return resultSuccess(null, { message: `状态已推进到「${targetStatus}」` });
-    },
-  },
-  // 保存计划(六标签整体提交)
-  {
-    url: `${sysUrl}/project/plan/save`,
-    timeout: 300,
-    method: 'post',
-    response: () => resultSuccess(null, { message: '计划保存成功' }),
   },
 ] as MockMethod[];

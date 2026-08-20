@@ -170,12 +170,22 @@ const projectRoute = {
       },
     },
     {
+      path: 'contract',
+      name: 'ProjectContract',
+      component: 'project/contract/index',
+      meta: {
+        hideMenu: true,
+        title: '合同信息',
+        currentActiveMenu: '/project',
+      },
+    },
+    {
       path: 'plan',
       name: 'ProjectPlan',
       component: 'project/plan/ProjectPlan',
       meta: {
         hideMenu: true,
-        title: '新增计划方案',
+        title: '编辑计划方案',
         currentActiveMenu: '/project',
       },
     },
@@ -228,6 +238,38 @@ const resourceRoute = {
       meta: {
         title: '供应商管理',
         icon: 'bx:bx-store',
+      },
+    },
+    {
+      path: 'outsourcing',
+      name: 'ResourceOutsourcing',
+      component: 'resource/outsourcing/index',
+      meta: {
+        title: '外协单位',
+        icon: 'bx:bx-building-house',
+      },
+    },
+  ],
+};
+
+/// ========== 站内待办(邀约) ==========
+const todoRoute = {
+  path: '/todo',
+  name: 'Todo',
+  component: 'LAYOUT',
+  redirect: '/todo/list',
+  meta: {
+    title: '站内待办',
+    icon: 'bx:bx-bell',
+  },
+  children: [
+    {
+      path: 'list',
+      name: 'TodoList',
+      component: 'todo/index',
+      meta: {
+        title: '邀约待办',
+        icon: 'bx:bx-bell',
       },
     },
   ],
@@ -528,6 +570,7 @@ export default [
             materialRoute,
             projectRoute,
             resourceRoute,
+            todoRoute,
             ...buildBusinessRoutes(),
             ...buildPlaceholderRoutes(),
             authRoute,
@@ -570,6 +613,11 @@ export default [
           'project:internalAccept',
           'project:accept',
           'project:warranty',
+          // 合同签订(提交) / 合同信息编辑
+          'project:contract',
+          'project:contract:edit',
+          // 计划提交 / 计划审批(待立项)
+          'project:plan:audit',
         ],
       });
     },

@@ -1,8 +1,9 @@
 <template>
   <div class="detail-file">
     <div class="detail-file__toolbar">
-      <a-button type="primary" preIcon="ant-design:cloud-upload-outlined" @click="handleUpload">新增文件</a-button>
-      <input ref="fileInput" type="file" style="display: none" @change="handleFileChange" />
+      <a-upload :show-upload-list="false" :before-upload="handleFileChange">
+        <a-button type="primary" preIcon="ant-design:cloud-upload-outlined">新增文件</a-button>
+      </a-upload>
     </div>
     <a-table
       :columns="columns"
@@ -14,7 +15,6 @@
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'action'">
           <a-button type="link" size="small" @click="handleView(record)">查看</a-button>
-          <a-button type="link" size="small" @click="handleDownload(record)">下载</a-button>
           <a-popconfirm title="是否确认删除" @confirm="handleDelete(record)">
             <a-button type="link" size="small" danger>删除</a-button>
           </a-popconfirm>
@@ -27,7 +27,8 @@
 <script lang="ts" setup>
   import { ref, watch } from 'vue';
   import { useMessage } from '/@/hooks/web/useMessage';
-  import { getFiles } from '../ProjectDetail.api';
+  import { getFiles, addFile, deleteFile } from '../ProjectDetail.api';
+  import { uploadFile } from '/@/api/common/api';
 
   const props = defineProps<{
     projectId: string;
@@ -35,45 +36,44 @@
 
   const { createMessage } = useMessage();
   const files = ref<any[]>([]);
-  const fileInput = ref<HTMLInputElement | null>(null);
 
-  // 设计稿列: 文件类型/附件/创建人/创建时间/操作
+  // 后端 project_file 字段
   const columns = [
     { title: '文件类型', dataIndex: 'fileType' },
     { title: '附件', dataIndex: 'fileName' },
     { title: '创建人', dataIndex: 'createBy' },
     { title: '创建时间', dataIndex: 'createTime' },
-    { title: '操作', key: 'action', width: 160, align: 'center' },
+    { title: '操作', key: 'action', width: 140, align: 'center' },
   ];
 
   async function load() {
-    const data = await getFiles({ projectId: props.projectId });
-    files.value = data || [];
+    const res: any = await getFiles({ periodId: props.projectId, pageNo: 1, pageSize: 100 });
+    const list = res?.records || res || [];
+    files.value = list || [];
   }
 
-  function handleUpload() {
-    fileInput.value?.click();
-  }
-
-  function handleFileChange(e: any) {
-    const file = e.target.files?.[0];
-    if (file) {
-      // 占位: 后续接真实上传接口
-      createMessage.success(`已选择文件「${file.name}」(演示)`);
+  /** 选择文件 → 上传 → 新增项目文件记录(fileId 存上传返回路径, 语义待与后端确认) */
+  async function handleFileChange(file: any): Promise<boolean> {
+    if (!file) return false;
+    try {
+      const res: any = await uploadFile({ file }, undefined);
+      const path = res?.url || res?.result || res?.filename || file.name;
+      await addFile({ periodId: props.projectId, fileName: file.name, fileId: path, fileType: '' });
+      createMessage.success(`文件「${file.name}」上传成功`);
+      load();
+    } catch (err) {
+      createMessage.warning('上传失败，请重试');
     }
-    e.target.value = '';
+    return false;
   }
 
   function handleView(record: any) {
     createMessage.info(`查看文件「${record.fileName}」`);
   }
 
-  function handleDownload(record: any) {
-    createMessage.success(`开始下载「${record.fileName}」`);
-  }
-
-  function handleDelete(record: any) {
-    createMessage.success(`删除文件「${record.fileName}」(演示)`);
+  async function handleDelete(record: any) {
+    await deleteFile({ id: record.id });
+    createMessage.success(`删除文件「${record.fileName}」成功`);
     load();
   }
 

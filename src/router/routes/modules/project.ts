@@ -44,7 +44,7 @@ const project: AppRouteModule = {
       name: 'ProjectPlan',
       component: () => import('/@/views/project/plan/ProjectPlan.vue'),
       meta: {
-        title: '新增计划方案',
+        title: '编辑计划方案',
       },
     },
   ],

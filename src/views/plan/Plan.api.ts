@@ -1,21 +1,29 @@
 import { defHttp } from '/@/utils/http/axios';
 
+/**
+ * 计划方案管理 - 对接后端 /project/*(项目域)
+ */
 enum Api {
-  list = '/plan/project/list',
-  detail = '/plan/detail',
-  materialList = '/plan/material/list',
-  positionList = '/plan/position/list',
-  savePlan = '/plan/save',
+  // 项目/分期列表(计划方案入口)
+  list = '/project/project/projectPeriodList',
+  // 计划方案列表(按 periodId)
+  detail = '/project/plan/list',
+  // 用料计划
+  materialList = '/project/materialPlan/list',
+  // 实施位置
+  positionList = '/project/location/list',
+  // 保存计划方案
+  savePlan = '/project/plan/add',
 }
 
 /**
- * 计划方案管理 - 项目分页列表
+ * 项目/分期分页列表(计划方案入口)
  */
 export const planProjectList = (params) => defHttp.get({ url: Api.list, params });
 
 /**
- * 方案详情(项目信息/实施计划/用料计划/位置信息/回款计划 五合一)
- * @param params { id }
+ * 计划方案列表
+ * @param params { periodId, pageNo, pageSize }
  */
 export const planDetail = (params) => defHttp.get({ url: Api.detail, params });
 
@@ -30,7 +38,7 @@ export const getPlanMaterialList = (params) => defHttp.get({ url: Api.materialLi
 export const getPlanPositionList = (params) => defHttp.get({ url: Api.positionList, params });
 
 /**
- * 保存方案(各 tab 编辑后整体提交)
+ * 保存计划方案
  */
 export const savePlan = (params) =>
   defHttp.post({ url: Api.savePlan, params }, { successMessageMode: 'success' });

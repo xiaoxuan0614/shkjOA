@@ -99,6 +99,8 @@ export type ComponentType =
   | 'Checkbox'
   | 'CheckboxGroup'
   | 'AutoComplete'
+  | 'AMapPlaceSearch'
+  | 'AMapLocationSelect'
   | 'Cascader'
   | 'DatePicker'
   | 'MonthPicker'

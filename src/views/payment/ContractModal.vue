@@ -31,7 +31,7 @@
             <template v-if="column.key === 'type'">
               <a-select
                 v-model:value="record.type"
-                :options="paybackTypeOptions"
+                :options="paybackTypeOpts"
                 placeholder="回款类型"
                 style="width: 100%"
               />
@@ -53,11 +53,11 @@
 </template>
 
 <script lang="ts" setup>
-  import { ref, computed, unref } from 'vue';
+  import { ref, computed, unref, onMounted } from 'vue';
   import { BasicModal, useModalInner } from '/@/components/Modal';
   import { BasicForm, useForm } from '/@/components/Form/index';
   import { useMessage } from '/@/hooks/web/useMessage';
-  import { contractTypeOptions, paybackTypeOptions } from './Payment.data';
+  import { loadContractTypeOptions, loadPaybackTypeOptions } from './Payment.data';
   import { saveContract } from './Payment.api';
 
   const { createMessage } = useMessage();
@@ -68,6 +68,12 @@
 
   const paybackList = ref<any[]>([]);
 
+  // 回款类型下拉(字典 payback_type, 失败兜底硬编码)
+  const paybackTypeOpts = ref<{ label: string; value: string }[]>([]);
+  onMounted(async () => {
+    paybackTypeOpts.value = await loadPaybackTypeOptions();
+  });
+
   const [registerForm, { resetFields, setFieldsValue, validate }] = useForm({
     labelWidth: 110,
     showActionButtonGroup: false,
@@ -76,8 +82,8 @@
       {
         label: '合同类型',
         field: 'contractType',
-        component: 'Select',
-        componentProps: { options: contractTypeOptions, placeholder: '请选择合同类型' },
+        component: 'ApiSelect',
+        componentProps: { api: loadContractTypeOptions, placeholder: '请选择合同类型' },
         dynamicRules: () => [{ required: true, message: '请选择合同类型!' }],
       },
       {

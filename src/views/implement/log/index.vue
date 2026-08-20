@@ -48,15 +48,15 @@
   const workId = route.params.id as string;
 
   const work = ref<any>({});
-  const queryParam = reactive({ workId });
+  const queryParam = reactive({ processId: workId });
 
-  // 墨刀日志列: 实施日期/提交人/工时/实施位置/实施内容/现场照片/操作
+  // 后端 project_implement_log 字段
   const columns = [
-    { title: '实施日期', align: 'center', dataIndex: 'implementDate' },
-    { title: '提交人', align: 'center', dataIndex: 'submitBy' },
-    { title: '工时', align: 'center', dataIndex: 'workHours' },
-    { title: '实施位置', align: 'center', dataIndex: 'position' },
-    { title: '实施内容', align: 'center', dataIndex: 'content' },
+    { title: '实施日期', align: 'center', dataIndex: 'logDate' },
+    { title: '提交人', align: 'center', dataIndex: 'submitterName' },
+    { title: '工时', align: 'center', dataIndex: 'hours' },
+    { title: '实施位置', align: 'center', dataIndex: 'locationName' },
+    { title: '工作内容', align: 'center', dataIndex: 'workContent' },
     { title: '现场照片', align: 'center', dataIndex: 'photos', customRender: ({ text }) => (text ? '查看' : '—') },
   ];
 
@@ -82,7 +82,7 @@
    * 加载工序信息(顶部)
    */
   async function loadWork() {
-    const data = await defHttp.get({ url: '/implement/work/detail', params: { id: workId } });
+    const data = await defHttp.get({ url: '/project/process/queryById', params: { id: workId } });
     work.value = data || {};
   }
 

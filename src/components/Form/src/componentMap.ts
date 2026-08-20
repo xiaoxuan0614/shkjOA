@@ -52,6 +52,8 @@ componentMap.set('Divider', createAsyncComponent(() => import('ant-design-vue/es
 
 componentMap.set('JAreaLinkage', createAsyncComponent(() => import('./jeecg/components/JAreaLinkage.vue')));
 componentMap.set('JSelectPosition', createAsyncComponent(() => import('./jeecg/components/JSelectPosition.vue')));
+// 地图定位选点(高德地图 + 中心 pin)
+componentMap.set('AMapLocationSelect', createAsyncComponent(() => import('/@/components/jeecg/AMapLocationSelect.vue')));
 componentMap.set('JSelectUser', createAsyncComponent(() => import('./jeecg/components/JSelectUser.vue')));
 componentMap.set('JSelectRole', createAsyncComponent(() => import('./jeecg/components/JSelectRole.vue')));
 componentMap.set('JImageUpload', createAsyncComponent(() => import('./jeecg/components/JImageUpload.vue')));

@@ -37,7 +37,7 @@
         schemas: searchFormSchema,
         autoSubmitOnEnter: true,
         showAdvancedButton: true,
-        fieldMapToTime: [['planStart', ['planStart_begin', 'planStart_end'], 'YYYY-MM-DD']],
+        fieldMapToTime: [],
       },
       actionColumn: {
         width: 120,

@@ -51,6 +51,14 @@ const resource: AppRouteModule = {
         title: '供应商管理',
       },
     },
+    {
+      path: 'outsourcing',
+      name: 'ResourceOutsourcing',
+      component: () => import('/@/views/resource/outsourcing/index.vue'),
+      meta: {
+        title: '外协单位',
+      },
+    },
   ],
 };
 

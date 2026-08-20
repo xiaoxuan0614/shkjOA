@@ -18,29 +18,34 @@
   import { ref, onMounted } from 'vue';
   import { useRouter, useRoute } from 'vue-router';
   import { BasicForm, useForm } from '/@/components/Form/index';
+  import { AmapPoi } from '/@/components/jeecg/AMapPlaceSearch.vue';
   import { useMessage } from '/@/hooks/web/useMessage';
   import { projectFormSchema } from '../Project.data';
   import {
     addProject,
     editProject,
+    addPeriod,
     projectDetail,
     getCustomerList,
     getMainProjectList,
   } from '../Project.api';
+  import { loadUserOptions } from '/@/views/resource/userOptions';
 
   const router = useRouter();
   const route = useRoute();
   const { createMessage } = useMessage();
 
-  // 编辑模式(带 id 时为编辑回显)
+  // 编辑模式(带 id 时为编辑回显, id 即分期ID)
   const editId = ref<string | undefined>(route.query?.id as string | undefined);
 
   // 客户列表(甲方选择带出)
-  const customerOptions = ref<any[]>([]);
   let customerMap: Recordable = {};
 
   // 主项目列表(分期: 选择所属主项目带出主项目名称)
   let mainProjectMap: Recordable = {};
+
+  // 负责人: id → 姓名
+  let leaderNameMap: Recordable = {};
 
   // 注册表单
   const [registerForm, { setFieldsValue, validate, updateSchema }] = useForm({
@@ -52,16 +57,17 @@
   });
 
   /**
-   * 加载主项目列表, 注入「所属主项目」下拉
+   * 加载主项目列表, 注入「所属主项目」下拉(未选/不选则为新建主项目)
    */
   async function loadMainProjects() {
-    const data = await getMainProjectList();
+    const res: any = await getMainProjectList();
+    const data = res?.records || res || [];
     mainProjectMap = (data || []).reduce((map, p) => {
       map[p.id] = p;
       return map;
     }, {});
     await updateSchema({
-      field: 'parentId',
+      field: 'projectId',
       componentProps: {
         options: (data || []).map((p) => ({ label: p.projectName, value: p.id })),
         showSearch: true,
@@ -77,24 +83,23 @@
    */
   async function handleParentChange(id: any) {
     const p = mainProjectMap[id];
-    await setFieldsValue({ mainProjectName: p ? p.projectName : '' });
+    await setFieldsValue({ projectName: p ? p.projectName : '' });
   }
 
   /**
    * 加载客户列表, 注入甲方名称下拉
    */
   async function loadCustomers() {
-    const data = await getCustomerList();
-    customerOptions.value = data || [];
+    const res: any = await getCustomerList();
+    const data = res?.records || res || [];
     customerMap = (data || []).reduce((map, c) => {
       map[c.id] = c;
       return map;
     }, {});
-    // 更新甲方名称下拉选项
     await updateSchema({
       field: 'customerId',
       componentProps: {
-        options: customerOptions.value.map((c) => ({ label: c.name, value: c.id })),
+        options: (data || []).map((c) => ({ label: c.customerName || c.name, value: c.id })),
         showSearch: true,
         optionFilterProp: 'label',
         placeholder: '请选择客户',
@@ -110,36 +115,92 @@
     const c = customerMap[id];
     if (!c) return;
     await setFieldsValue({
-      contact: c.contact,
-      phone: c.phone,
-      customerInfo: c.info,
+      contactPerson: c.contactPerson || c.contact,
+      contactPhone: c.contactPhone || c.phone,
+      customerInfo: c.customerInfo || c.info,
+    });
+  }
+
+  /**
+   * 加载项目负责人用户下拉
+   */
+  async function loadLeaders() {
+    const users = await loadUserOptions();
+    leaderNameMap = (users || []).reduce((map, u) => {
+      map[u.value] = u.label;
+      return map;
+    }, {});
+    await updateSchema({
+      field: 'projectLeaderId',
+      componentProps: { options: users || [], showSearch: true, optionFilterProp: 'label', placeholder: '请选择项目负责人' },
     });
   }
 
   /**
    * 编辑回显
+   * ⚠️ 多选字段(业务属性/涉及产品清单)后端存逗号分隔字符串, 表单需要数组 → 拆分回显
    */
   async function loadDetail() {
     if (!editId.value) return;
-    const data = await projectDetail({ id: editId.value });
-    await setFieldsValue({ ...data });
+    const data = await projectDetail({ periodId: editId.value });
+    const values: Recordable = { ...data };
+    ['businessAttribute', 'involvedProducts'].forEach((f) => {
+      if (typeof values[f] === 'string' && values[f]) {
+        values[f] = values[f].split(',').filter(Boolean);
+      }
+    });
+    await setFieldsValue(values);
+    // 回显经纬度到地图选点组件(打开弹窗时地图定位到该点)
+    await updateSchema({
+      field: 'projectAddress',
+      componentProps: { lng: data.longitude ?? null, lat: data.latitude ?? null },
+    });
   }
 
   /**
-   * 保存
+   * 高德搜索选中地址后, 把经纬度写入隐藏字段随保存提交
+   */
+  async function loadAddressSelect() {
+    await updateSchema({
+      field: 'projectAddress',
+      componentProps: {
+        onSelect: (poi: AmapPoi | null) => {
+          setFieldsValue(
+            poi ? { longitude: poi.lng, latitude: poi.lat } : { longitude: undefined, latitude: undefined }
+          );
+        },
+      },
+    });
+  }
+
+  /**
+   * 保存: 未选主项目=新建主项目及分期(addProjectPeriod); 选了主项目=新增分期(addPeriod); 编辑=editProjectPeriod
    */
   async function handleSave() {
     try {
       const values = await validate();
-      // 分期: 未选择所属主项目, 则该记录本身是主项目(parentId = 0)
-      const submitData = {
-        ...values,
-        parentId: values.parentId ? values.parentId : 0,
+      const { projectId, projectName, periodName, ...rest } = values;
+      // 多选字段: 数组 → 逗号分隔字符串(对齐后端存储格式)
+      const submitValues: Recordable = { ...rest };
+      ['businessAttribute', 'involvedProducts'].forEach((f) => {
+        if (Array.isArray(submitValues[f])) {
+          submitValues[f] = submitValues[f].join(',');
+        }
+      });
+      const base = {
+        ...submitValues,
+        projectLeaderName: leaderNameMap[rest.projectLeaderId] || '',
+        customerName: customerMap[rest.customerId]?.customerName || customerMap[rest.customerId]?.name || '',
       };
       if (editId.value) {
-        await editProject({ ...submitData, id: editId.value });
+        // 编辑主项目+分期
+        await editProject({ ...base, projectId, projectName, periodId: editId.value, periodName });
+      } else if (projectId) {
+        // 已有主项目下新增分期
+        await addPeriod({ ...base, projectId, periodName });
       } else {
-        await addProject(submitData);
+        // 新建主项目 + 首期
+        await addProject({ ...base, projectName, periodName });
       }
       createMessage.success('保存成功');
       router.push('/project/list');
@@ -158,6 +219,8 @@
   onMounted(async () => {
     await loadCustomers();
     await loadMainProjects();
+    await loadLeaders();
+    await loadAddressSelect();
     if (editId.value) {
       await loadDetail();
     }

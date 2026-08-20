@@ -40,7 +40,7 @@
         schemas: searchFormSchema,
         autoSubmitOnEnter: true,
         showAdvancedButton: true,
-        fieldMapToTime: [['signDate', ['signDate_begin', 'signDate_end'], 'YYYY-MM-DD']],
+        fieldMapToTime: [],
       },
       actionColumn: {
         width: 160,
