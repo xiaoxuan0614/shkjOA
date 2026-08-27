@@ -11,24 +11,23 @@
           <div class="project-detail__info">
             <div class="project-detail__name">{{ project.periodName || project.projectName || '—' }}</div>
             <div class="project-detail__meta">
-              <span>当前状态：<a-tag :color="statusColor">{{ statusText }}</a-tag></span>
+              <span
+                >当前状态：<a-tag :color="statusColor">{{ statusText }}</a-tag></span
+              >
               <!-- 状态推进按钮(按当前状态动态显示, 可多动作) -->
               <template v-for="(action, i) in flowActions" :key="i">
-                <a-popconfirm
-                  v-if="action.pop"
-                  :title="`确认执行「${action.label}」？`"
-                  @confirm="handleAdvance(action)"
-                >
+                <a-popconfirm v-if="action.pop" :title="`确认执行「${action.label}」？`" @confirm="handleAdvance(action)">
                   <a-button v-auth="action.auth" type="primary" size="small">{{ action.label }}</a-button>
                 </a-popconfirm>
                 <a-button v-else v-auth="action.auth" type="primary" size="small" @click="handleAdvance(action)">
                   {{ action.label }}
                 </a-button>
               </template>
+              <a-button v-if="hasContractInfo" size="small" @click="handleContractInfo">合同信息</a-button>
               <span>项目编号：{{ project.projectNo || '—' }}</span>
               <span>项目类型：{{ project.projectType || '—' }}</span>
               <span>甲方名称：{{ project.customerName || '—' }}</span>
-              <span>项目负责人：{{ project.projectLeaderName || '—' }}</span>
+              <span>项目对接人：{{ project.projectLiaisonUserName || '—' }}</span>
             </div>
           </div>
         </div>
@@ -38,7 +37,7 @@
       <a-card class="project-detail__body">
         <a-tabs v-model:activeKey="activeKey">
           <a-tab-pane key="basic" tab="基本信息">
-            <DetailBasic :project="project" />
+            <DetailBasic :project="project" :editable="canEditProject" @edit="handleEditProject" />
           </a-tab-pane>
           <a-tab-pane key="plan" tab="计划方案">
             <DetailPlan :project-id="projectId" />
@@ -56,7 +55,7 @@
             <DetailAcceptance :project-id="projectId" />
           </a-tab-pane>
           <a-tab-pane key="file" tab="项目文件">
-            <DetailFile :project-id="projectId" />
+            <DetailFile :project-id="projectId" :editable="canManageFiles" />
           </a-tab-pane>
           <a-tab-pane key="material" tab="用料清单">
             <DetailMaterial :project-id="projectId" />
@@ -68,12 +67,17 @@
     <!-- 右侧项目动态 -->
     <a-card class="project-detail__activity">
       <div class="project-detail__activity-title">项目动态</div>
-      <a-timeline class="project-detail__activity-list">
-        <a-timeline-item v-for="(act, idx) in activities" :key="idx" color="blue">
-          <div class="project-detail__activity-text">{{ act.actionContent || act.content }}</div>
-          <div class="project-detail__activity-time">{{ act.operateTime || act.time }}</div>
-        </a-timeline-item>
-      </a-timeline>
+      <div v-if="activities.length" class="project-detail__activity-scroll" tabindex="0" aria-label="项目动态列表，可滚动查看">
+        <a-timeline class="project-detail__activity-list">
+          <a-timeline-item v-for="(act, idx) in activities" :key="act.id || idx" color="blue">
+            <div class="project-detail__activity-text">{{ act.actionContent || act.content || '—' }}</div>
+            <div class="project-detail__activity-meta">
+              <span class="project-detail__activity-operator">操作人：{{ act.operatorName || '—' }}</span>
+              <span class="project-detail__activity-time">{{ act.operateTime || act.time || '—' }}</span>
+            </div>
+          </a-timeline-item>
+        </a-timeline>
+      </div>
       <div v-if="!activities.length" class="project-detail__activity-empty">暂无动态</div>
     </a-card>
   </div>
@@ -86,6 +90,7 @@
   import { statusFlow, projectStatusMap, statusColorMap, loadProjectStatusMap } from '../Project.data';
   import { changePeriodStatus } from '../Project.api';
   import { useMessage } from '/@/hooks/web/useMessage';
+  import { useUserStore } from '/@/store/modules/user';
   import DetailBasic from './components/DetailBasic.vue';
   import DetailPlan from './components/DetailPlan.vue';
   import DetailMember from './components/DetailMember.vue';
@@ -98,6 +103,7 @@
   const route = useRoute();
   const router = useRouter();
   const { createMessage } = useMessage();
+  const userStore = useUserStore();
   const projectId = route.params.id as string; // 分期ID periodId
 
   const activeKey = ref('basic');
@@ -112,9 +118,20 @@
     () => statusMeta.value[project.value.status]?.text || projectStatusMap[project.value.status] || project.value.status || '—'
   );
   const progressPercent = computed(() => Number(project.value.totalProgress) || 0);
-  const statusColor = computed(
-    () => statusMeta.value[project.value.status]?.color || statusColorMap[project.value.status] || 'default'
-  );
+  const statusColor = computed(() => statusMeta.value[project.value.status]?.color || statusColorMap[project.value.status] || 'default');
+  const currentUserId = computed(() => {
+    const user: any = userStore.getUserInfo;
+    return String(user?.id ?? user?.userId ?? '');
+  });
+  // 项目创建后，只有指定的项目对接人可从详情页进入编辑。
+  const canEditProject = computed(() => !!currentUserId.value && String(project.value.projectLiaisonUserId ?? '') === currentUserId.value);
+  const canManageFiles = computed(() => {
+    if (!currentUserId.value) return false;
+    return [project.value.projectLiaisonUserId, project.value.projectManagerUserId]
+      .filter(Boolean)
+      .some((userId) => String(userId) === currentUserId.value);
+  });
+  const hasContractInfo = computed(() => !!project.value.contractId || ['0', '1', '2', '3'].includes(String(project.value.contractStatus ?? '')));
 
   /**
    * 状态流转按钮: statusFlow 配置 + 验收阶段附加「进入质保」(客户验收完成即进入质保)
@@ -165,6 +182,25 @@
 
   function goBack() {
     router.push('/project/list');
+  }
+
+  function handleEditProject() {
+    if (!canEditProject.value) return;
+    router.push({
+      path: '/project/apply',
+      query: { id: projectId, periodId: projectId, projectId: project.value.projectId },
+    });
+  }
+
+  function handleContractInfo() {
+    router.push({
+      path: '/project/contract',
+      query: {
+        mode: 'view',
+        periodId: projectId,
+        projectId: project.value.projectId,
+      },
+    });
   }
 
   onMounted(async () => {
@@ -232,12 +268,38 @@
       &-text {
         color: #333;
         line-height: 1.5;
+        overflow-wrap: anywhere;
       }
 
-      &-time {
+      &-scroll {
+        max-height: calc(100vh - 150px);
+        overflow-y: auto;
+        padding: 2px 8px 2px 0;
+        scrollbar-gutter: stable;
+
+        &:focus-visible {
+          outline: 2px solid #1677ff;
+          outline-offset: 2px;
+          border-radius: 4px;
+        }
+      }
+
+      &-list {
+        margin-bottom: 0;
+      }
+
+      &-meta {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
         color: #999;
         font-size: 12px;
         margin-top: 4px;
+      }
+
+      &-operator,
+      &-time {
+        overflow-wrap: anywhere;
       }
 
       &-empty {
@@ -254,6 +316,10 @@
 
       &__activity {
         width: 100%;
+
+        &-scroll {
+          max-height: 360px;
+        }
       }
     }
   }

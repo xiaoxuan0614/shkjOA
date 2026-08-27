@@ -17,7 +17,7 @@
           <div class="ant-upload-text">{{ text }}</div>
         </div>
       </template>
-      <a-button v-else-if="buttonVisible" :disabled="buttonDisabled">
+      <a-button v-else-if="buttonVisible && !isMaxCount" :disabled="buttonDisabled">
         <Icon icon="ant-design:upload-outlined" />
         <span>{{ text }}</span>
       </a-button>
@@ -26,19 +26,18 @@
 </template>
 
 <script lang="ts" setup>
-  import { ref, reactive, computed, watch, nextTick, createApp,unref } from 'vue';
+  import { ref, computed, watch, nextTick, createApp, unref } from 'vue';
   import { Icon } from '/@/components/Icon';
-  import { getToken } from '/@/utils/auth';
   import { uploadUrl } from '/@/api/common/api';
   import { propTypes } from '/@/utils/propTypes';
   import { useMessage } from '/@/hooks/web/useMessage';
-  import { createImgPreview } from '/@/components/Preview/index';
   import { useAttrs } from '/@/hooks/core/useAttrs';
   import { useDesign } from '/@/hooks/web/useDesign';
   import { UploadTypeEnum } from './upload.data';
   import { getFileAccessHttpUrl, getHeaders } from '/@/utils/common/compUtils';
   import UploadItemActions from './components/UploadItemActions.vue';
   import { split } from '/@/utils/index';
+  import { previewFileInModal } from '/@/utils/filePreview';
 
   const { createMessage, createConfirm } = useMessage();
   const { prefixCls } = useDesign('j-upload');
@@ -57,13 +56,13 @@
      */
     returnUrl: propTypes.bool.def(true),
     // 最大上传数量
-    maxCount: propTypes.number.def(0),
+    maxCount: propTypes.number.def(1),
     buttonVisible: propTypes.bool.def(true),
-    multiple: propTypes.bool.def(true),
+    multiple: propTypes.bool.def(false),
     // 是否显示左右移动按钮
     mover: propTypes.bool.def(true),
     // 是否显示下载按钮
-    download: propTypes.bool.def(true),
+    download: propTypes.bool.def(false),
     // 删除时是否显示确认框
     removeConfirm: propTypes.bool.def(false),
     beforeUpload: propTypes.func,
@@ -82,18 +81,18 @@
   // 当前是否是上传图片模式
   const isImageMode = computed(() => props.fileType === UploadTypeEnum.image);
   // 上传按钮是否禁用
-  const buttonDisabled = computed(()=>{
-    if(props.disabled === true){
+  const buttonDisabled = computed(() => {
+    if (props.disabled === true) {
       return true;
     }
-    if(isMaxCount.value === true){
-      if(props.replaceLastOne === true){
-        return false
-      }else{
+    if (isMaxCount.value === true) {
+      if (props.replaceLastOne === true) {
+        return false;
+      } else {
         return true;
       }
     }
-    return false
+    return false;
   });
   // 合并 props 和 attrs
   const bindProps = computed(() => {
@@ -295,9 +294,9 @@
           }
           return file;
         });
-      }else{
-        successFileList = fileListTemp.filter(item=>{
-          return item.uid!=info.file.uid;
+      } else {
+        successFileList = fileListTemp.filter((item) => {
+          return item.uid != info.file.uid;
         });
         createMessage.error(`${info.file.name} 上传失败.`);
       }
@@ -322,7 +321,7 @@
               fileSize: item.size,
             };
             newFileList.push(fileJson);
-          }else{
+          } else {
             return;
           }
         }
@@ -354,11 +353,7 @@
 
   // 预览文件、图片
   function onFilePreview(file) {
-    if (isImageMode.value) {
-      createImgPreview({ imageList: [file.url], maskClosable: true });
-    } else {
-      window.open(file.url);
-    }
+    previewFileInModal(file);
   }
 
   function emitValue(value) {

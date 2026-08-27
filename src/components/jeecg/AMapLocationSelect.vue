@@ -27,6 +27,7 @@
           :address="mapAddress"
           :height="mapHeight"
           :disabled="disabled || locked"
+          :auto-locate="autoLocate && !disabled && (mapLng == null || mapLat == null)"
           @select="onMapSelect"
           @update:lng="(v) => (mapLng = v)"
           @update:lat="(v) => (mapLat = v)"
@@ -39,8 +40,8 @@
         </a-button>
         <template v-else>
           <span class="amap-location-select__tip">拖动地图或搜索调整位置</span>
-          <a-button size="small" @click="handleCancelMove">取 消</a-button>
-          <a-button size="small" type="primary" @click="handleSaveMove">保 存</a-button>
+          <a-button size="small" :disabled="disabled" @click="handleCancelMove">取 消</a-button>
+          <a-button size="small" type="primary" :disabled="disabled" @click="handleSaveMove">保 存</a-button>
         </template>
       </div>
     </div>
@@ -55,6 +56,7 @@
       destroyOnClose
       :okText="'确定'"
       :cancelText="'取消'"
+      :okButtonProps="{ disabled: disabled || !lastPoi }"
       @ok="handleConfirm"
     >
       <div class="amap-location-select__map">
@@ -65,6 +67,8 @@
             :lat="modalLat"
             :address="modalAddress"
             :height="mapHeight"
+            :disabled="disabled"
+            :auto-locate="autoLocate && !disabled && (modalLng == null || modalLat == null)"
             @select="onModalSelect"
           />
         </a-form-item-rest>
@@ -93,12 +97,15 @@
       mapHeight?: string;
       /** 内联模式: 地图直接显示在表单里(参考图样式); 默认 false=点击输入框弹窗选点 */
       inline?: boolean;
+      /** 无已有坐标时自动定位当前设备 */
+      autoLocate?: boolean;
     }>(),
     {
       lng: null,
       lat: null,
       mapHeight: '320px',
       inline: false,
+      autoLocate: false,
     }
   );
 
@@ -121,9 +128,7 @@
   // 已确认位置(表单里存的) vs 地图当前展示位置
   const locked = ref(true);
   const savedPoi = ref<AmapPoi | null>(
-    props.lng != null && props.lat != null
-      ? { name: props.value ?? '', address: props.value ?? '', lng: props.lng, lat: props.lat }
-      : null
+    props.lng != null && props.lat != null ? { name: props.value ?? '', address: props.value ?? '', lng: props.lng, lat: props.lat } : null
   );
   const mapLng = ref<number | null>(props.lng ?? null);
   const mapLat = ref<number | null>(props.lat ?? null);
@@ -138,6 +143,7 @@
       const next = nl != null && na != null ? { name: props.value ?? '', address: props.value ?? '', lng: nl, lat: na } : null;
       savedPoi.value = next;
       if (locked.value) {
+        draftPoi = next;
         mapLng.value = nl ?? null;
         mapLat.value = na ?? null;
         mapAddress.value = props.value ?? '';
@@ -145,9 +151,27 @@
     }
   );
 
+  // 外部仅更新地址但坐标不变时，同步已确认快照；编辑中的草稿保持不动。
+  watch(
+    () => props.value,
+    (value) => {
+      if (!locked.value) return;
+      const nextAddress = value ?? '';
+      mapAddress.value = nextAddress;
+      if (savedPoi.value) {
+        savedPoi.value = { ...savedPoi.value, name: nextAddress, address: nextAddress };
+        draftPoi = savedPoi.value;
+      }
+    }
+  );
+
   /** 地图选点事件(拖动/搜索) */
   function onMapSelect(poi: AmapPoi | null) {
-    if (!poi || poi.lng == null || poi.lat == null) return;
+    if (props.disabled) return;
+    if (!poi || poi.lng == null || poi.lat == null) {
+      draftPoi = null;
+      return;
+    }
     draftPoi = poi;
     // 同步地图展示位置(便于「取消」时还原)
     mapLng.value = poi.lng;
@@ -157,13 +181,14 @@
 
   /** 解锁: 可拖动/搜索 */
   function handleUnlock() {
+    if (props.disabled) return;
     locked.value = false;
-    draftPoi = savedPoi.value;
+    draftPoi = savedPoi.value || draftPoi;
   }
 
   /** 保存: 确认新位置并回传父级 */
   function handleSaveMove() {
-    if (!draftPoi || draftPoi.lng == null || draftPoi.lat == null) return;
+    if (props.disabled || !draftPoi || draftPoi.lng == null || draftPoi.lat == null) return;
     const addr = draftPoi.address || draftPoi.name || '';
     innerValue.value = addr;
     savedPoi.value = draftPoi;
@@ -182,43 +207,54 @@
     locked.value = true;
   }
 
+  watch(
+    () => props.disabled,
+    (disabled) => {
+      if (disabled && !locked.value) handleCancelMove();
+    }
+  );
+
   // ===== 弹窗模式 =====
   const modalTitle = ref('地图选点');
   const modalLng = ref<number | null>(null);
   const modalLat = ref<number | null>(null);
   const modalAddress = ref('');
-  let lastPoi: AmapPoi | null = null;
+  const lastPoi = ref<AmapPoi | null>(null);
 
-  const [registerModal, { openModal }] = useModal();
+  const [registerModal, { openModal, closeModal }] = useModal();
 
   function handleFieldClick() {
     if (props.disabled || props.inline) return;
     modalLng.value = props.lng ?? null;
     modalLat.value = props.lat ?? null;
     modalAddress.value = props.value ?? '';
-    lastPoi =
-      props.lng != null && props.lat != null
-        ? { name: props.value ?? '', address: props.value ?? '', lng: props.lng, lat: props.lat }
-        : null;
+    lastPoi.value =
+      props.lng != null && props.lat != null ? { name: props.value ?? '', address: props.value ?? '', lng: props.lng, lat: props.lat } : null;
     openModal(true);
   }
 
   function onModalSelect(poi: AmapPoi | null) {
-    lastPoi = poi;
+    if (props.disabled) return;
+    lastPoi.value = poi;
     if (poi) {
       modalLng.value = poi.lng ?? null;
       modalLat.value = poi.lat ?? null;
       modalAddress.value = poi.address || poi.name;
+    } else {
+      modalLng.value = null;
+      modalLat.value = null;
+      modalAddress.value = '';
     }
   }
 
   function handleConfirm() {
-    if (!lastPoi || lastPoi.lng == null || lastPoi.lat == null) return;
-    const addr = lastPoi.address || lastPoi.name || '';
+    if (props.disabled || !lastPoi.value || lastPoi.value.lng == null || lastPoi.value.lat == null) return;
+    const addr = lastPoi.value.address || lastPoi.value.name || '';
     innerValue.value = addr;
     emit('update:value', addr);
     emit('change', addr);
-    emit('select', lastPoi);
+    emit('select', lastPoi.value);
+    closeModal();
   }
 </script>
 

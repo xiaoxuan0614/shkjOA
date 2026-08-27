@@ -39,6 +39,8 @@
   import PlanPosition from '../components/PlanPosition.vue';
   import PlanPayment from '../components/PlanPayment.vue';
 
+  defineOptions({ name: 'PlanDetail' });
+
   const route = useRoute();
   const router = useRouter();
   const projectId = route.params.id as string;
@@ -50,7 +52,8 @@
   async function load() {
     const res: any = await planDetail({ periodId: projectId, pageNo: 1, pageSize: 100 });
     const list = res?.records || res || [];
-    const record = list[0] || {};
+    // 合同用料清单草稿借用 project_plan 保存锁定状态，不作为正式方案详情展示。
+    const record = list.find((item: any) => item.planType !== 'CONTRACT_MATERIAL_DRAFT') || {};
     project.value = record;
     plan.value = record;
   }

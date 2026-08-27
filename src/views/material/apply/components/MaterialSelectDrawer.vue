@@ -1,13 +1,5 @@
 <template>
-  <BasicDrawer
-    v-bind="$attrs"
-    @register="register"
-    title="添加用料"
-    :width="900"
-    showFooter
-    @visible-change="handleVisibleChange"
-    @ok="handleOk"
-  >
+  <BasicDrawer v-bind="$attrs" @register="register" title="添加用料" :width="900" showFooter @visible-change="handleVisibleChange" @ok="handleOk">
     <div class="material-select">
       <!-- 左侧：物料大类树 -->
       <div class="material-select__tree">
@@ -54,17 +46,8 @@
         >
           <template #bodyCell="{ column, record }">
             <template v-if="column.key === 'action'">
-              <a-button
-                v-if="!isSelected(record)"
-                type="link"
-                size="small"
-                @click="handleSelect(record)"
-              >
-                选择
-              </a-button>
-              <a-button v-else type="link" size="small" danger @click="handleUnselect(record)">
-                取消选择
-              </a-button>
+              <a-button v-if="!isSelected(record)" type="link" size="small" @click="handleSelect(record)"> 选择 </a-button>
+              <a-button v-else type="link" size="small" danger @click="handleUnselect(record)"> 取消选择 </a-button>
             </template>
           </template>
         </a-table>
@@ -111,6 +94,7 @@
 
   // 表格列(对齐 StockMaterial: materialName/brand/model/stockQty)
   const columns = [
+    { title: '物料编码', dataIndex: 'materialCode', key: 'materialCode', width: 140 },
     { title: '名称', dataIndex: 'materialName', key: 'materialName' },
     { title: '品牌', dataIndex: 'brand', key: 'brand' },
     { title: '型号', dataIndex: 'model', key: 'model' },

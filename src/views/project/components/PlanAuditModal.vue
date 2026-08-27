@@ -7,13 +7,10 @@
         <a-tag :color="statusColor">{{ statusText }}</a-tag>
       </a-descriptions-item>
     </a-descriptions>
-    <div class="plan-audit__tip">
-      请先到「计划方案」详情核对计划用料清单 / 实施计划 / 实施位置 / 参与人员，确认后审批。
-    </div>
-
+    <div class="plan-audit__tip"> 请核对方案文件、用料计划、人员配置、实施计划、位置信息和回款计划后审批。 </div>
     <!-- 驳回原因输入 -->
     <div v-if="rejecting" class="plan-audit__reject">
-      <span class="plan-audit__label">驳回原因</span>
+      <span class="plan-audit__reject-label">驳回原因</span>
       <a-textarea v-model:value="rejectReason" :rows="3" placeholder="请填写驳回原因（必填）" />
     </div>
 
@@ -23,7 +20,7 @@
         <a-button type="danger" :loading="submitting" @click="handleReject">确认驳回</a-button>
       </template>
       <template v-else>
-        <a-button @click="closeModal">关 闭</a-button>
+        <a-button preIcon="ant-design:eye-outlined" @click="handleViewDetail">查看详情</a-button>
         <a-button danger @click="rejecting = true">驳 回</a-button>
         <a-button type="primary" :loading="submitting" @click="handleApprove">通 过</a-button>
       </template>
@@ -33,12 +30,14 @@
 
 <script lang="ts" setup>
   import { ref, computed } from 'vue';
+  import { useRouter } from 'vue-router';
   import { BasicModal, useModalInner } from '/@/components/Modal';
   import { useMessage } from '/@/hooks/web/useMessage';
   import { changePeriodStatus } from '../Project.api';
   import { loadProjectStatusMap, projectStatusMap, statusColorMap } from '../Project.data';
 
   const { createMessage } = useMessage();
+  const router = useRouter();
   const emit = defineEmits(['register', 'success']);
 
   const periodId = ref('');
@@ -48,7 +47,9 @@
   const rejectReason = ref('');
   const submitting = ref(false);
 
-  const statusText = computed(() => statusMeta.value[periodInfo.value.status]?.text || projectStatusMap[periodInfo.value.status] || periodInfo.value.status || '—');
+  const statusText = computed(
+    () => statusMeta.value[periodInfo.value.status]?.text || projectStatusMap[periodInfo.value.status] || periodInfo.value.status || '—'
+  );
   const statusColor = computed(() => statusMeta.value[periodInfo.value.status]?.color || statusColorMap[periodInfo.value.status] || 'default');
 
   const [register, { closeModal }] = useModalInner(async (data) => {
@@ -75,6 +76,15 @@
     } finally {
       submitting.value = false;
     }
+  }
+
+  function handleViewDetail() {
+    if (!periodId.value) {
+      createMessage.warning('缺少项目分期 ID，无法查看计划方案');
+      return;
+    }
+    closeModal();
+    router.push({ path: '/project/plan', query: { periodId: periodId.value, mode: 'view' } });
   }
 
   /** 审批驳回 → 回筹备中(项目经理可修改计划) */

@@ -22,6 +22,16 @@ const project: AppRouteModule = {
       },
     },
     {
+      path: 'contract',
+      name: 'ProjectContract',
+      component: () => import('/@/views/project/contract/index.vue'),
+      meta: {
+        hideMenu: true,
+        title: '合同信息',
+        currentActiveMenu: '/project/list',
+      },
+    },
+    {
       path: 'detail/:id',
       name: 'ProjectDetail',
       component: () => import('/@/views/project/detail/index.vue'),

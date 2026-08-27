@@ -17,10 +17,10 @@
   import { BasicModal, useModalInner } from '/@/components/Modal';
   import { previewProps } from './props';
   import { PreviewFileItem } from './typing';
-  import { downloadByUrl } from '/@/utils/file/download';
   import { createPreviewColumns, createPreviewActionColumn } from './data';
   import { useI18n } from '/@/hooks/web/useI18n';
   import { isArray } from '/@/utils/is';
+  import { previewFileInModal } from '/@/utils/filePreview';
 
   export default defineComponent({
     components: { BasicModal, FileList },
@@ -61,18 +61,9 @@
         }
       }
 
-      // // 预览
-      // function handlePreview(record: PreviewFileItem) {
-      //   const { url = '' } = record;
-      //   createImgPreview({
-      //     imageList: [url],
-      //   });
-      // }
-
-      // 下载
-      function handleDownload(record: PreviewFileItem) {
+      function handlePreview(record: PreviewFileItem) {
         const { url = '' } = record;
-        downloadByUrl({ url });
+        previewFileInModal(url, record.name);
       }
 
       return {
@@ -81,7 +72,7 @@
         closeModal,
         fileListRef,
         columns: createPreviewColumns() as any[],
-        actionColumn: createPreviewActionColumn({ handleRemove, handleDownload }) as any,
+        actionColumn: createPreviewActionColumn({ handleRemove, handlePreview }) as any,
       };
     },
   });

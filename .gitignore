@@ -34,4 +34,5 @@ os_del.cmd
 /.vscode/
 /.history/
 /svn clear.bat
-.claude
+.claude/*
+!.claude/settings.json

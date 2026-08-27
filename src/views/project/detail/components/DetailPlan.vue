@@ -1,12 +1,27 @@
 <template>
   <div class="detail-plan">
-    <a-table :columns="columns" :data-source="plans" :pagination="false" size="middle" bordered />
+    <a-table :columns="columns" :data-source="plans" :pagination="false" size="middle" bordered>
+      <template #bodyCell="{ column, record }">
+        <template v-if="column.key === 'planFileId'">
+          <a-button
+            v-if="record.planFileId"
+            size="small"
+            preIcon="ant-design:eye-outlined"
+            @click="previewFileInModal(record.planFileId, record.planName)"
+          >
+            预览
+          </a-button>
+          <span v-else>—</span>
+        </template>
+      </template>
+    </a-table>
   </div>
 </template>
 
 <script lang="ts" setup>
   import { ref, watch } from 'vue';
   import { getPlan } from '../ProjectDetail.api';
+  import { previewFileInModal } from '/@/utils/filePreview';
 
   const props = defineProps<{
     projectId: string;
@@ -21,7 +36,7 @@
     { title: '计划开始时间', dataIndex: 'planStartTime' },
     { title: '计划结束时间', dataIndex: 'planEndTime' },
     { title: '计划总工时', dataIndex: 'plannedTotalHours' },
-    { title: '方案文档', dataIndex: 'planFileId', customRender: ({ text }) => text || '—' },
+    { title: '方案文档', dataIndex: 'planFileId', key: 'planFileId' },
     { title: '备注', dataIndex: 'remark' },
   ];
 

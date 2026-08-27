@@ -1,18 +1,23 @@
 import { defHttp } from '/@/utils/http/axios';
+import { ContentTypeEnum } from '/@/enums/httpEnum';
 
 /**
- * 回款管理 - 对接后端 /project/contract/*(合同管理)
- * ⚠️ 回款计划(paybackPlan)后端暂无独立接口, 暂保留占位; 已回款金额走 contract.receivedAmount
+ * 回款管理 - 对接后端 /project/contract/* 与 /project/paymentRecord/*
+ * 合同新增/修改均走 multipart 组合事务接口，详情按 periodId 返回合同、文件与回款计划。
  */
 enum Api {
   list = '/project/contract/list',
   detail = '/project/contract/queryById',
   add = '/project/contract/add',
-  edit = '/project/contract/edit',
+  addWithPaymentRecords = '/project/contract/addWithPaymentRecords',
+  editWithPaymentRecords = '/project/contract/editWithPaymentRecords',
   status = '/project/contract/status',
   delete = '/project/contract/delete',
-  paybackList = '/project/contractItem/list',
-  paybackSave = '/project/contractItem/add',
+  paybackList = '/project/paymentRecord/list',
+  paybackAdd = '/project/paymentRecord/add',
+  paybackAddBatch = '/project/paymentRecord/addBatch',
+  paybackEditBatch = '/project/paymentRecord/editBatch',
+  paybackDeleteBatch = '/project/paymentRecord/deleteBatch',
 }
 
 /**
@@ -21,35 +26,98 @@ enum Api {
 export const contractList = (params) => defHttp.get({ url: Api.list, params });
 
 /**
- * 合同详情
- * @param params { id }
+ * 合同详情；最新接口仅接受项目分期 ID。
+ * @param params { periodId }
  */
-export const contractDetail = (params) => defHttp.get({ url: Api.detail, params });
-
-/**
- * 保存合同(新增/编辑)
- */
-export const saveContract = (params) => {
-  if (params.id) {
-    return defHttp.post({ url: Api.edit, params }, { successMessageMode: 'success' });
-  }
-  return defHttp.post({ url: Api.add, params }, { successMessageMode: 'success' });
+export const contractDetail = async (params) => {
+  const result: any = await defHttp.get({ url: Api.detail, params });
+  if (!result?.contract) return result;
+  // 兼容原有消费方的合同扁平结构，同时保留组合接口返回的文件与回款计划。
+  return {
+    ...result.contract,
+    contractFile: result.contractFile,
+    materialFile: result.materialFile,
+    records: result.records || [],
+  };
 };
 
 /**
- * 合同状态变更(审批: 通过/驳回)
- * @param params { id, status, approvalReason? } status: 0驳回 / 2已通过
+ * 合同审批按项目分期读取合同详情，避免把项目列表中的其他记录 ID 误作合同主键。
+ * @param periodId 项目分期 ID
  */
-export const changeContractStatus = (params) =>
-  defHttp.post({ url: Api.status, params }, { successMessageMode: 'success' });
+export const contractDetailByPeriodId = (periodId: string) => contractDetail({ periodId });
+
+/** 旧回款管理弹窗仅保留新增；合同修改统一进入组合修改接口。 */
+export const saveContract = (params) => defHttp.post({ url: Api.add, params }, { successMessageMode: 'success' });
 
 /**
- * 合同回款计划列表(暂用合同明细分页, 待后端回款计划接口)
+ * 新增合同、两个可选文件与回款计划（multipart 后端事务接口）。
  */
-export const paybackList = (params) => defHttp.get({ url: Api.paybackList, params });
+export const addContractWithPaymentRecords = (data: Recordable, attachment?: File, materialAttachment?: File) =>
+  submitContractWithPaymentRecords(Api.addWithPaymentRecords, data, attachment, materialAttachment);
 
 /**
- * 添加回款记录(占位)
+ * 按 periodId 差量修改合同字段，并全量同步回款计划；未传新文件时保留旧文件。
  */
-export const savePayback = (params) =>
-  defHttp.post({ url: Api.paybackSave, params }, { successMessageMode: 'success' });
+export const editContractWithPaymentRecords = (data: Recordable, attachment?: File, materialAttachment?: File) =>
+  submitContractWithPaymentRecords(Api.editWithPaymentRecords, data, attachment, materialAttachment);
+
+function submitContractWithPaymentRecords(url: string, data: Recordable, attachment?: File, materialAttachment?: File) {
+  const formData = new FormData();
+  formData.append('data', JSON.stringify(data));
+  if (attachment) formData.append('attachment', attachment, attachment.name);
+  if (materialAttachment) formData.append('materialAttachment', materialAttachment, materialAttachment.name);
+  // defHttp 会将非 GET 的 params 原样搬到 body；直接传 data=FormData 会被其空对象判断误清空。
+  return defHttp.post({ url, params: formData, headers: { 'Content-Type': ContentTypeEnum.FORM_DATA } }, { successMessageMode: 'success' });
+}
+
+/**
+ * 合同状态变更（审批、撤回、重新提审）。
+ * @param params { periodId, status, approvalReason? } status: 0驳回 / 1通过 / 2待审核 / 3已撤回 / 其他待提交
+ */
+export const changeContractStatus = (params) => defHttp.post({ url: Api.status, params }, { successMessageMode: 'success' });
+
+/**
+ * 项目回款计划列表；periodId 必传。
+ */
+export const paybackList = async (params) => {
+  const result: any = await defHttp.get({ url: Api.paybackList, params });
+  const normalize = (record: Recordable) => ({
+    ...record,
+    node: record.paymentNode ?? record.node,
+    amount: record.plannedAmount ?? record.amount,
+    planDate: record.plannedDate ?? record.planDate,
+    type: record.paymentNode ?? record.type,
+    planAmount: record.plannedAmount ?? record.planAmount,
+    paidAmount: record.actualAmount ?? record.paidAmount,
+    unpaidAmount: record.unpaidAmount ?? Math.max(0, Number(record.plannedAmount || 0) - Number(record.actualAmount || 0)),
+    detail: record.remark ?? record.detail,
+  });
+  if (Array.isArray(result)) return result.map(normalize);
+  if (Array.isArray(result?.records)) return { ...result, records: result.records.map(normalize) };
+  return result;
+};
+
+/**
+ * 添加单条回款项（兼容旧页面）
+ */
+export const savePayback = (params) => defHttp.post({ url: Api.paybackAdd, params }, { successMessageMode: 'success' });
+
+/**
+ * 批量新增项目回款计划。
+ * @param params { periodId, records }; records 内不得传 periodId/id/contractId
+ */
+export const addPaybackBatch = (params) => defHttp.post({ url: Api.paybackAddBatch, params }, { successMessageMode: 'success' });
+
+/**
+ * 按项目分期全量同步回款计划。
+ * @param params { periodId, records }; 带 id 更新，不带 id 新增，未提交的原记录会删除
+ */
+export const editPaybackBatch = (params) => defHttp.post({ url: Api.paybackEditBatch, params }, { successMessageMode: 'success' });
+
+/**
+ * 批量删除回款计划
+ * @param params { ids: string }
+ */
+export const deletePaybackBatch = (params) =>
+  defHttp.delete({ url: Api.paybackDeleteBatch, params }, { joinParamsToUrl: true, successMessageMode: 'success' });

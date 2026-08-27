@@ -18,17 +18,20 @@
           </a-tag>
         </template>
         <template v-else-if="column.dataIndex === 'contractStatus'">
-          <a-tag :color="record.contractStatus ? 'success' : 'default'">
-            {{ record.contractStatus ? '已签订' : '未签订' }}
+          <a-tag :color="getApprovalStatusMeta(record.contractStatus).color">
+            {{ getApprovalStatusMeta(record.contractStatus).text }}
           </a-tag>
         </template>
         <template v-else-if="column.dataIndex === 'projectType'">
           {{ projectTypeMeta[record.projectType] || record.projectType || '—' }}
         </template>
+        <template v-else-if="column.dataIndex === 'projectLiaisonUserName'">
+          {{ getProjectLiaisonName(record) }}
+        </template>
       </template>
     </BasicTable>
-    <!-- 计划审批弹窗(待立项) -->
-    <PlanAuditModal @register="registerModal" @success="handlePlanAuditSuccess" />
+    <!-- 计划审批 -->
+    <PlanAuditModal @register="registerPlanAuditModal" @success="handleAuditSuccess" />
   </div>
 </template>
 
@@ -39,26 +42,73 @@
   import { useModal } from '/@/components/Modal';
   import { useListPage } from '/@/hooks/system/useListPage';
   import { columns, searchFormSchema, statusFlow, projectStatusMap, statusColorMap, loadProjectStatusMap, loadProjectTypeMap } from './Project.data';
-  import { projectList, deleteProject, changePeriodStatus } from './Project.api';
+  import { projectList, projectDetail, deleteProject, changePeriodStatus } from './Project.api';
   import { useMessage } from '/@/hooks/web/useMessage';
+  import { getApprovalStatusMeta, isApprovalApproved } from '/@/utils/approvalStatus';
+  import { loadUserOptions } from '/@/views/resource/userOptions';
   import PlanAuditModal from './components/PlanAuditModal.vue';
 
   const router = useRouter();
   const { createMessage } = useMessage();
 
-  // 合同签订弹窗
-  const [registerModal, { openModal }] = useModal();
+  const [registerPlanAuditModal, { openModal: openPlanAuditModal }] = useModal();
 
   // 状态字典映射(数据源 project_period_status, 加载失败回退 projectStatusMap)
   const statusMeta = ref<Recordable>({});
   // 项目类型字典映射(数据源 project_type)
   const projectTypeMeta = ref<Recordable>({});
+  // 项目对接人姓名映射；接口姓名快照为空时按用户 ID 补齐。
+  const liaisonNameMap = ref<Recordable>({});
+  let liaisonOptionsPromise: Promise<{ label: string; value: string }[]> | null = null;
 
   const queryParam = reactive<any>({});
 
+  async function loadLiaisonOptions() {
+    liaisonOptionsPromise ||= loadUserOptions().catch(() => []);
+    const users = await liaisonOptionsPromise;
+    liaisonNameMap.value = users.reduce((map, user) => {
+      map[user.value] = user.label;
+      return map;
+    }, {} as Recordable);
+    return users;
+  }
+
+  function getProjectLiaisonUserId(record: Recordable) {
+    return record.projectLiaisonUserId ?? record.projectLiaisonId ?? record.projectLeaderId;
+  }
+
+  function getProjectLiaisonName(record: Recordable) {
+    const snapshot = record.projectLiaisonUserName || record.projectLiaisonName || record.projectLeaderName;
+    if (snapshot && snapshot !== '—') return snapshot;
+    return liaisonNameMap.value[String(getProjectLiaisonUserId(record) ?? '')] || '—';
+  }
+
+  async function enrichProjectLiaisons(records: Recordable[]) {
+    await loadLiaisonOptions();
+    return Promise.all(
+      (records || []).map(async (record) => {
+        if (getProjectLiaisonName(record) !== '—') return record;
+        const currentPeriodId = record.periodId || record.id;
+        if (!currentPeriodId) return record;
+        try {
+          const detail: any = await projectDetail({ periodId: currentPeriodId });
+          return {
+            ...record,
+            projectLiaisonUserId: detail?.projectLiaisonUserId ?? getProjectLiaisonUserId(record),
+            projectLiaisonUserName:
+              detail?.projectLiaisonUserName || detail?.projectLiaisonName || detail?.projectLeaderName || record.projectLiaisonUserName,
+          };
+        } catch {
+          return record;
+        }
+      })
+    );
+  }
+
   onMounted(async () => {
-    statusMeta.value = await loadProjectStatusMap();
-    projectTypeMeta.value = await loadProjectTypeMap();
+    const [loadedStatusMeta, loadedProjectTypeMeta] = await Promise.all([loadProjectStatusMap(), loadProjectTypeMap(), loadLiaisonOptions()]);
+    statusMeta.value = loadedStatusMeta;
+    projectTypeMeta.value = loadedProjectTypeMeta;
   });
 
   // 注册table数据
@@ -75,12 +125,13 @@
         fieldMapToTime: [],
       },
       actionColumn: {
-        width: 240,
+        width: 300,
         fixed: 'right',
       },
       beforeFetch: (params) => {
         return Object.assign(params, queryParam);
       },
+      afterFetch: enrichProjectLiaisons,
     },
   });
 
@@ -100,21 +151,23 @@
     router.push({ path: '/project/plan', query: { periodId: record.periodId } });
   }
 
+  /** 已提交合同统一进入合同信息页查看和处理，不再使用独立审批弹窗。 */
+  function handleContractInfo(record: Recordable) {
+    router.push({
+      path: '/project/contract',
+      query: { mode: 'view', periodId: record.periodId || record.id, projectId: record.projectId },
+    });
+  }
+
+  function isContractSubmitted(record: Recordable) {
+    return !!record.contractId || ['0', '1', '2', '3'].includes(String(record.contractStatus ?? ''));
+  }
+
   /**
    * 详情: 跳转项目详情页(8-tab), id 为分期ID
    */
   function handleDetail(record: Recordable) {
     router.push({ path: `/project/detail/${record.periodId || record.id}` });
-  }
-
-  /**
-   * 编辑: 跳转新增项目页回显
-   */
-  function handleEdit(record: Recordable) {
-    router.push({
-      path: '/project/apply',
-      query: { id: record.periodId || record.id, periodId: record.periodId, projectId: record.projectId },
-    });
   }
 
   /**
@@ -129,7 +182,7 @@
   /**
    * 计划审批成功回调
    */
-  function handlePlanAuditSuccess() {
+  function handleAuditSuccess() {
     reload();
   }
 
@@ -142,12 +195,12 @@
     if (action.act === 'contractSign') {
       router.push({
         path: '/project/contract',
-        query: { periodId: record.periodId || record.id, projectId: record.projectId },
+        query: { mode: 'create', periodId: record.periodId || record.id, projectId: record.projectId },
       });
       return;
     }
     if (action.act === 'planAudit') {
-      openModal(true, { periodId: record.periodId || record.id, projectId: record.projectId });
+      openPlanAuditModal(true, { ...record, periodId: record.periodId || record.id, record });
       return;
     }
     await changePeriodStatus({ periodId: record.periodId || record.id, status: action.status });
@@ -156,15 +209,15 @@
   }
 
   /**
-   * 操作栏: 状态流转(按当前状态动态显示, 可多动作) + 编辑
+   * 操作栏: 状态流转(项目创建后仅允许从详情页编辑基本信息)
    */
   function getTableAction(record: Recordable) {
     const flow = statusFlow[record.status];
     const actions = [];
     if (flow && flow.actions) {
       flow.actions.forEach((action) => {
-        // 合同已签订: 不再显示「合同签订」按钮
-        if (action.act === 'contractSign' && record.contractStatus) return;
+        // 明确返回合同 ID 或状态 0/1/2/3 时，均表示已有合同记录，不再显示「合同签订」。
+        if (action.act === 'contractSign' && isContractSubmitted(record)) return;
         const item: Recordable = {
           label: action.label,
           auth: action.auth,
@@ -182,26 +235,28 @@
         actions.push(item);
       });
     }
-    actions.push({
-      label: '编辑',
-      onClick: handleEdit.bind(null, record),
-    });
-    return actions;
-  }
-
-  /**
-   * 下拉操作栏: 编辑计划方案(仅筹备中) + 详情 + 删除
-   */
-  function getDropDownAction(record: Recordable) {
-    const actions = [];
-    // 合同已签订(已签订/筹备中)即可创建计划
-    if (record.contractStatus || record.status === 'PREPARING') {
+    // 合同通过前，列表统一显示合同信息入口；通过后仅从项目详情查看。
+    if (isContractSubmitted(record) && !isApprovalApproved(record.contractStatus)) {
+      actions.push({
+        label: '合同信息',
+        onClick: handleContractInfo.bind(null, record),
+      });
+    }
+    // 高频计划入口直接展示在操作栏，不收进“更多”。
+    if (isApprovalApproved(record.contractStatus) || record.status === 'PREPARING') {
       actions.push({
         label: '编辑计划方案',
         onClick: handleAddPlan.bind(null, record),
       });
     }
-    actions.push(
+    return actions;
+  }
+
+  /**
+   * 下拉操作栏: 详情 + 删除
+   */
+  function getDropDownAction(record: Recordable) {
+    return [
       {
         label: '详情',
         onClick: handleDetail.bind(null, record),
@@ -213,8 +268,7 @@
           confirm: handleDelete.bind(null, record),
           placement: 'topLeft',
         },
-      }
-    );
-    return actions;
+      },
+    ];
   }
 </script>

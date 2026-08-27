@@ -1,7 +1,7 @@
 import type { AppRouteModule, AppRouteRecordRaw } from '/@/router/types';
 import type { Router, RouteRecordNormalized } from 'vue-router';
 
-import { getParentLayout, LAYOUT, EXCEPTION_COMPONENT } from '/@/router/constant';
+import { getParentLayout, LAYOUT } from '/@/router/constant';
 import { cloneDeep, omit } from 'lodash-es';
 import { warn } from '/@/utils/log';
 import { createRouter, createWebHashHistory } from 'vue-router';
@@ -79,9 +79,14 @@ function asyncImportRoute(routes: AppRouteRecordRaw[] | undefined) {
     if (!item.component && item.meta?.frameSrc) {
       item.component = 'IFRAME';
     }
-    let { component, name } = item;
-    const { children } = item;
+    let { component } = item;
+    const { name, children } = item;
     if (component) {
+      // 后台菜单表单没有 currentActiveMenu 字段；已知隐藏业务页由前端补齐侧栏激活菜单。
+      const normalizedComponent = String(component).replace(/^\//, '').replace(/\.(vue|tsx)$/i, '');
+      if (normalizedComponent === 'plan/material-draft/editor') {
+        item.meta = { ...item.meta, currentActiveMenu: '/plan/material-draft' };
+      }
       const layoutFound = LayoutMap.get(component.toUpperCase());
       if (layoutFound) {
         item.component = layoutFound;

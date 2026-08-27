@@ -1,74 +1,72 @@
 <template>
-  <div>
-    <BasicTable @register="registerTable">
-      <template #bodyCell="{ column, record }">
-        <template v-if="column.key === 'status'">
-          <a-tag :color="statusMeta[record.status]?.color || 'default'">{{ statusMeta[record.status]?.text || '待接受' }}</a-tag>
-        </template>
-        <template v-else-if="column.key === 'action'">
-          <template v-if="record.status !== '1'">
-            <a-button type="link" size="small" @click="handleAccept(record)">同 意</a-button>
-            <a-button type="link" danger size="small" @click="handleReject(record)">拒 绝</a-button>
-          </template>
-          <span v-else>已接收</span>
-        </template>
+  <PageWrapper content-full-height>
+    <a-card title="项目成员邀请" :bordered="false">
+      <template #extra>
+        <a-button type="primary" ghost :loading="invitationLoading" @click="refreshInvitations(true)">刷新</a-button>
       </template>
-    </BasicTable>
-  </div>
+      <a-table row-key="id" :columns="columns" :data-source="invitations" :loading="invitationLoading" :pagination="false" :scroll="{ x: 820 }">
+        <template #bodyCell="{ column, record }">
+          <template v-if="column.key === 'project'">
+            <div class="todo-invitation__project">{{ record.periodName || record.projectName || '—' }}</div>
+            <div v-if="record.periodName && record.projectName" class="todo-invitation__secondary">{{ record.projectName }}</div>
+          </template>
+          <template v-else-if="column.key === 'manager'">{{ record.projectManagerName || '项目经理' }}</template>
+          <template v-else-if="column.key === 'role'">{{ roleMap[String(record.memberRole)] || record.memberRole || '—' }}</template>
+          <template v-else-if="column.key === 'status'"><a-tag color="processing">待确认</a-tag></template>
+          <template v-else-if="column.key === 'action'">
+            <a-button type="link" @click="openInvitation(record)">办理</a-button>
+          </template>
+        </template>
+      </a-table>
+    </a-card>
+
+    <ProjectBasicDrawer @register="registerDrawer" />
+  </PageWrapper>
 </template>
 
 <script lang="ts" name="todo-list" setup>
-  import { reactive, ref, onMounted } from 'vue';
-  import { BasicTable } from '/@/components/Table';
-  import { useListPage } from '/@/hooks/system/useListPage';
-  import { useMessage } from '/@/hooks/web/useMessage';
-  import { invitationList, acceptInvitation, rejectInvitation } from '/@/views/project/plan/Invite.api';
+  import { onMounted, ref } from 'vue';
+  import { PageWrapper } from '/@/components/Page';
+  import { useDrawer } from '/@/components/Drawer';
+  import ProjectBasicDrawer from '/@/views/project/components/ProjectBasicDrawer.vue';
   import { loadDictOptions } from '/@/views/project/Project.data';
+  import { ProjectInvitation, useProjectInvitations } from '/@/views/project/plan/useProjectInvitations';
 
-  const { createMessage } = useMessage();
-  const queryParam = reactive<any>({});
-  // 邀请状态字典(invite_status: 0待接受/1已接收)
-  const statusMeta = ref<Recordable>({ '0': { text: '待接受', color: 'default' }, '1': { text: '已接收', color: 'success' } });
+  defineOptions({ name: 'ProjectInvitationTodo' });
 
-  onMounted(async () => {
-    try {
-      const items: any[] = (await loadDictOptions('invite_status')) || [];
-      statusMeta.value = Object.fromEntries(items.map((i) => [String(i.value), { text: i.label, color: i.color || 'default' }]));
-    } catch {
-      // 兜底
-    }
-  });
-
+  const { invitations, invitationLoading, refreshInvitations } = useProjectInvitations();
+  const [registerDrawer, { openDrawer }] = useDrawer();
+  const roleMap = ref<Recordable>({});
   const columns = [
-    { title: '项目/分期', key: 'periodName', dataIndex: 'periodName' },
-    { title: '邀约人', dataIndex: 'inviterName' },
-    { title: '成员', dataIndex: 'memberName' },
-    { title: '角色', dataIndex: 'role' },
-    { title: '状态', key: 'status', dataIndex: 'status' },
-    { title: '操作', key: 'action', width: 140, align: 'center' },
+    { title: '项目/分期', key: 'project', width: 240 },
+    { title: '邀请人', key: 'manager', width: 150 },
+    { title: '参与角色', key: 'role', width: 140 },
+    { title: '邀请时间', dataIndex: 'inviteTime', width: 180 },
+    { title: '状态', key: 'status', width: 100, align: 'center' },
+    { title: '操作', key: 'action', width: 100, align: 'center', fixed: 'right' },
   ];
 
-  const { tableContext } = useListPage({
-    tableProps: {
-      title: '站内待办（邀约）',
-      api: invitationList,
-      columns,
-      canResize: true,
-      beforeFetch: (params) => Object.assign(params, queryParam),
-    },
+  function openInvitation(invitation: ProjectInvitation) {
+    openDrawer(true, { record: invitation, invitation });
+  }
+
+  onMounted(async () => {
+    const [roles] = await Promise.all([loadDictOptions('member_role'), refreshInvitations(true)]);
+    roleMap.value = Object.fromEntries((roles || []).map((item) => [String(item.value), item.label]));
   });
-
-  const [registerTable, { reload }] = tableContext;
-
-  async function handleAccept(record: Recordable) {
-    await acceptInvitation({ id: record.id });
-    createMessage.success(`已同意「${record.periodName || record.memberName}」邀约`);
-    reload();
-  }
-
-  async function handleReject(record: Recordable) {
-    await rejectInvitation({ id: record.id });
-    createMessage.success('已拒绝邀约');
-    reload();
-  }
 </script>
+
+<style lang="less" scoped>
+  .todo-invitation {
+    &__project {
+      color: #262626;
+      font-weight: 500;
+    }
+
+    &__secondary {
+      margin-top: 2px;
+      color: #8c8c8c;
+      font-size: 12px;
+    }
+  }
+</style>

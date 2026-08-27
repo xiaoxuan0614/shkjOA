@@ -1,7 +1,7 @@
 <template>
   <div>
     <a-button-group>
-      <a-button type="primary" @click="openUploadModal" preIcon="carbon:cloud-upload">
+      <a-button v-if="canUpload" type="primary" @click="openUploadModal" preIcon="carbon:cloud-upload">
         {{ t('component.upload.upload') }}
       </a-button>
       <Tooltip placement="bottom" v-if="showPreview">
@@ -59,6 +59,8 @@
         return emptyHidePreview ? fileList.value.length > 0 : true;
       });
 
+      const canUpload = computed(() => fileList.value.length < props.maxNumber);
+
       const bindValue = computed(() => {
         const value = { ...attrs, ...props };
         return omit(value, 'onChange');
@@ -103,6 +105,7 @@
         openPreviewModal,
         fileList,
         showPreview,
+        canUpload,
         bindValue,
         handleDelete,
         handlePreviewDelete,

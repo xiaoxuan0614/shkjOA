@@ -1,25 +1,66 @@
 import { defHttp } from '/@/utils/http/axios';
+import { ContentTypeEnum } from '/@/enums/httpEnum';
 
 /**
- * 计划方案子资源 add(对齐后端 /project/* 项目域, apifox 文档存在)
- * 注: 这三个接口当前 src 其他处未调用, 保存时如后端未实现会按失败收集并提示
+ * 计划方案子资源接口（对齐后端 /project/* 项目域）。
  */
 enum Api {
+  // 计划方案
+  planAdd = '/project/plan/add',
+  planEdit = '/project/plan/edit',
+  planDeleteBatch = '/project/plan/deleteBatch',
   // 项目用料计划-添加
   materialPlanAdd = '/project/materialPlan/add',
-  // 项目成员-添加
+  // 项目成员-单条邀请、批量新增/删除
   memberAdd = '/project/member/add',
-  // 项目工序-添加
-  processAdd = '/project/process/add',
-  // 项目成员-列表(按分期查, 可过滤邀请状态=1)
+  memberAddBatch = '/project/member/addBatch',
+  memberEditBatch = '/project/member/editBatch',
+  memberDeleteBatch = '/project/member/deleteBatch',
+  // 项目成员-列表(按分期查, 邀请状态 1 表示接受)
   memberList = '/project/member/list',
+  // 外协配置
+  memberOutsourceList = '/project/memberOutsource/list',
+  memberOutsourceEditBatch = '/project/memberOutsource/editBatch',
+  outsourcingUnitList = '/project/outsourcingUnit/list',
+  // 工序、位置按分期全量同步
+  processList = '/project/process/list',
+  processAddBatch = '/project/process/addBatch',
+  processEditBatch = '/project/process/editBatch',
+  locationList = '/project/location/list',
+  locationEditBatch = '/project/location/editBatch',
 }
 
 /**
- * 项目成员-列表(现场负责人下拉: 传 periodId + inviteStatus=1 已接收)
+ * 项目成员-列表(现场负责人下拉: 传 periodId + inviteStatus=1 已接受)
  * @param params { periodId, inviteStatus? }
  */
 export const getPlanMembers = (params) => defHttp.get({ url: Api.memberList, params });
+
+export const getPlanOutsources = (params) => defHttp.get({ url: Api.memberOutsourceList, params });
+
+/** 外协配置的单位下拉，读取外协单位维护数据。 */
+export const getOutsourcingUnits = (params) => defHttp.get({ url: Api.outsourcingUnitList, params });
+
+export const getPlanProcesses = (params) => defHttp.get({ url: Api.processList, params });
+
+export const getPlanLocations = (params) => defHttp.get({ url: Api.locationList, params });
+
+/** 新增单条计划方案；文件与业务数据使用同一个 multipart 请求提交。 */
+export const addProjectPlan = (data: Recordable, attachment?: File) => submitProjectPlan(Api.planAdd, data, attachment);
+
+/** 修改单条计划方案；未传 attachment 时保留原文件。 */
+export const editProjectPlan = (data: Recordable, attachment?: File) => submitProjectPlan(Api.planEdit, data, attachment);
+
+/** 删除计划方案。 */
+export const deleteProjectPlansBatch = (params: { ids: string }) =>
+  defHttp.delete({ url: Api.planDeleteBatch, params }, { joinParamsToUrl: true, successMessageMode: 'success' });
+
+function submitProjectPlan(url: string, data: Recordable, attachment?: File) {
+  const formData = new FormData();
+  formData.append('data', JSON.stringify(data));
+  if (attachment) formData.append('attachment', attachment, attachment.name);
+  return defHttp.post({ url, params: formData, headers: { 'Content-Type': ContentTypeEnum.FORM_DATA } }, { successMessageMode: 'success' });
+}
 
 /**
  * 用料计划-添加(project_material_plan 实体)
@@ -28,13 +69,36 @@ export const getPlanMembers = (params) => defHttp.get({ url: Api.memberList, par
 export const addPlanMaterialPlan = (params) => defHttp.post({ url: Api.materialPlanAdd, params });
 
 /**
- * 项目成员-添加(project_member 实体)
- * @param params { periodId, userName, memberRole, outsourcingFlag?, outsourcingUnit? }
+ * 项目成员-批量新增(project_member 实体)
+ * @param params { periodId, records: [{ userId?, userName, memberRole, inviteStatus?, outsourcingFlag?, outsourcingUnit? }] }
  */
-export const addPlanMember = (params) => defHttp.post({ url: Api.memberAdd, params });
+export const addPlanMembersBatch = (params) => defHttp.post({ url: Api.memberAddBatch, params }, { successMessageMode: 'success' });
+
+/** 按分期全量同步项目成员。 */
+export const editPlanMembersBatch = (params) => defHttp.post({ url: Api.memberEditBatch, params });
+
+/** 按分期全量同步外协配置。 */
+export const editPlanOutsourcesBatch = (params) => defHttp.post({ url: Api.memberOutsourceEditBatch, params });
 
 /**
- * 项目工序-添加(project_process 实体)
- * @param params { periodId, processName, siteLeaderName, plannedStartTime, plannedEndTime, plannedHours }
+ * 项目成员-单条邀请。
+ * @param params { periodId, userId, memberRole, inviteStatus }
  */
-export const addPlanProcess = (params) => defHttp.post({ url: Api.processAdd, params });
+export const addPlanMember = (params) => defHttp.post({ url: Api.memberAdd, params }, { successMessageMode: 'success' });
+
+/**
+ * 项目成员-批量删除。
+ * @param params { ids: string }
+ */
+export const deletePlanMembersBatch = (params) =>
+  defHttp.delete({ url: Api.memberDeleteBatch, params }, { joinParamsToUrl: true, successMessageMode: 'success' });
+
+/** 按分期全量同步项目工序。 */
+export const editPlanProcessesBatch = (params) => defHttp.post({ url: Api.processEditBatch, params });
+
+/** 首次批量新增项目工序。 */
+export const addPlanProcessesBatch = (params) => defHttp.post({ url: Api.processAddBatch, params });
+
+/** 按分期全量同步实施位置；行内保存可关闭接口默认的“批量修改成功”提示。 */
+export const editPlanLocationsBatch = (params, showSuccessMessage = true) =>
+  defHttp.post({ url: Api.locationEditBatch, params }, { successMessageMode: showSuccessMessage ? 'success' : 'none' });

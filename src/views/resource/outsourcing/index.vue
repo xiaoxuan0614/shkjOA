@@ -4,9 +4,7 @@
     <BasicTable @register="registerTable">
       <!-- 插槽:table标题 -->
       <template #tableTitle>
-        <a-button type="primary" preIcon="ant-design:plus-outlined" @click="handleAdd">
-          新增
-        </a-button>
+        <a-button type="primary" preIcon="ant-design:plus-outlined" @click="handleAdd"> 新增 </a-button>
         <a-dropdown>
           <template #overlay>
             <a-menu>
@@ -16,7 +14,8 @@
               </a-menu-item>
             </a-menu>
           </template>
-          <a-button>批量操作
+          <a-button
+            >批量操作
             <Icon icon="mdi:chevron-down"></Icon>
           </a-button>
         </a-dropdown>
@@ -32,6 +31,9 @@
             {{ (statusMeta[record.status]?.text || record.status) ?? '—' }}
           </a-tag>
         </template>
+        <template v-else-if="column.dataIndex === 'unitType'">
+          {{ unitTypeMeta[String(record.unitType)] || '—' }}
+        </template>
       </template>
     </BasicTable>
     <!-- 新增/编辑弹窗 -->
@@ -46,7 +48,7 @@
   import { useListPage } from '/@/hooks/system/useListPage';
   import { useMessage } from '/@/hooks/web/useMessage';
   import OutsourcingModal from './OutsourcingModal.vue';
-  import { columns, searchFormSchema, loadOutsourcingStatusMap } from './Outsourcing.data';
+  import { columns, searchFormSchema, loadOutsourcingStatusMap, loadOutsourcingTypeOptions } from './Outsourcing.data';
   import { list, deleteOne, batchDelete } from './Outsourcing.api';
 
   const { createMessage } = useMessage();
@@ -54,9 +56,12 @@
   const queryParam = reactive<any>({});
   // 状态下拉字典映射
   const statusMeta = ref<Recordable>({});
+  const unitTypeMeta = ref<Recordable>({});
 
   onMounted(async () => {
-    statusMeta.value = await loadOutsourcingStatusMap();
+    const [statusMap, typeOptions] = await Promise.all([loadOutsourcingStatusMap(), loadOutsourcingTypeOptions()]);
+    statusMeta.value = statusMap;
+    unitTypeMeta.value = Object.fromEntries((typeOptions || []).map((item: any) => [String(item.value), item.text ?? item.label ?? '']));
   });
 
   // 注册 modal

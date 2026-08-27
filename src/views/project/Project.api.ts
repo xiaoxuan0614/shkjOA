@@ -1,4 +1,5 @@
 import { defHttp } from '/@/utils/http/axios';
+import { ContentTypeEnum } from '/@/enums/httpEnum';
 
 enum Api {
   // 项目管理(主项目 + 分期 合并行)
@@ -42,39 +43,53 @@ export const projectList = (params) => defHttp.get({ url: Api.list, params });
 export const projectDetail = (params) => defHttp.get({ url: Api.detail, params });
 
 /**
- * 新增主项目及分期
+ * 新增主项目及分期。
+ * data 为业务 JSON 字符串，attachment 为可选附件；附件由后端保存并回写路径。
  */
-export const addProject = (params) =>
-  defHttp.post({ url: Api.addProjectPeriod, params }, { successMessageMode: 'success' });
+export const addProject = (data: Recordable, attachment?: File) => {
+  const formData = createProjectPeriodFormData(data, attachment);
+  return defHttp.post(
+    // defHttp 会把非 GET 的 params 搬到 body；直接传 data=FormData 会被其空对象判断误清空。
+    { url: Api.addProjectPeriod, params: formData, headers: { 'Content-Type': ContentTypeEnum.FORM_DATA } },
+    { successMessageMode: 'success' }
+  );
+};
 
 /**
- * 修改主项目及分期
+ * 修改主项目及分期；未传 attachment 时后端保留原附件。
  */
-export const editProject = (params) =>
-  defHttp.post({ url: Api.editProjectPeriod, params }, { successMessageMode: 'success' });
+export const editProject = (data: Recordable, attachment?: File) => {
+  const formData = createProjectPeriodFormData(data, attachment);
+  return defHttp.post(
+    { url: Api.editProjectPeriod, params: formData, headers: { 'Content-Type': ContentTypeEnum.FORM_DATA } },
+    { successMessageMode: 'success' }
+  );
+};
+
+function createProjectPeriodFormData(data: Recordable, attachment?: File) {
+  const formData = new FormData();
+  formData.append('data', JSON.stringify(data));
+  if (attachment) formData.append('attachment', attachment, attachment.name);
+  return formData;
+}
 
 /**
  * 删除分期
  * @param params { periodId }
  */
 export const deleteProject = (params) =>
-  defHttp.delete(
-    { url: Api.deleteProjectPeriod, params },
-    { joinParamsToUrl: true, successMessageMode: 'success' }
-  );
+  defHttp.delete({ url: Api.deleteProjectPeriod, params }, { joinParamsToUrl: true, successMessageMode: 'success' });
 
 /**
  * 新增分期(挂到已有主项目下)
  * @param params { projectId, periodName, ... }
  */
-export const addPeriod = (params) =>
-  defHttp.post({ url: Api.periodAdd, params }, { successMessageMode: 'success' });
+export const addPeriod = (params) => defHttp.post({ url: Api.periodAdd, params }, { successMessageMode: 'success' });
 
 /**
  * 编辑分期
  */
-export const editPeriod = (params) =>
-  defHttp.post({ url: Api.periodEdit, params }, { successMessageMode: 'success' });
+export const editPeriod = (params) => defHttp.post({ url: Api.periodEdit, params }, { successMessageMode: 'success' });
 
 /**
  * 客户信息列表(甲方选择带出)
@@ -94,21 +109,18 @@ export const searchPeriod = (params?) => defHttp.get({ url: Api.periodSearch, pa
 /**
  * 编辑计划方案(计划页整体提交, 对齐后端 project_plan 实体)
  */
-export const addPlan = (params) =>
-  defHttp.post({ url: '/project/plan/add', params }, { successMessageMode: 'success' });
+export const addPlan = (params) => defHttp.post({ url: '/project/plan/add', params }, { successMessageMode: 'success' });
 
 /**
  * 状态流转推进(统一状态变更接口, 前端传 periodId + status)
  * ⚠️ 后端将提供 /project/period/status; 当前未就绪时调用会报错(先画页面)
  * @param params { periodId, status }
  */
-export const changePeriodStatus = (params) =>
-  defHttp.post({ url: '/project/period/status', params }, { successMessageMode: 'success' });
+export const changePeriodStatus = (params) => defHttp.post({ url: '/project/period/status', params }, { successMessageMode: 'success' });
 
 /**
  * 状态流转推进(旧: 每个动作对应后端独立的流转接口, 保留兼容)
  * @param action 流转动作 key(Project.data.ts statusFlow 中的 api 值)
  * @param params { id/periodId }
  */
-export const periodFlow = (action: string, params) =>
-  defHttp.post({ url: Api[action], params }, { successMessageMode: 'success' });
+export const periodFlow = (action: string, params) => defHttp.post({ url: Api[action], params }, { successMessageMode: 'success' });

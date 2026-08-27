@@ -1,21 +1,15 @@
 <template>
   <div class="detail-file">
-    <div class="detail-file__toolbar">
-      <a-upload :show-upload-list="false" :before-upload="handleFileChange">
+    <div v-if="editable && files.length === 0" class="detail-file__toolbar">
+      <a-upload :accept="DOCUMENT_UPLOAD_ACCEPT" :show-upload-list="false" :before-upload="handleFileChange">
         <a-button type="primary" preIcon="ant-design:cloud-upload-outlined">新增文件</a-button>
       </a-upload>
     </div>
-    <a-table
-      :columns="columns"
-      :data-source="files"
-      :pagination="false"
-      size="middle"
-      bordered
-    >
+    <a-table :columns="columns" :data-source="files" :pagination="false" size="middle" bordered>
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'action'">
-          <a-button type="link" size="small" @click="handleView(record)">查看</a-button>
-          <a-popconfirm title="是否确认删除" @confirm="handleDelete(record)">
+          <a-button size="small" preIcon="ant-design:eye-outlined" @click="handleView(record)">预览</a-button>
+          <a-popconfirm v-if="editable" title="是否确认删除" @confirm="handleDelete(record)">
             <a-button type="link" size="small" danger>删除</a-button>
           </a-popconfirm>
         </template>
@@ -28,10 +22,12 @@
   import { ref, watch } from 'vue';
   import { useMessage } from '/@/hooks/web/useMessage';
   import { getFiles, addFile, deleteFile } from '../ProjectDetail.api';
-  import { uploadFile } from '/@/api/common/api';
+  import { DOCUMENT_UPLOAD_ACCEPT, isAllowedDocumentFile, uploadProjectDocument } from '/@/utils/documentUpload';
+  import { previewFileInModal } from '/@/utils/filePreview';
 
   const props = defineProps<{
     projectId: string;
+    editable?: boolean;
   }>();
 
   const { createMessage } = useMessage();
@@ -52,27 +48,30 @@
     files.value = list || [];
   }
 
-  /** 选择文件 → 上传 → 新增项目文件记录(fileId 存上传返回路径, 语义待与后端确认) */
+  /** 选择文件 → 上传 → 校验响应后把 message 路径写入项目文件记录。 */
   async function handleFileChange(file: any): Promise<boolean> {
     if (!file) return false;
+    if (!isAllowedDocumentFile(file)) {
+      createMessage.warning('仅支持 PDF、Word、Excel、PPT 文件');
+      return false;
+    }
     try {
-      const res: any = await uploadFile({ file }, undefined);
-      const path = res?.url || res?.result || res?.filename || file.name;
+      const { path } = await uploadProjectDocument(file, props.projectId);
       await addFile({ periodId: props.projectId, fileName: file.name, fileId: path, fileType: '' });
       createMessage.success(`文件「${file.name}」上传成功`);
       load();
-    } catch (err) {
-      createMessage.warning('上传失败，请重试');
+    } catch (error: any) {
+      createMessage.warning(error?.message || '上传失败，请重试');
     }
     return false;
   }
 
   function handleView(record: any) {
-    createMessage.info(`查看文件「${record.fileName}」`);
+    previewFileInModal(record.fileId, record.fileName);
   }
 
   async function handleDelete(record: any) {
-    await deleteFile({ id: record.id });
+    await deleteFile({ ids: record.id });
     createMessage.success(`删除文件「${record.fileName}」成功`);
     load();
   }

@@ -1,163 +1,212 @@
 <template>
-  <div class="plan-material">
-    <!-- 顶部按钮 -->
-    <div class="plan-material__toolbar">
-      <a-button type="primary" preIcon="ant-design:plus-outlined" :disabled="!editable" @click="handleAddMaterial">添加用料</a-button>
-      <a-button type="primary" preIcon="ant-design:import-outlined" :disabled="!editable" @click="handleImport">导入文件</a-button>
+  <div class="project-plan-material">
+    <div v-if="editable" class="project-plan-material__toolbar">
+      <a-button preIcon="ant-design:import-outlined" @click="openImportModal">导入清单</a-button>
+      <span>可上传 Excel，或导入当前分期已锁定的报价单；导入后点击“保存本页”才会提交。</span>
     </div>
+    <a-alert
+      v-if="hasContractDraft"
+      class="project-plan-material__notice"
+      type="info"
+      show-icon
+      message="已载入本分期的计划用料清单"
+      description="筹备阶段仍可继续增加、调整或移除物料。"
+    />
+    <MaterialPlanTable ref="tableRef" :period-id="periodId" :editable="editable" @loaded="handleLoaded" />
 
-    <!-- 用料明细表格 -->
-    <a-table
-      :columns="columns"
-      :data-source="detailList"
-      :row-key="(record) => record._key"
-      :pagination="false"
-      size="middle"
-      bordered
+    <a-modal
+      v-model:open="importModalOpen"
+      title="导入用料清单"
+      ok-text="导入"
+      cancel-text="取消"
+      :confirm-loading="importing"
+      :ok-button-props="{ disabled: importMode === 'file' ? !uploadFile : !selectedCandidateId }"
+      @ok="handleImport"
     >
-      <template #bodyCell="{ column, record }">
-        <template v-if="column.key === 'useNum'">
-          <a-input-number
-            v-model:value="record.useNum"
-            :min="1"
-            :max="record.stock ?? 99999"
-            :disabled="!editable"
-            placeholder="请输入数量"
-            style="width: 100%"
-          />
-        </template>
-        <template v-else-if="column.key === 'unit'">
-          <a-select
-            v-model:value="record.unit"
-            allowClear
-            :disabled="!editable"
-            placeholder="请选择单位"
-            style="width: 100%"
-            :options="unitOptions"
-          />
-        </template>
-        <template v-else-if="column.key === 'action'">
-          <a-button v-if="editable" type="link" danger size="small" @click="handleRemove(record._key)">移除</a-button>
-        </template>
-      </template>
-    </a-table>
+      <a-radio-group v-model:value="importMode" button-style="solid">
+        <a-radio-button value="file">上传文件</a-radio-button>
+        <a-radio-button value="quotation">选择已锁定报价单</a-radio-button>
+      </a-radio-group>
 
-    <!-- 添加用料抽屉 -->
-    <MaterialSelectDrawer @register="registerDrawer" @success="handleDrawerSuccess" />
+      <div v-if="importMode === 'file'" class="project-plan-material__import-content">
+        <a-upload-dragger accept=".xlsx" :before-upload="handleBeforeUpload" :file-list="uploadFileList" :max-count="1" @remove="handleRemoveFile">
+          <p class="ant-upload-drag-icon"><Icon icon="ant-design:file-excel-outlined" /></p>
+          <p class="ant-upload-text">点击或拖拽 Excel 文件到此处</p>
+          <p class="ant-upload-hint">支持 .xlsx；表格需包含“物料编码”和“计划数量”或“数量”列，仅匹配物料库中已有物料。</p>
+        </a-upload-dragger>
+      </div>
+
+      <div v-else class="project-plan-material__import-content">
+        <a-select
+          v-model:value="selectedCandidateId"
+          show-search
+          allow-clear
+          option-filter-prop="label"
+          :options="candidateOptions"
+          :loading="candidateLoading"
+          placeholder="请选择当前分期已锁定的报价单"
+          style="width: 100%"
+        />
+        <a-empty v-if="!candidateLoading && !candidateOptions.length" description="当前分期暂无已锁定报价单" />
+      </div>
+      <a-alert type="info" show-icon message="导入规则" description="清单中已有的同一物料会更新数量、单位和备注，其他物料会追加。" />
+    </a-modal>
   </div>
 </template>
 
 <script lang="ts" setup>
-  import { ref, unref } from 'vue';
-  import { useDrawer } from '/@/components/Drawer';
+  import { ref } from 'vue';
+  import { Icon } from '/@/components/Icon';
   import { useMessage } from '/@/hooks/web/useMessage';
-  import MaterialSelectDrawer from '/@/views/material/apply/components/MaterialSelectDrawer.vue';
+  import { loadMaterialMap } from '/@/views/material/material.util';
+  import MaterialPlanTable from '/@/views/plan/components/MaterialPlanTable.vue';
+  import { getMaterialCandidateItemList, getMaterialCandidateList, QUOTATION_STATUS_SUBMITTED } from '/@/views/plan/Plan.api';
+  import { parseMaterialPlanExcel } from '/@/views/plan/materialExcel';
 
-  const { createMessage } = useMessage();
-
-  // 属性: editable 控制是否可编辑
-  defineProps<{
+  const props = defineProps<{
+    periodId?: string;
     editable?: boolean;
   }>();
+  const emit = defineEmits<{ 'persisted-change': [persisted: boolean] }>();
 
-  // 抽屉
-  const [registerDrawer, { openDrawer }] = useDrawer();
+  const { createMessage } = useMessage();
+  const tableRef = ref();
+  const hasContractDraft = ref(false);
+  const importModalOpen = ref(false);
+  const importMode = ref<'file' | 'quotation'>('file');
+  const uploadFile = ref<File>();
+  const uploadFileList = ref<any[]>([]);
+  const selectedCandidateId = ref<string>();
+  const candidateOptions = ref<{ label: string; value: string }[]>([]);
+  const candidateLoading = ref(false);
+  const importing = ref(false);
 
-  // 表格列
-  const columns = [
-    { title: '物料类别', dataIndex: 'categoryName', key: 'categoryName', width: 100 },
-    { title: '物料名称', dataIndex: 'goodsName', key: 'goodsName', width: 150 },
-    { title: '品牌', dataIndex: 'brand', key: 'brand', width: 100 },
-    { title: '型号', dataIndex: 'model', key: 'model', width: 120 },
-    { title: '*申请数量', key: 'useNum', width: 120 },
-    { title: '*单位', key: 'unit', width: 100 },
-    { title: '操作', key: 'action', width: 80, align: 'center', fixed: 'right' },
-  ];
-
-  // 明细数据(本地数组)
-  const detailList = ref<any[]>([]);
-
-  // 单位下拉
-  const unitOptions = [
-    { label: '台', value: '台' },
-    { label: '个', value: '个' },
-    { label: '米', value: '米' },
-    { label: '根', value: '根' },
-    { label: '套', value: '套' },
-    { label: '条', value: '条' },
-    { label: '件', value: '件' },
-  ];
-
-  // 自增key
-  let detailKeySeed = 0;
-
-  // 暴露给父级(行数组, 父级映射为 project_material_plan 实体)
-  defineExpose({
-    getData() {
-      return unref(detailList);
-    },
-    setData(list: any[]) {
-      detailList.value = list || [];
-      detailKeySeed = 0;
-      detailList.value.forEach((item) => {
-        item._key = ++detailKeySeed;
-      });
-    },
-  });
-
-  /**
-   * 添加物料: 打开抽屉
-   */
-  function handleAddMaterial() {
-    openDrawer(true);
+  function handleLoaded(count: number) {
+    hasContractDraft.value = count > 0;
+    if (!importing.value) emit('persisted-change', count > 0);
   }
 
-  /**
-   * 导入文件(Excel 物料清单, 暂无解析库, 先占位)
-   */
-  function handleImport() {
-    createMessage.info('导入 Excel 物料清单功能待接入');
+  async function openImportModal() {
+    if (!props.editable) return;
+    importMode.value = 'file';
+    uploadFile.value = undefined;
+    uploadFileList.value = [];
+    selectedCandidateId.value = undefined;
+    importModalOpen.value = true;
+    await loadLockedCandidates();
   }
 
-  /**
-   * 抽屉确定: 选中的物料回填为明细行
-   */
-  function handleDrawerSuccess(selected: any[]) {
-    if (!selected || selected.length === 0) return;
-    selected.forEach((m) => {
-      if (detailList.value.some((d) => d.id === m.id)) {
-        createMessage.warning(`「${m.materialName}」已在明细中`);
-        return;
-      }
-      detailList.value.push({
-        _key: ++detailKeySeed,
-        id: m.id,
-        categoryName: m.materialCategory,
-        goodsName: m.materialName,
-        brand: m.brand,
-        model: m.model,
-        stock: m.stockQty,
-        useNum: 1,
-        unit: m.unit,
-      });
+  async function loadLockedCandidates() {
+    if (!props.periodId) {
+      candidateOptions.value = [];
+      return;
+    }
+    candidateLoading.value = true;
+    try {
+      const result: any = await getMaterialCandidateList({ periodId: props.periodId, pageNo: 1, pageSize: 1000 });
+      const records = result?.records || result || [];
+      candidateOptions.value = records
+        .filter((item: any) => String(item.status) === QUOTATION_STATUS_SUBMITTED)
+        .map((item: any) => ({ label: item.candidateName || `报价单 ${item.id}`, value: String(item.id) }));
+    } catch (error: any) {
+      candidateOptions.value = [];
+      createMessage.error(error?.message || '已锁定报价单加载失败');
+    } finally {
+      candidateLoading.value = false;
+    }
+  }
+
+  function handleBeforeUpload(file: any) {
+    uploadFile.value = file;
+    uploadFileList.value = [file];
+    return false;
+  }
+
+  function handleRemoveFile() {
+    uploadFile.value = undefined;
+    uploadFileList.value = [];
+    return true;
+  }
+
+  async function resolveExcelMaterials(file: File) {
+    const excelRows = await parseMaterialPlanExcel(file);
+    const materialMap = await loadMaterialMap();
+    const byCode = new Map<string, any>();
+    Object.values(materialMap).forEach((material: any) => {
+      const code = String(material.materialCode || '')
+        .trim()
+        .toLowerCase();
+      if (code) byCode.set(code, material);
     });
+    const missing: string[] = [];
+    const rows = excelRows.map((item) => {
+      const material = byCode.get(String(item.materialCode).trim().toLowerCase());
+      if (!material) {
+        missing.push(`第 ${item._excelRowNumber} 行：${item.materialCode}`);
+        return undefined;
+      }
+      return { ...item, materialId: material.id, ...material, plannedQty: item.plannedQty, unit: item.unit, remark: item.remark };
+    });
+    if (missing.length) throw new Error(`以下物料编码不在物料库中：${missing.slice(0, 5).join('；')}${missing.length > 5 ? '……' : ''}`);
+    return rows.filter(Boolean);
   }
 
-  /**
-   * 移除明细行
-   */
-  function handleRemove(key: number) {
-    detailList.value = detailList.value.filter((d) => d._key !== key);
+  async function resolveQuotationMaterials(candidateId: string) {
+    const result: any = await getMaterialCandidateItemList({ candidateId, pageNo: 1, pageSize: 1000 });
+    const rows = result?.records || result || [];
+    if (!rows.length) throw new Error('所选报价单没有物料明细');
+    return rows.map((item: any) => ({
+      materialId: item.materialId,
+      materialCode: item.materialCode,
+      materialCategory: item.materialCategory,
+      materialName: item.materialName,
+      brand: item.brand,
+      model: item.model,
+      plannedQty: item.quantity,
+      unit: item.unit,
+      remark: item.remark,
+    }));
   }
+
+  async function handleImport() {
+    if (importing.value) return;
+    importing.value = true;
+    try {
+      const records =
+        importMode.value === 'file'
+          ? await resolveExcelMaterials(uploadFile.value as File)
+          : await resolveQuotationMaterials(selectedCandidateId.value as string);
+      const result = await tableRef.value?.importRows?.(records);
+      importModalOpen.value = false;
+      createMessage.success(`导入完成：新增 ${result?.added || 0} 条，更新 ${result?.updated || 0} 条；请保存本页`);
+    } catch (error: any) {
+      createMessage.error(error?.message || '清单导入失败，请重试');
+    } finally {
+      importing.value = false;
+    }
+  }
+
+  defineExpose({
+    getData: () => tableRef.value?.getData?.() || [],
+    reload: () => tableRef.value?.reload?.(),
+  });
 </script>
 
 <style lang="less" scoped>
-  .plan-material {
-    &__toolbar {
-      display: flex;
-      gap: 8px;
-      margin-bottom: 12px;
-      flex-wrap: wrap;
-    }
+  .project-plan-material__toolbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+    color: #595959;
+  }
+
+  .project-plan-material__notice {
+    margin-bottom: 16px;
+  }
+
+  .project-plan-material__import-content {
+    min-height: 150px;
+    margin: 20px 0 16px;
   }
 </style>

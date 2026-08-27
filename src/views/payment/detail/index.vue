@@ -29,13 +29,7 @@
           <span class="payment-detail__body-title">回款计划</span>
           <a-button type="primary" preIcon="ant-design:plus-outlined" @click="openAddPayback">添加回款</a-button>
         </div>
-        <a-table
-          :columns="columns"
-          :data-source="paybackRecords"
-          :pagination="false"
-          size="middle"
-          bordered
-        />
+        <a-table :columns="columns" :data-source="paybackRecords" :pagination="false" size="middle" bordered />
       </div>
     </a-card>
 
@@ -47,12 +41,12 @@
   import { ref, onMounted } from 'vue';
   import { useRoute, useRouter } from 'vue-router';
   import { useModal } from '/@/components/Modal';
-  import { contractDetail, paybackList } from '../Payment.api';
+  import { contractDetailByPeriodId, paybackList } from '../Payment.api';
   import PaybackModal from '../PaybackModal.vue';
 
   const route = useRoute();
   const router = useRouter();
-  const contractId = route.params.id as string;
+  const periodId = route.params.id as string;
 
   const contract = ref<any>({});
   const paybackRecords = ref<any[]>([]);
@@ -69,10 +63,14 @@
   ];
 
   async function load() {
-    const info = await contractDetail({ id: contractId });
+    const info = await contractDetailByPeriodId(periodId);
     contract.value = info || {};
-    const records = await paybackList({ contractId });
-    paybackRecords.value = records || [];
+    if (!info?.periodId) {
+      paybackRecords.value = [];
+      return;
+    }
+    const result: any = await paybackList({ periodId: info.periodId, pageNo: 1, pageSize: 100 });
+    paybackRecords.value = result?.records || result || [];
   }
 
   function openAddPayback() {

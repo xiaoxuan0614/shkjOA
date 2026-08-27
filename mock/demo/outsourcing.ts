@@ -38,7 +38,7 @@ function createUnitList(count = unitNames.length) {
       id: idx,
       unitCode: `WX${String(idx).padStart(4, '0')}`,
       unitName: unitNames[i % unitNames.length],
-      type: Mock.Random.pick(['单位', '单位', '个人']),
+      unitType: Mock.Random.pick(['0', '1', '1']),
       contactPerson: Mock.Random.pick(['张伟', '李娜', '王强', '刘洋', '陈静']),
       contactPhone: `1${Mock.Random.pick(['3', '5', '7', '8', '9'])}${Mock.Random.string('number', 9)}`,
       address: Mock.Random.pick(['天津市滨海新区', '天津市和平区', '北京市朝阳区', '山东省青岛市']),

@@ -26,20 +26,20 @@ export default {
     // 默认排序方法
     defaultSortFn: (sortInfo: SorterResult) => {
       // 代码逻辑说明: VUEN-2199【表单设计器】多字段排序
-      if(sortInfo instanceof Array){
-        let sortInfoArray:any[] = []
-        for(let item of sortInfo){
+      if (sortInfo instanceof Array) {
+        let sortInfoArray: any[] = [];
+        for (let item of sortInfo) {
           let info = getSort(item);
-          if(info){
-            sortInfoArray.push(info)
+          if (info) {
+            sortInfoArray.push(info);
           }
         }
         return {
-          sortInfoString: JSON.stringify(sortInfoArray)
-        }
-      }else{
-        let info = getSort(sortInfo)
-        return info || {}
+          sortInfoString: JSON.stringify(sortInfoArray),
+        };
+      } else {
+        let info = getSort(sortInfo);
+        return info || {};
       }
     },
     // 自定义过滤方法
@@ -67,8 +67,8 @@ export default {
       xs: { span: 24 },
       sm: { span: 18 },
     },
-    //表单默认冒号
-    colon: true,
+    // 全部业务表单的标签不显示冒号
+    colon: false,
   },
 };
 
@@ -76,7 +76,7 @@ export default {
  * 获取排序信息
  * @param item
  */
-function getSort(item){
+function getSort(item) {
   const { field, order } = item;
   if (field && order) {
     let sortType = 'ascend' == order ? 'asc' : 'desc';
@@ -87,5 +87,5 @@ function getSort(item){
       order: sortType,
     };
   }
-  return ''
+  return '';
 }

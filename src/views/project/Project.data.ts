@@ -2,10 +2,25 @@ import { BasicColumn } from '/@/components/Table';
 import { FormSchema } from '/@/components/Table';
 import { initDictOptions } from '/@/utils/dict/index';
 
+export const PROJECT_ATTACHMENT_ACCEPT = '.doc,.docx,.xls,.xlsx,.ppt,.pptx,.pdf,image/*';
+const PROJECT_ATTACHMENT_DOCUMENT_EXTENSIONS = new Set(['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'pdf']);
+const PROJECT_ATTACHMENT_IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg', 'tif', 'tiff', 'heic', 'heif']);
+
+export function isProjectAttachmentFile(file: File) {
+  const extension = String(file?.name || '')
+    .split('.')
+    .pop()
+    ?.toLowerCase();
+  return (
+    String(file?.type || '').startsWith('image/') ||
+    (!!extension && (PROJECT_ATTACHMENT_DOCUMENT_EXTENSIONS.has(extension) || PROJECT_ATTACHMENT_IMAGE_EXTENSIONS.has(extension)))
+  );
+}
+
 /**
  * 项目管理 - 下拉选项统一走数据字典(sys_dict)
  * ⚠️ 原则: 所有「类型/状态/属性」下拉不再硬编码, 一律由字典配置驱动
- *   project_type / project_business_attr / project_products / project_period_status / contract_type / contract_status
+ *   project_type / project_business_attr / project_products / project_period_status / contract_type
  * 字段以 apifox 项目模块接口为准（/project/project、/project/period、/project/acceptance、/project/internalAcceptance）
  */
 
@@ -43,10 +58,7 @@ export const loadProjectStatusMap = async (): Promise<Record<string, { text: str
   try {
     const items: any[] = (await initDictOptions('project_period_status')) || [];
     statusMapCache = Object.fromEntries(
-      items.map((i) => [
-        String(i.value),
-        { text: i.text ?? i.label ?? '', color: i.color ?? statusColorMap[String(i.value)] ?? 'default' },
-      ])
+      items.map((i) => [String(i.value), { text: i.text ?? i.label ?? '', color: i.color ?? statusColorMap[String(i.value)] ?? 'default' }])
     );
   } catch (e) {
     statusMapCache = null;
@@ -65,54 +77,17 @@ export const loadProjectStatusMap = async (): Promise<Record<string, { text: str
  */
 export const loadDictOptions = async (
   code: string,
-  fallback: { label: string; value: string }[] = []
-): Promise<{ label: string; value: string }[]> => {
+  fallback: { label: string; value: string; color?: string }[] = []
+): Promise<{ label: string; value: string; color?: string }[]> => {
   try {
     const items: any[] = (await initDictOptions(code)) || [];
     if (items.length) {
-      return items.map((i) => ({ label: i.text ?? i.label, value: i.value }));
+      return items.map((i) => ({ label: i.text ?? i.label, value: i.value, color: i.color }));
     }
   } catch (e) {
     // ignore, 走兜底
   }
   return fallback;
-};
-
-// 合同状态(字典 contract_status: 0驳回 / 1待审批 / 2已通过)
-const contractStatusColorMap: Recordable = {
-  '0': 'error',
-  '1': 'gold',
-  '2': 'success',
-};
-
-let contractStatusMapCache: Record<string, { text: string; color: string }> | null = null;
-
-/**
- * 合同状态字典 value → { text, color }(数据源: contract_status)
- * 项目列表「合同状态」列展示用; 字典加载失败时回退硬编码
- */
-export const loadContractStatusMap = async (): Promise<Record<string, { text: string; color: string }>> => {
-  if (contractStatusMapCache) return contractStatusMapCache;
-  const fallback: Record<string, { text: string; color: string }> = {
-    '0': { text: '驳回', color: 'error' },
-    '1': { text: '待审批', color: 'gold' },
-    '2': { text: '已通过', color: 'success' },
-  };
-  try {
-    const items: any[] = (await initDictOptions('contract_status')) || [];
-    contractStatusMapCache = Object.fromEntries(
-      items.map((i) => [
-        String(i.value),
-        { text: i.text ?? i.label ?? '', color: i.color ?? contractStatusColorMap[String(i.value)] ?? 'default' },
-      ])
-    );
-  } catch (e) {
-    contractStatusMapCache = null;
-  }
-  if (!contractStatusMapCache || !Object.keys(contractStatusMapCache).length) {
-    contractStatusMapCache = fallback;
-  }
-  return contractStatusMapCache;
 };
 
 // 项目状态(字典 project_period_status)
@@ -143,9 +118,9 @@ export const loadProductOptions = () => loadDictOptions('project_products');
 /**
  * 项目状态流转配置(前端驱动, 统一传 periodId + status → /project/period/status)
  * - 普通 action: { label, status, auth } → 调状态流转接口
- * - act='contractSign': 跳转「合同信息」页面(合同提交后项目→筹备中)
+ * - act='contractSign': 跳转「合同信息」页面(合同提交后待审批，审批通过后项目→筹备中)
  * - act='planAudit': 打开「计划审批」(通过→实施中, 驳回→筹备中)
- * 生命周期: 未开始 →(合同提交)→ 筹备中 →(计划提交审批)→ 待立项 →(计划审批通过)→ 实施中
+ * 生命周期: 未开始 →(合同提交/审批)→ 筹备中 →(计划提交审批)→ 待立项 →(计划审批通过)→ 实施中
  *   → 调试/实施完成 → 验收(内/外并行) → 质保 → 完结; 关闭为例外终态
  * ⚠️ status 为前端约定, 后端提供 status 接口后需对齐状态码
  */
@@ -241,9 +216,9 @@ export const columns: BasicColumn[] = [
     dataIndex: 'customerName',
   },
   {
-    title: '项目负责人',
+    title: '项目对接人',
     align: 'center',
-    dataIndex: 'projectLeaderName',
+    dataIndex: 'projectLiaisonUserName',
   },
   {
     title: '进度(%)',
@@ -350,11 +325,12 @@ export const projectFormSchema: FormSchema[] = [
     dynamicRules: () => [{ required: true, message: '请选择项目类型!' }],
   },
   {
-    label: '项目负责人',
-    field: 'projectLeaderId',
+    label: '项目对接人',
+    field: 'projectLiaisonUserId',
     component: 'Select',
-    componentProps: { showSearch: true, optionFilterProp: 'label', placeholder: '请选择项目负责人' },
-    dynamicRules: () => [{ required: true, message: '请选择项目负责人!' }],
+    helpMessage: '客户洽谈对接人，默认为当前操作人，可修改。',
+    componentProps: { showSearch: true, optionFilterProp: 'label', placeholder: '请选择项目对接人' },
+    dynamicRules: () => [{ required: true, message: '请选择项目对接人!' }],
   },
   {
     label: '业务属性',
@@ -414,7 +390,8 @@ export const projectFormSchema: FormSchema[] = [
     label: '附件',
     field: 'attachmentFileId',
     component: 'Input',
-    componentProps: { placeholder: '附件文件ID(暂以文本录入)' },
+    slot: 'attachment',
+    helpMessage: '可选择一个 Word、PPT、Excel、PDF 或图片文件，保存项目时一并上传',
   },
   {
     label: '项目需求',

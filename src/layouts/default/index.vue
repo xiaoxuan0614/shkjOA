@@ -1,6 +1,7 @@
 <template>
   <Layout :class="[layoutBoxClass]" v-bind="lockEvents">
     <LayoutFeatures />
+    <ProjectInvitationModal />
     <LayoutHeader fixed v-if="getShowFullHeaderRef" />
     <Layout :class="[layoutClass]">
       <LayoutSideBar v-if="getShowSidebar || getIsMobile" />
@@ -14,7 +15,7 @@
 </template>
 
 <script lang="ts">
-  import { defineComponent, computed, unref, ref } from 'vue';
+  import { defineComponent, computed, unref } from 'vue';
   import { Layout } from 'ant-design-vue';
   import { createAsyncComponent } from '/@/utils/factory/createAsyncComponent';
 
@@ -29,6 +30,7 @@
   import { useLockPage } from '/@/hooks/web/useLockPage';
 
   import { useAppInject } from '/@/hooks/web/useAppInject';
+  import ProjectInvitationModal from '/@/views/project/plan/ProjectInvitationModal.vue';
 
   export default defineComponent({
     name: 'DefaultLayout',
@@ -40,6 +42,7 @@
       LayoutSideBar,
       LayoutMultipleHeader,
       Layout,
+      ProjectInvitationModal,
     },
     setup() {
       const { prefixCls } = useDesign('default-layout');
@@ -81,7 +84,7 @@
         layoutBoxClass,
         layoutClass,
         layoutMainClass,
-        lockEvents
+        lockEvents,
       };
     },
   });
@@ -99,7 +102,6 @@
     &--menu {
       // 【JEECG作为乾坤子应用】
       &-mix-sidebar {
-
         .@{namespace}-layout-mix-sider {
           position: absolute;
           overflow: visible;

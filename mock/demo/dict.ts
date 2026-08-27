@@ -13,23 +13,17 @@ const dictStore: Record<string, { value: string; text: string; color?: string }[
     { value: '维保合同', text: '维保合同' },
     { value: '无合同', text: '无合同' },
   ],
-  // 合同状态: 0驳回 / 1待审批 / 2已通过
-  contract_status: [
-    { value: '0', text: '驳回', color: 'error' },
-    { value: '1', text: '待审批', color: 'gold' },
-    { value: '2', text: '已通过', color: 'success' },
-  ],
   // 外协单位状态: 0启用 / 1停用
   outsourcing_status: [
     { value: '0', text: '启用', color: 'success' },
     { value: '1', text: '停用', color: 'error' },
   ],
-  // 外协单位类型: 个人 / 单位
+  // 外协单位类型: 0个人 / 1企业
   outsourcing_type: [
-    { value: '单位', text: '单位' },
-    { value: '个人', text: '个人' },
+    { value: '0', text: '个人' },
+    { value: '1', text: '企业' },
   ],
-  // 回款节点
+  // 回款项
   payback_node: [
     { value: '预付款', text: '预付款' },
     { value: '到货款', text: '到货款' },
@@ -38,10 +32,26 @@ const dictStore: Record<string, { value: string; text: string; color?: string }[
     { value: '尾款', text: '尾款' },
     { value: '全款', text: '全款' },
   ],
-  // 邀请状态: 0待接受 / 1已接收
+  // 邀请状态: 0拒绝 / 1接受 / 其他待接受
   invite_status: [
-    { value: '0', text: '待接受', color: 'default' },
-    { value: '1', text: '已接收', color: 'success' },
+    { value: '0', text: '拒绝', color: 'error' },
+    { value: '1', text: '接受', color: 'success' },
+    { value: '2', text: '待接受', color: 'processing' },
+  ],
+  // 项目用料候选清单状态
+  project_material_candidate_status: [
+    { value: '0', text: '草稿', color: 'orange' },
+    { value: '1', text: '已提交', color: 'processing' },
+    { value: '2', text: '已采用', color: 'success' },
+    { value: '3', text: '已作废', color: 'default' },
+  ],
+  // 参与人员角色：页面严格展示该字典配置的全部角色。
+  member_role: [
+    { value: '0', text: '项目负责人' },
+    { value: '1', text: '现场负责人' },
+    { value: '2', text: '技术负责人' },
+    { value: '3', text: '施工人员' },
+    { value: '4', text: '安全员' },
   ],
   // 工序名称
   work_type: [

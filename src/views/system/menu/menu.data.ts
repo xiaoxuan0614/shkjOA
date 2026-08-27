@@ -52,6 +52,12 @@ export const columns: BasicColumn[] = [
     width: 150,
   },
   {
+    title: '移动端路径',
+    dataIndex: 'miniAppPath',
+    align: 'left',
+    width: 180,
+  },
+  {
     title: '排序',
     dataIndex: 'sortNo',
     width: 50,
@@ -142,9 +148,34 @@ export const formSchema: FormSchema[] = [
     // 代码逻辑说明: [issues/5008]子表数据权限设置不生效
     ifShow: ({ values }) => !(values.component === ComponentTypes.IFrame && values.internalOrExternal),
     // 代码逻辑说明: 聚合路由允许路径重复
-     dynamicRules: ({ model, schema,values }) => {
-       return checkPermDuplication(model, schema,  values.menuType !== 2?true:false);
+    dynamicRules: ({ model, schema,values }) => {
+      return checkPermDuplication(model, schema,  values.menuType !== 2?true:false);
     },
+  },
+  {
+    field: 'miniAppPath',
+    label: '移动端路径',
+    component: 'Input',
+    componentProps: {
+      placeholder: '例如 /pages/ops/project',
+      allowClear: true,
+    },
+    helpMessage: [
+      '仅用于 App/小程序一级菜单跳转，留空表示不在移动端展示。',
+      '必须填写 pages.json 已注册的绝对路径，不要携带域名、查询参数或 hash。',
+    ],
+    rules: [
+      {
+        validator: (_, value) => {
+          if (!value) return Promise.resolve();
+          if (!/^\/pages\/[A-Za-z0-9_/-]+$/.test(value)) {
+            return Promise.reject('请输入以 /pages/ 开头且不含参数的移动端页面路径');
+          }
+          return Promise.resolve();
+        },
+      },
+    ],
+    ifShow: ({ values }) => isDir(values.menuType),
   },
   {
     field: 'component',

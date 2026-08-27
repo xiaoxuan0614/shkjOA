@@ -19,6 +19,22 @@ const plan: AppRouteModule = {
       meta: { title: '计划方案管理' },
     },
     {
+      path: 'material-draft',
+      name: 'ContractMaterialDraftList',
+      component: () => import('/@/views/plan/material-draft/index.vue'),
+      meta: { title: '报价管理' },
+    },
+    {
+      path: 'material-draft/editor',
+      name: 'ContractMaterialDraftEditor',
+      component: () => import('/@/views/plan/material-draft/editor.vue'),
+      meta: {
+        hideMenu: true,
+        title: '新增/修改报价',
+        currentActiveMenu: '/plan/material-draft',
+      },
+    },
+    {
       path: 'detail/:id',
       name: 'PlanDetail',
       component: () => import('/@/views/plan/detail/index.vue'),

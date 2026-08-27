@@ -10,6 +10,13 @@
       <template #action="{ record }">
         <TableAction :actions="getTableAction(record)" :dropDownActions="getDropDownAction(record)" />
       </template>
+      <template #bodyCell="{ column, record }">
+        <template v-if="column.dataIndex === 'status'">
+          <a-tag :color="getApprovalStatusMeta(record.status).color">
+            {{ getApprovalStatusMeta(record.status).text }}
+          </a-tag>
+        </template>
+      </template>
     </BasicTable>
 
     <ContractModal @register="registerModal" @success="handleSuccess" />
@@ -25,8 +32,13 @@
   import ContractModal from './ContractModal.vue';
   import { columns, searchFormSchema } from './Payment.data';
   import { contractList } from './Payment.api';
+  import { getApprovalStatusMeta } from '/@/utils/approvalStatus';
+  import { useMessage } from '/@/hooks/web/useMessage';
+
+  defineOptions({ name: 'PaymentContractList' });
 
   const router = useRouter();
+  const { createMessage } = useMessage();
   const queryParam = reactive<any>({});
   const [registerModal, { openModal }] = useModal();
 
@@ -65,14 +77,29 @@
    * 编辑合同
    */
   function handleEdit(record: Recordable) {
-    openModal(true, { isUpdate: true, record });
+    if (!record.periodId) {
+      createMessage.warning('当前合同缺少项目分期 ID，无法修改');
+      return;
+    }
+    router.push({
+      path: '/project/contract',
+      query: {
+        mode: 'edit',
+        periodId: record.periodId,
+        projectId: record.projectId,
+      },
+    });
   }
 
   /**
    * 详情: 跳转合同详情页(回款记录)
    */
   function handleDetail(record: Recordable) {
-    router.push({ path: `/payment/detail/${record.id}` });
+    if (!record.periodId) {
+      createMessage.warning('当前合同缺少项目分期 ID，无法查看详情');
+      return;
+    }
+    router.push({ path: `/payment/detail/${record.periodId}` });
   }
 
   function handleSuccess() {
@@ -98,7 +125,7 @@
   /**
    * 下拉操作栏: 删除(占位)
    */
-  function getDropDownAction(record: Recordable) {
+  function getDropDownAction(_record: Recordable) {
     return [
       {
         label: '删除',

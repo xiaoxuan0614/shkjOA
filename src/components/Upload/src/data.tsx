@@ -122,7 +122,7 @@ export function createPreviewColumns(): BasicColumn[] {
   ];
 }
 
-export function createPreviewActionColumn({ handleRemove, handleDownload }: { handleRemove: Fn; handleDownload: Fn }): BasicColumn {
+export function createPreviewActionColumn({ handleRemove, handlePreview }: { handleRemove: Fn; handlePreview: Fn }): BasicColumn {
   return {
     width: 160,
     title: t('component.upload.operating'),
@@ -136,8 +136,8 @@ export function createPreviewActionColumn({ handleRemove, handleDownload }: { ha
           onClick: handleRemove.bind(null, record),
         },
         {
-          label: t('component.upload.download'),
-          onClick: handleDownload.bind(null, record),
+          label: t('component.upload.preview'),
+          onClick: handlePreview.bind(null, record),
         },
       ];
 

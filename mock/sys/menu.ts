@@ -1,6 +1,5 @@
-import { resultSuccess, resultError, getRequestToken, requestParams, sysUrl } from '../_util';
+import { resultSuccess, sysUrl } from '../_util';
 import { MockMethod } from 'vite-plugin-mock';
-import { createFakeUserList } from './user';
 import { PageEnum } from '/@/enums/pageEnum';
 
 // 仪表盘路由
@@ -42,87 +41,88 @@ const dashboardRoute = {
 
 /// ========== 新增材料管理父路由 ==========
 const materialRoute = {
-  path: '/material',                  // 一级路由访问路径：/material
-  name: 'Material',                   // 路由name标识，必须唯一
-  component: 'LAYOUT',                // 使用框架自带布局容器（包含侧边栏、头部面包屑）
-  redirect: '/material/list',         // 访问父路由时，自动重定向跳转到子页面 /material/list
+  path: '/material', // 一级路由访问路径：/material
+  name: 'Material', // 路由name标识，必须唯一
+  component: 'LAYOUT', // 使用框架自带布局容器（包含侧边栏、头部面包屑）
+  redirect: '/material/list', // 访问父路由时，自动重定向跳转到子页面 /material/list
   meta: {
-    title: '物料管理',                 // 侧边栏父菜单显示文字（这里直接写中文，不走i18n国际化）
-    icon: 'bx:bx-box',                // 父菜单图标，来自boxicons图标库
+    title: '物料管理', // 侧边栏父菜单显示文字（这里直接写中文，不走i18n国际化）
+    icon: 'bx:bx-box', // 父菜单图标，来自boxicons图标库
   },
-  children: [                         // 子路由数组
+  children: [
+    // 子路由数组
     {
-      path: 'list',           // 子路由路径，完整url：/material/list
-      name: 'MaterialList',           // 子路由name，全局唯一
-      component: 'material/goods/index',  // 页面组件路径，对应 src/views/material/goods/index.vue(物料基本维护)
+      path: 'list', // 子路由路径，完整url：/material/list
+      name: 'MaterialList', // 子路由name，全局唯一
+      component: 'material/goods/index', // 页面组件路径，对应 src/views/material/goods/index.vue(物料基本维护)
       meta: {
         // hideMenu: true,            // 开启=true：该子页面不在侧边栏渲染菜单；注释掉则显示子菜单项
-        title: '物料基本维护',          // 该子页面菜单/浏览器标签标题
+        title: '物料基本维护', // 该子页面菜单/浏览器标签标题
         // currentActiveMenu: '/material', // 父路由已经是/material，不需要手动指定高亮菜单
-        icon: 'bx:bx-list',           // 子菜单图标
+        icon: 'bx:bx-list', // 子菜单图标
       },
     },
     {
-      path: 'stock',          // 子路由路径，完整url：/material/stock
-      name: 'MaterialStock',          // 子路由name，全局唯一
-      component: 'material/stock/index',  // 页面组件路径，对应 src/views/material/stock/index.vue(库存数量+盘存)
+      path: 'stock', // 子路由路径，完整url：/material/stock
+      name: 'MaterialStock', // 子路由name，全局唯一
+      component: 'material/stock/index', // 页面组件路径，对应 src/views/material/stock/index.vue(库存数量+盘存)
       meta: {
         // hideMenu: true,            // 开启=true：该子页面不在侧边栏渲染菜单；注释掉则显示子菜单项
-        title: '库存管理',             // 该子页面菜单/浏览器标签标题
+        title: '库存管理', // 该子页面菜单/浏览器标签标题
         // currentActiveMenu: '/material', // 父路由已经是/material，不需要手动指定高亮菜单
-        icon: 'bx:bx-cube',           // 子菜单图标
+        icon: 'bx:bx-cube', // 子菜单图标
       },
     },
     {
-      path: 'record',         // 子路由路径，完整url：/material/record
-      name: 'MaterialRecord',         // 子路由name，全局唯一
-      component: 'material/record/index',  // 页面组件路径，对应 src/views/material/record/index.vue(库管审批/出入库/台账)
+      path: 'record', // 子路由路径，完整url：/material/record
+      name: 'MaterialRecord', // 子路由name，全局唯一
+      component: 'material/record/index', // 页面组件路径，对应 src/views/material/record/index.vue(库管审批/出入库/台账)
       meta: {
         // hideMenu: true,            // 开启=true：该子页面不在侧边栏渲染菜单；注释掉则显示子菜单项
-        title: '出入库管理',           // 该子页面菜单/浏览器标签标题
+        title: '出入库管理', // 该子页面菜单/浏览器标签标题
         // currentActiveMenu: '/material', // 父路由已经是/material，不需要手动指定高亮菜单
-        icon: 'bx:bx-book-open',      // 子菜单图标
+        icon: 'bx:bx-book-open', // 子菜单图标
       },
     },
     {
-      path: 'pick',           // 子路由路径，完整url：/material/pick
-      name: 'MaterialPick',           // 子路由name，全局唯一
-      component: 'material/pick/index',  // 页面组件路径，对应 src/views/material/pick/index.vue(领料申请)
+      path: 'pick', // 子路由路径，完整url：/material/pick
+      name: 'MaterialPick', // 子路由name，全局唯一
+      component: 'material/pick/index', // 页面组件路径，对应 src/views/material/pick/index.vue(领料申请)
       meta: {
-        hideMenu: true,               // 不显示在侧边栏，由「出入库管理」页按钮进入
-        title: '领料申请',             // 浏览器标签标题
+        hideMenu: true, // 不显示在侧边栏，由「出入库管理」页按钮进入
+        title: '领料申请', // 浏览器标签标题
         currentActiveMenu: '/material/record', // 高亮「出入库管理」
-        icon: 'bx:bx-log-out',        // 子菜单图标
+        icon: 'bx:bx-log-out', // 子菜单图标
       },
     },
     {
-      path: 'return',         // 子路由路径，完整url：/material/return
-      name: 'MaterialReturn',         // 子路由name，全局唯一
-      component: 'material/return/index',  // 页面组件路径，对应 src/views/material/return/index.vue(还料申请)
+      path: 'return', // 子路由路径，完整url：/material/return
+      name: 'MaterialReturn', // 子路由name，全局唯一
+      component: 'material/return/index', // 页面组件路径，对应 src/views/material/return/index.vue(还料申请)
       meta: {
-        hideMenu: true,               // 不显示在侧边栏，由「出入库管理」页按钮进入
-        title: '还料申请',             // 浏览器标签标题
+        hideMenu: true, // 不显示在侧边栏，由「出入库管理」页按钮进入
+        title: '还料申请', // 浏览器标签标题
         currentActiveMenu: '/material/record', // 高亮「出入库管理」
-        icon: 'bx:bx-log-in',         // 子菜单图标
+        icon: 'bx:bx-log-in', // 子菜单图标
       },
     },
     {
-      path: 'purchase',       // 子路由路径，完整url：/material/purchase
-      name: 'MaterialPurchase',       // 子路由name，全局唯一
-      component: 'material/purchase/index',  // 页面组件路径，对应 src/views/material/purchase/index.vue(采购入库)
+      path: 'purchase', // 子路由路径，完整url：/material/purchase
+      name: 'MaterialPurchase', // 子路由name，全局唯一
+      component: 'material/purchase/index', // 页面组件路径，对应 src/views/material/purchase/index.vue(采购入库)
       meta: {
         // hideMenu: true,            // 开启=true：该子页面不在侧边栏渲染菜单；注释掉则显示子菜单项
-        title: '采购入库',             // 该子页面菜单/浏览器标签标题
-        icon: 'bx:bx-cart-add',       // 子菜单图标
+        title: '采购入库', // 该子页面菜单/浏览器标签标题
+        icon: 'bx:bx-cart-add', // 子菜单图标
       },
     },
     {
-      path: 'apply',          // 子路由路径，完整url：/material/apply
-      name: 'MaterialApply',          // 子路由name，全局唯一
-      component: 'material/apply/MaterialApply',  // 页面组件路径，对应 src/views/material/apply/MaterialApply.vue
+      path: 'apply', // 子路由路径，完整url：/material/apply
+      name: 'MaterialApply', // 子路由name，全局唯一
+      component: 'material/apply/MaterialApply', // 页面组件路径，对应 src/views/material/apply/MaterialApply.vue
       meta: {
-        hideMenu: true,               // 不显示在侧边栏，通过列表页按钮跳转进入
-        title: '物料申请',             // 浏览器标签标题
+        hideMenu: true, // 不显示在侧边栏，通过列表页按钮跳转进入
+        title: '物料申请', // 浏览器标签标题
         currentActiveMenu: '/material', // 高亮父菜单
       },
     },
@@ -176,7 +176,7 @@ const projectRoute = {
       meta: {
         hideMenu: true,
         title: '合同信息',
-        currentActiveMenu: '/project',
+        currentActiveMenu: '/project/list',
       },
     },
     {
@@ -287,6 +287,18 @@ function buildBusinessRoutes() {
     children: [
       { path: 'list', name: 'PlanList', component: 'plan/index', meta: { title: '计划方案管理' } },
       {
+        path: 'material-draft',
+        name: 'ContractMaterialDraftList',
+        component: 'plan/material-draft/index',
+        meta: { title: '报价管理' },
+      },
+      {
+        path: 'material-draft/editor',
+        name: 'ContractMaterialDraftEditor',
+        component: 'plan/material-draft/editor',
+        meta: { hideMenu: true, title: '新增/修改报价', currentActiveMenu: '/plan/material-draft' },
+      },
+      {
         path: 'detail/:id',
         name: 'PlanDetail',
         component: 'plan/detail/index',
@@ -341,8 +353,24 @@ function buildBusinessRoutes() {
 function buildPlaceholderRoutes() {
   const defs = [
     { path: '/file', name: 'File', title: '文件管理', icon: 'bx:bx-folder', redirect: '/file/list', child: 'file/list', childName: 'FileList' },
-    { path: '/report', name: 'Report', title: '数据报表', icon: 'bx:bx-bar-chart', redirect: '/report/list', child: 'report/list', childName: 'ReportList' },
-    { path: '/operation', name: 'Operation', title: '运维管理', icon: 'bx:bx-cog', redirect: '/operation/list', child: 'operation/list', childName: 'OperationList' },
+    {
+      path: '/report',
+      name: 'Report',
+      title: '数据报表',
+      icon: 'bx:bx-bar-chart',
+      redirect: '/report/list',
+      child: 'report/list',
+      childName: 'ReportList',
+    },
+    {
+      path: '/operation',
+      name: 'Operation',
+      title: '运维管理',
+      icon: 'bx:bx-cog',
+      redirect: '/operation/list',
+      child: 'operation/list',
+      childName: 'OperationList',
+    },
   ];
   return defs.map((d) => ({
     path: d.path,
@@ -557,8 +585,7 @@ export default [
     url: `${sysUrl}/sys/permission/getUserPermissionByToken`,
     timeout: 1000,
     method: 'get',
-    response: (request: any) => {
-      const token = getRequestToken(request);
+    response: () => {
       const id = '1';
       let menu: Object[];
       switch (id) {
@@ -613,11 +640,17 @@ export default [
           'project:internalAccept',
           'project:accept',
           'project:warranty',
-          // 合同签订(提交) / 合同信息编辑
+          // 合同签订(提交) / 审批；合同撤回与重提按原提交人身份控制
           'project:contract',
-          'project:contract:edit',
+          'project:contract:audit',
           // 计划提交 / 计划审批(待立项)
           'project:plan:audit',
+          // 报价管理按钮权限；解锁权限只授予指定负责人/管理员
+          'plan:quotation:add',
+          'plan:quotation:edit',
+          'plan:quotation:lock',
+          'plan:quotation:unlock',
+          'plan:quotation:delete',
         ],
       });
     },

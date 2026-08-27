@@ -77,14 +77,18 @@
 
   // POI → 下拉选项
   function toOption(poi: any) {
+    const rawLng = poi.location?.getLng?.() ?? poi.location?.lng;
+    const rawLat = poi.location?.getLat?.() ?? poi.location?.lat;
+    const lng = rawLng === '' || rawLng == null ? undefined : Number(rawLng);
+    const lat = rawLat === '' || rawLat == null ? undefined : Number(rawLat);
     return {
       value: poi.address || poi.name,
       label: `${poi.name}${poi.address ? ' · ' + poi.address : ''}`,
       poi: {
         name: poi.name,
         address: poi.address || '',
-        lng: poi.location?.lng,
-        lat: poi.location?.lat,
+        lng: Number.isFinite(lng) ? lng : undefined,
+        lat: Number.isFinite(lat) ? lat : undefined,
         pname: poi.pname,
         cityname: poi.cityname,
         adcode: poi.adcode,
@@ -94,24 +98,21 @@
     };
   }
 
-  const doSearch = useDebounceFn((keyword: string) => {
+  const doSearch = useDebounceFn(async (keyword: string) => {
     const kw = (keyword || '').trim();
+    const my = ++seq;
     if (!kw) {
       options.value = [];
       searched.value = false;
       loading.value = false;
       return;
     }
-    if (!(window as any).AMap?.PlaceSearch) {
-      amapError.value = '插件未加载';
-      loading.value = false;
-      return;
-    }
-    // 正常发起搜索时清掉上一次的错误提示
-    amapError.value = '';
-    const my = ++seq;
+
     try {
-      placeSearch = placeSearch || new (window as any).AMap.PlaceSearch({ pageSize: 10 });
+      const AMap = await loadAMap();
+      if (my !== seq) return;
+      amapError.value = '';
+      placeSearch = placeSearch || new AMap.PlaceSearch({ pageSize: 10 });
       placeSearch.search(kw, (status: string, result: any) => {
         if (my !== seq) return; // 丢弃过期回调
         loading.value = false;
@@ -128,6 +129,7 @@
         }
       });
     } catch {
+      if (my !== seq) return;
       options.value = [];
       loading.value = false;
       amapError.value = '加载异常';
@@ -143,7 +145,13 @@
     state.value = text;
     emit('change', text);
     emit('update:value', text);
-    if (!text) emit('select', null); // 清空时通知父级清除经纬度
+    if (!text) {
+      seq++;
+      options.value = [];
+      searched.value = false;
+      loading.value = false;
+      emit('select', null); // 清空时通知父级清除经纬度
+    }
   }
 
   function onSelect(_value: string, option: any) {

@@ -2,11 +2,18 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Documentation-Driven Workflow
+
+- Before changing code, read `docs/结构功能总览.md` and use its module/route/API/document index to locate the affected area.
+- Every code change must append an entry to `docs/更新记录.md`, then check whether the overall structure, menu guides, and affected module business/API documents need synchronization.
+- `docs/结构功能总览.md` is the canonical current-state entry point. Update only documents whose facts changed; state which related documents were checked when reporting completion.
+
 ## Project Overview
 
 JeecgBoot Vue3 frontend — an enterprise low-code platform built with Vue 3 + Vite 8 + Ant Design Vue 4 + TypeScript. Uses pnpm as package manager. Node 18 or 20+ required (`engines: "^18 || >=20"`).
 
 **Important context (recent refactor):** The following features have been **removed** from this codebase — do not re-add or reference them:
+
 - Micro-frontend (qiankun) — `src/qiankun/`, `vite-plugin-qiankun`, qiankun env vars, related layout CSS
 - Multi-tenant (租户) — `src/views/system/tenant/`, tenant pages (TenantDepartList/TenantPositionList/TenantRoleList/TenantSetting), tenant store state, `X-Tenant-Id` header injection, `getTenantId()`
 - Third-party login — DingTalk/Feishu/CAS/OAuth2/QR-code login, `ThirdModal.vue`, `QrCodeForm.vue`, `OAuth2Login.vue`, `MiniCodelogin.vue`, `useThirdLogin.ts`, `useSso.ts`, `dingtalk-jsapi`
@@ -35,10 +42,12 @@ pnpm gen:icon         # Regenerate icon data
 ### Mock vs Real Backend
 
 `pnpm dev` and `pnpm mock` both run `vite`, differing only by env mode:
+
 - **`pnpm mock`** → `vite --mode mock`, loads `.env.mock` (`VITE_USE_MOCK=true`). Mock routes live in `mock/`, served by `vite-plugin-mock`.
 - **`pnpm dev`** → `vite` (development mode), loads `.env.development` (`VITE_USE_MOCK=false`). Requests proxy to the backend via `VITE_PROXY`.
 
 Mock URL prefix notes (these are subtleties that matter):
+
 - System mocks use `sysUrl = '/jeecgboot'` (matches axios `apiUrl`) — e.g. `/jeecgboot/sys/login`.
 - Demo mocks use `baseUrl = '/jeecgboot/mock'` — e.g. `/jeecgboot/mock/system/getAccountList`.
 - Mock helpers are underscore-prefixed (`mock/_util.ts`, `mock/_createProductionServer.ts`) and excluded from module scanning by `ignore: /^\_/`. Do not rename them back.
@@ -69,6 +78,7 @@ The `/@/` prefix (with leading slash) is the project's conventional alias — pr
 ### State Management (Pinia)
 
 Key stores in `src/store/modules/`:
+
 - `user.ts` (app-user) — auth token, user info, roles, dict items, login info
 - `permission.ts` (app-permission) — dynamic routes, permission codes, backend menus
 - `app.ts` (app) — project config, theme, layout settings
@@ -99,6 +109,7 @@ Auth persisted in localStorage via `src/utils/auth/index.ts`.
 ### Icon System
 
 Three icon approaches:
+
 1. **Iconify runtime** — `<Icon icon="mdi:home" />` via `@iconify/iconify` CDN lazy-load
 2. **SVG sprites** — `<Icon icon="icon-name|svg" />` via `vite-plugin-svg-icons`
 3. **unplugin-icons** — `import IconName from '~icons/collection/name'` for compile-time tree-shaken icons
@@ -113,6 +124,7 @@ Three icon approaches:
 ### Performance Optimization Patterns
 
 **Use dynamic imports for non-critical modules** — static `import` at top of a file loads the whole dependency chain on initial page:
+
 - `src/settings/registerThirdComp.ts` — vxe-table, emoji picker (loaded after mount)
 - `src/components/registerGlobComp.ts` — Tinymce loaded async
 - Non-critical Ant Design Vue components loaded asynchronously

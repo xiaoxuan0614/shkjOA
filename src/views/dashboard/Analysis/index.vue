@@ -1,4 +1,5 @@
 <template>
+  <InvitationTodoCard class="analysis-invitation-todo" />
   <IndexChart v-if="indexStyle === 0"></IndexChart>
   <IndexDef v-if="indexStyle === 1"></IndexDef>
   <IndexBdc v-if="indexStyle == 2"></IndexBdc>
@@ -19,6 +20,15 @@
   import IndexChart from './homePage/IndexChart.vue';
   import IndexBdc from './homePage/IndexBdc.vue';
   import IndexTask from './homePage/IndexTask.vue';
+  import InvitationTodoCard from '/@/views/project/plan/InvitationTodoCard.vue';
+
+  defineOptions({ name: 'DashboardAnalysis' });
 
   const indexStyle = ref(0);
 </script>
+
+<style lang="less" scoped>
+  .analysis-invitation-todo {
+    margin: 16px 16px 0;
+  }
+</style>

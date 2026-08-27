@@ -2,21 +2,34 @@
   <a-descriptions
     v-if="Object.keys(record).length"
     class="plan-project-info"
-    :column="4"
+    :column="{ xs: 1, sm: 2, md: 3, lg: 3, xl: 3, xxl: 3 }"
     size="small"
     bordered
   >
     <a-descriptions-item label="主项目名称">{{ record.projectName || '—' }}</a-descriptions-item>
-    <a-descriptions-item label="分期名称">{{ record.periodName || '—' }}</a-descriptions-item>
+    <a-descriptions-item :label="periodNameLabel">{{ record.periodName || '—' }}</a-descriptions-item>
     <a-descriptions-item label="甲方名称">{{ record.customerName || '—' }}</a-descriptions-item>
-    <a-descriptions-item label="项目负责人">{{ record.projectLeaderName || '—' }}</a-descriptions-item>
+    <template v-if="showPlanFields">
+      <a-descriptions-item label="项目经理">{{ record.projectManagerUserName || '—' }}</a-descriptions-item>
+      <a-descriptions-item label="合同签订时间">{{ record.contractSignedDate || '—' }}</a-descriptions-item>
+      <a-descriptions-item label="计划交付日期">{{ record.plannedDeliveryDate || '—' }}</a-descriptions-item>
+    </template>
+    <a-descriptions-item v-else label="项目对接人">{{ record.projectLiaisonUserName || '—' }}</a-descriptions-item>
   </a-descriptions>
 </template>
 
 <script lang="ts" setup>
-  defineProps<{
-    record: Recordable;
-  }>();
+  withDefaults(
+    defineProps<{
+      record: Recordable;
+      periodNameLabel?: string;
+      showPlanFields?: boolean;
+    }>(),
+    {
+      periodNameLabel: '分期项目名称',
+      showPlanFields: true,
+    }
+  );
 </script>
 
 <style lang="less" scoped>

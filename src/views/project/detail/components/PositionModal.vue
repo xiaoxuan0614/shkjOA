@@ -5,6 +5,7 @@
       :lng="recordLng"
       :lat="recordLat"
       :address="recordAddress"
+      :auto-locate="!isUpdate"
       height="320px"
       style="margin-bottom: 16px"
       @select="onSelectLocation"

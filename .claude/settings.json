@@ -1,0 +1,30 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"编码前必须先使用 Read 阅读 docs/结构功能总览.md，并按其中的模块索引定位本次修改；若本轮已读，可继续。\"}}'",
+            "timeout": 10,
+            "statusMessage": "检查编码前文档阅读要求"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"代码已发生变更。完成任务前必须检查并按实际影响同步 docs/更新记录.md、docs/结构功能总览.md、菜单配置文档和对应模块业务/API 文档；不受影响的文档无需机械修改，但应在完成说明中注明已检查。\"}}'",
+            "timeout": 10,
+            "statusMessage": "提醒同步受影响文档"
+          }
+        ]
+      }
+    ]
+  }
+}

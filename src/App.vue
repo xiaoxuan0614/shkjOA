@@ -1,5 +1,5 @@
 <template>
-  <ConfigProvider :theme="appTheme" :locale="getAntdLocale">
+  <ConfigProvider :theme="appTheme" :locale="getAntdLocale" :form="formConfig">
     <AppProvider>
       <RouterView />
     </AppProvider>
@@ -23,6 +23,7 @@
   import 'dayjs/locale/zh-cn';
   // support Multi-language
   const { getAntdLocale } = useLocale();
+  const formConfig = { colon: false };
 
   useTitle();
   /**
@@ -97,7 +98,6 @@
   setTimeout(() => {
     appStore.getProjectConfig?.themeColor && changeTheme(appStore.getProjectConfig.themeColor);
   }, 300);
-
 </script>
 <style lang="less">
   // 代码逻辑说明: 【QQYUN-5839】windi会影响到html2canvas绘制的图片样式

@@ -2,13 +2,28 @@
   <div class="project-apply">
     <!-- 申请信息 -->
     <div class="project-apply__card">
-      <div class="project-apply__card-title">基本信息</div>
-      <BasicForm @register="registerForm" />
+      <BasicForm @register="registerForm">
+        <template #attachment>
+          <div class="project-apply__attachment">
+            <a-upload
+              :accept="PROJECT_ATTACHMENT_ACCEPT"
+              :file-list="attachmentFileList"
+              :multiple="false"
+              :max-count="1"
+              :before-upload="handleBeforeAttachmentUpload"
+              @preview="handleAttachmentPreview"
+              @remove="handleRemoveAttachment"
+            >
+              <a-button v-if="!attachmentFileList.length">选择文件</a-button>
+            </a-upload>
+          </div>
+        </template>
+      </BasicForm>
     </div>
 
     <!-- 底部操作 -->
     <div class="project-apply__footer">
-      <a-button type="primary" preIcon="ant-design:save-outlined" @click="handleSave">保存</a-button>
+      <a-button type="primary" preIcon="ant-design:save-outlined" :loading="saving" @click="handleSave">保存</a-button>
       <a-button @click="handleCancel">取消</a-button>
     </div>
   </div>
@@ -16,24 +31,26 @@
 
 <script lang="ts" setup>
   import { ref, onMounted } from 'vue';
+  import type { UploadFile } from 'ant-design-vue';
   import { useRouter, useRoute } from 'vue-router';
   import { BasicForm, useForm } from '/@/components/Form/index';
   import { AmapPoi } from '/@/components/jeecg/AMapPlaceSearch.vue';
   import { useMessage } from '/@/hooks/web/useMessage';
-  import { projectFormSchema } from '../Project.data';
-  import {
-    addProject,
-    editProject,
-    addPeriod,
-    projectDetail,
-    getCustomerList,
-    getMainProjectList,
-  } from '../Project.api';
+  import { useUserStore } from '/@/store/modules/user';
+  import { PROJECT_ATTACHMENT_ACCEPT, isProjectAttachmentFile, projectFormSchema } from '../Project.data';
+  import { addProject, editProject, projectDetail, getCustomerList, getMainProjectList } from '../Project.api';
   import { loadUserOptions } from '/@/views/resource/userOptions';
+  import { previewFileInModal } from '/@/utils/filePreview';
 
   const router = useRouter();
   const route = useRoute();
   const { createMessage } = useMessage();
+  const userStore = useUserStore();
+  const saving = ref(false);
+  const selectedAttachment = ref<File>();
+  const attachmentFileList = ref<UploadFile[]>([]);
+  const existingAttachmentPath = ref('');
+  const attachmentReplacementRequired = ref(false);
 
   // 编辑模式(带 id 时为编辑回显, id 即分期ID)
   const editId = ref<string | undefined>(route.query?.id as string | undefined);
@@ -44,8 +61,8 @@
   // 主项目列表(分期: 选择所属主项目带出主项目名称)
   let mainProjectMap: Recordable = {};
 
-  // 负责人: id → 姓名
-  let leaderNameMap: Recordable = {};
+  // 项目对接人: id → 姓名
+  let liaisonNameMap: Recordable = {};
 
   // 注册表单
   const [registerForm, { setFieldsValue, validate, updateSchema }] = useForm({
@@ -122,18 +139,23 @@
   }
 
   /**
-   * 加载项目负责人用户下拉
+   * 加载项目对接人用户下拉；新增时默认当前操作人。
    */
-  async function loadLeaders() {
+  async function loadLiaisons() {
     const users = await loadUserOptions();
-    leaderNameMap = (users || []).reduce((map, u) => {
+    liaisonNameMap = (users || []).reduce((map, u) => {
       map[u.value] = u.label;
       return map;
     }, {});
     await updateSchema({
-      field: 'projectLeaderId',
-      componentProps: { options: users || [], showSearch: true, optionFilterProp: 'label', placeholder: '请选择项目负责人' },
+      field: 'projectLiaisonUserId',
+      componentProps: { options: users || [], showSearch: true, optionFilterProp: 'label', placeholder: '请选择项目对接人' },
     });
+    if (!editId.value) {
+      const user: any = userStore.getUserInfo;
+      const currentUserId = String(user?.id ?? user?.userId ?? '');
+      if (currentUserId) await setFieldsValue({ projectLiaisonUserId: currentUserId });
+    }
   }
 
   /**
@@ -143,7 +165,26 @@
   async function loadDetail() {
     if (!editId.value) return;
     const data = await projectDetail({ periodId: editId.value });
+    const user: any = userStore.getUserInfo;
+    const currentUserId = String(user?.id ?? user?.userId ?? '');
+    if (!currentUserId || String(data?.projectLiaisonUserId ?? '') !== currentUserId) {
+      createMessage.warning('仅指定的项目对接人可以修改项目基本信息');
+      await router.replace(`/project/detail/${editId.value}`);
+      return;
+    }
     const values: Recordable = { ...data };
+    existingAttachmentPath.value = String(data?.attachmentFileId || '');
+    attachmentReplacementRequired.value = false;
+    attachmentFileList.value = existingAttachmentPath.value
+      ? [
+          {
+            uid: `existing-${editId.value}`,
+            name: getAttachmentName(existingAttachmentPath.value),
+            status: 'done',
+            url: existingAttachmentPath.value,
+          },
+        ]
+      : [];
     ['businessAttribute', 'involvedProducts'].forEach((f) => {
       if (typeof values[f] === 'string' && values[f]) {
         values[f] = values[f].split(',').filter(Boolean);
@@ -165,20 +206,59 @@
       field: 'projectAddress',
       componentProps: {
         onSelect: (poi: AmapPoi | null) => {
-          setFieldsValue(
-            poi ? { longitude: poi.lng, latitude: poi.lat } : { longitude: undefined, latitude: undefined }
-          );
+          setFieldsValue(poi ? { longitude: poi.lng, latitude: poi.lat } : { longitude: undefined, latitude: undefined });
         },
       },
     });
   }
 
+  function handleBeforeAttachmentUpload(file: File & { uid?: string }) {
+    if (!isProjectAttachmentFile(file)) {
+      createMessage.warning('只能上传 Word、PPT、Excel、PDF 或图片文件');
+      return false;
+    }
+    selectedAttachment.value = file;
+    attachmentReplacementRequired.value = false;
+    attachmentFileList.value = [
+      {
+        uid: file.uid || `${Date.now()}`,
+        name: file.name,
+        size: file.size,
+        type: file.type,
+        originFileObj: file as any,
+      },
+    ];
+    return false;
+  }
+
+  function handleRemoveAttachment() {
+    selectedAttachment.value = undefined;
+    attachmentFileList.value = [];
+    attachmentReplacementRequired.value = !!existingAttachmentPath.value;
+    return true;
+  }
+
+  function handleAttachmentPreview(file: UploadFile) {
+    previewFileInModal(file);
+  }
+
+  function getAttachmentName(path: string) {
+    return decodeURIComponent(path.split('/').pop() || path);
+  }
+
   /**
-   * 保存: 未选主项目=新建主项目及分期(addProjectPeriod); 选了主项目=新增分期(addPeriod); 编辑=editProjectPeriod
+   * 保存：业务数据放入 data JSON part，附件放入 attachment part，一次提交 multipart/form-data。
    */
   async function handleSave() {
     try {
+      saving.value = true;
       const values = await validate();
+      if (attachmentReplacementRequired.value && !selectedAttachment.value) {
+        createMessage.warning('已移除原附件，请先选择新文件后再保存');
+        return;
+      }
+      // 最新 DTO 不接收附件路径；附件仅通过 multipart 的 attachment part 提交。
+      delete values.attachmentFileId;
       const { projectId, projectName, periodName, ...rest } = values;
       // 多选字段: 数组 → 逗号分隔字符串(对齐后端存储格式)
       const submitValues: Recordable = { ...rest };
@@ -189,23 +269,22 @@
       });
       const base = {
         ...submitValues,
-        projectLeaderName: leaderNameMap[rest.projectLeaderId] || '',
+        projectLiaisonUserName: liaisonNameMap[rest.projectLiaisonUserId] || '',
         customerName: customerMap[rest.customerId]?.customerName || customerMap[rest.customerId]?.name || '',
       };
       if (editId.value) {
         // 编辑主项目+分期
-        await editProject({ ...base, projectId, projectName, periodId: editId.value, periodName });
-      } else if (projectId) {
-        // 已有主项目下新增分期
-        await addPeriod({ ...base, projectId, periodName });
+        await editProject({ ...base, projectName, periodId: editId.value, periodName }, selectedAttachment.value);
       } else {
-        // 新建主项目 + 首期
-        await addProject({ ...base, projectName, periodName });
+        // parentProjectId 为空时新建主项目，存在时给已有主项目新增分期。
+        await addProject({ ...base, parentProjectId: projectId || undefined, projectName, periodName }, selectedAttachment.value);
       }
       createMessage.success('保存成功');
       router.push('/project/list');
     } catch (error) {
       // 校验失败/接口异常
+    } finally {
+      saving.value = false;
     }
   }
 
@@ -219,7 +298,7 @@
   onMounted(async () => {
     await loadCustomers();
     await loadMainProjects();
-    await loadLeaders();
+    await loadLiaisons();
     await loadAddressSelect();
     if (editId.value) {
       await loadDetail();
@@ -236,13 +315,6 @@
       border-radius: 4px;
       padding: 16px;
       margin-bottom: 16px;
-
-      &-title {
-        font-weight: 600;
-        font-size: 15px;
-        color: #333;
-        margin-bottom: 16px;
-      }
     }
 
     &__footer {
@@ -250,6 +322,12 @@
       justify-content: center;
       gap: 12px;
       padding: 8px 0 24px;
+    }
+
+    &__attachment-existing {
+      margin-top: 8px;
+      color: #595959;
+      line-height: 22px;
     }
   }
 </style>

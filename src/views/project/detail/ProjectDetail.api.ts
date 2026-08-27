@@ -35,7 +35,7 @@ enum Api {
   // 项目文件
   file = '/project/file/list',
   fileAdd = '/project/file/add',
-  fileDelete = '/project/file/delete',
+  fileDeleteBatch = '/project/file/deleteBatch',
   // 用料清单
   material = '/project/materialPlan/list',
   // 项目动态(右侧时间线)
@@ -67,24 +67,19 @@ export const getPositions = (params) => defHttp.get({ url: Api.position, params 
 /**
  * 新增实施位置
  */
-export const addPosition = (params) =>
-  defHttp.post({ url: Api.positionAdd, params }, { successMessageMode: 'success' });
+export const addPosition = (params) => defHttp.post({ url: Api.positionAdd, params }, { successMessageMode: 'success' });
 
 /**
  * 编辑实施位置
  */
-export const editPosition = (params) =>
-  defHttp.post({ url: Api.positionEdit, params }, { successMessageMode: 'success' });
+export const editPosition = (params) => defHttp.post({ url: Api.positionEdit, params }, { successMessageMode: 'success' });
 
 /**
  * 删除实施位置
  * @param params { id }
  */
 export const deletePosition = (params) =>
-  defHttp.delete(
-    { url: Api.positionDelete, params },
-    { joinParamsToUrl: true, successMessageMode: 'success' }
-  );
+  defHttp.delete({ url: Api.positionDelete, params }, { joinParamsToUrl: true, successMessageMode: 'success' });
 
 /**
  * 实施记录 tab(实施记录=实施日志, 按 periodId)
@@ -105,23 +100,18 @@ export const getAcceptance = (params) => defHttp.get({ url: Api.acceptance, para
 /**
  * 新增客户验收
  */
-export const addAcceptance = (params) =>
-  defHttp.post({ url: Api.acceptanceAdd, params }, { successMessageMode: 'success' });
+export const addAcceptance = (params) => defHttp.post({ url: Api.acceptanceAdd, params }, { successMessageMode: 'success' });
 
 /**
  * 编辑客户验收
  */
-export const editAcceptance = (params) =>
-  defHttp.post({ url: Api.acceptanceEdit, params }, { successMessageMode: 'success' });
+export const editAcceptance = (params) => defHttp.post({ url: Api.acceptanceEdit, params }, { successMessageMode: 'success' });
 
 /**
  * 删除客户验收
  */
 export const deleteAcceptance = (params) =>
-  defHttp.delete(
-    { url: Api.acceptanceDelete, params },
-    { joinParamsToUrl: true, successMessageMode: 'success' }
-  );
+  defHttp.delete({ url: Api.acceptanceDelete, params }, { joinParamsToUrl: true, successMessageMode: 'success' });
 
 /**
  * 内部验收记录(分页)
@@ -131,43 +121,34 @@ export const getInternalAcceptance = (params) => defHttp.get({ url: Api.internal
 /**
  * 新增内部验收
  */
-export const addInternalAcceptance = (params) =>
-  defHttp.post({ url: Api.internalAcceptanceAdd, params }, { successMessageMode: 'success' });
+export const addInternalAcceptance = (params) => defHttp.post({ url: Api.internalAcceptanceAdd, params }, { successMessageMode: 'success' });
 
 /**
  * 编辑内部验收
  */
-export const editInternalAcceptance = (params) =>
-  defHttp.post({ url: Api.internalAcceptanceEdit, params }, { successMessageMode: 'success' });
+export const editInternalAcceptance = (params) => defHttp.post({ url: Api.internalAcceptanceEdit, params }, { successMessageMode: 'success' });
 
 /**
  * 删除内部验收
  */
 export const deleteInternalAcceptance = (params) =>
-  defHttp.delete(
-    { url: Api.internalAcceptanceDelete, params },
-    { joinParamsToUrl: true, successMessageMode: 'success' }
-  );
+  defHttp.delete({ url: Api.internalAcceptanceDelete, params }, { joinParamsToUrl: true, successMessageMode: 'success' });
 
 /**
- * 项目文件 tab
+ * 项目文件列表；periodId 必传。
+ * @param params { periodId, pageNo?, pageSize? }
  */
 export const getFiles = (params) => defHttp.get({ url: Api.file, params });
 
 /**
  * 新增项目文件
  */
-export const addFile = (params) =>
-  defHttp.post({ url: Api.fileAdd, params }, { successMessageMode: 'success' });
+export const addFile = (params) => defHttp.post({ url: Api.fileAdd, params }, { successMessageMode: 'success' });
 
 /**
  * 删除项目文件
  */
-export const deleteFile = (params) =>
-  defHttp.delete(
-    { url: Api.fileDelete, params },
-    { joinParamsToUrl: true, successMessageMode: 'success' }
-  );
+export const deleteFile = (params) => defHttp.delete({ url: Api.fileDeleteBatch, params }, { joinParamsToUrl: true, successMessageMode: 'success' });
 
 /**
  * 用料清单 tab(项目用料计划)

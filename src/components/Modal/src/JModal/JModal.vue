@@ -50,7 +50,6 @@
   import { isFunction } from '@/utils/is';
   export default defineComponent({
     name: 'JModal',
-    methods: { omit },
     components: {
       CloseOutlined,
       Tooltip,
@@ -256,6 +255,7 @@
         bodyStyle,
       };
     },
+    methods: { omit },
   });
 </script>
 

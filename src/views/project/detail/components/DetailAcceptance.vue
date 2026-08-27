@@ -32,12 +32,25 @@
           </a-form-item>
           <a-form-item label="验收报告" required>
             <div class="file-field">
-              <a-upload :show-upload-list="false" :before-upload="(f) => onReportUpload('internal', f)">
+              <a-upload
+                v-if="!internal.reportFileId"
+                :accept="DOCUMENT_UPLOAD_ACCEPT"
+                :show-upload-list="false"
+                :before-upload="(f) => onReportUpload('internal', f)"
+              >
                 <a-button type="primary" size="small" preIcon="ant-design:file-upload-outlined">上传验收报告</a-button>
               </a-upload>
               <a-tag v-if="internal.reportFileId" closable @close="internal.reportFileId = ''" class="file-tag">
                 {{ fileName(internal.reportFileId) }}
               </a-tag>
+              <a-button
+                v-if="internal.reportFileId"
+                size="small"
+                preIcon="ant-design:eye-outlined"
+                @click="previewFileInModal(internal.reportFileId)"
+              >
+                预览
+              </a-button>
             </div>
           </a-form-item>
           <a-form-item label="验收结果">
@@ -78,22 +91,48 @@
           </a-form-item>
           <a-form-item label="竣工报告（验收报告）" required>
             <div class="file-field">
-              <a-upload :show-upload-list="false" :before-upload="(f) => onReportUpload('customer', f)">
+              <a-upload
+                v-if="!customer.completionReportFileId"
+                :accept="DOCUMENT_UPLOAD_ACCEPT"
+                :show-upload-list="false"
+                :before-upload="(f) => onReportUpload('customer', f)"
+              >
                 <a-button type="primary" size="small" preIcon="ant-design:file-upload-outlined">上传竣工报告</a-button>
               </a-upload>
               <a-tag v-if="customer.completionReportFileId" closable @close="customer.completionReportFileId = ''" class="file-tag">
                 {{ fileName(customer.completionReportFileId) }}
               </a-tag>
+              <a-button
+                v-if="customer.completionReportFileId"
+                size="small"
+                preIcon="ant-design:eye-outlined"
+                @click="previewFileInModal(customer.completionReportFileId)"
+              >
+                预览
+              </a-button>
             </div>
           </a-form-item>
           <a-form-item label="验收单">
             <div class="file-field">
-              <a-upload :show-upload-list="false" :before-upload="(f) => onReportUpload('acceptForm', f)">
+              <a-upload
+                v-if="!customer.acceptanceFormFileId"
+                :accept="DOCUMENT_UPLOAD_ACCEPT"
+                :show-upload-list="false"
+                :before-upload="(f) => onReportUpload('acceptForm', f)"
+              >
                 <a-button type="primary" size="small" preIcon="ant-design:file-upload-outlined">上传验收单</a-button>
               </a-upload>
               <a-tag v-if="customer.acceptanceFormFileId" closable @close="customer.acceptanceFormFileId = ''" class="file-tag">
                 {{ fileName(customer.acceptanceFormFileId) }}
               </a-tag>
+              <a-button
+                v-if="customer.acceptanceFormFileId"
+                size="small"
+                preIcon="ant-design:eye-outlined"
+                @click="previewFileInModal(customer.acceptanceFormFileId)"
+              >
+                预览
+              </a-button>
             </div>
           </a-form-item>
           <a-form-item label="验收结果">
@@ -120,8 +159,9 @@
     editAcceptance,
   } from '../ProjectDetail.api';
   import { loadUserOptions } from '/@/views/resource/userOptions';
-  import { uploadFile } from '/@/api/common/api';
+  import { DOCUMENT_UPLOAD_ACCEPT, isAllowedDocumentFile, uploadProjectDocument } from '/@/utils/documentUpload';
   import { loadDictOptions } from '../../Project.data';
+  import { previewFileInModal } from '/@/utils/filePreview';
 
   const props = defineProps<{
     projectId: string; // 分期ID periodId
@@ -149,24 +189,33 @@
   // 内部验收记录(id 存在=编辑)
   const internal = reactive<any>({ acceptLeaderId: undefined, acceptDate: '', implementCompleteDate: '', reportFileId: '', result: '', remark: '' });
   // 客户验收记录
-  const customer = reactive<any>({ acceptDate: '', implementCompleteDate: '', acceptUnitLeader: '', acceptUnitPhone: '', acceptLeaderId: undefined, completionReportFileId: '', acceptanceFormFileId: '', result: '', remark: '' });
+  const customer = reactive<any>({
+    acceptDate: '',
+    implementCompleteDate: '',
+    acceptUnitLeader: '',
+    acceptUnitPhone: '',
+    acceptLeaderId: undefined,
+    completionReportFileId: '',
+    acceptanceFormFileId: '',
+    result: '',
+    remark: '',
+  });
 
-  /** 上传文件(a-upload before-upload) -> 后端返回文件路径, 存入对应 fileId 字段(路径/fileId 语义待与后端确认) */
+  /** 上传文件(a-upload before-upload) -> 校验响应后把 message 路径存入对应文件字段。 */
   async function onReportUpload(target: string, file: any): Promise<boolean> {
     if (!file) return false;
+    if (!isAllowedDocumentFile(file)) {
+      createMessage.warning('仅支持 PDF、Word、Excel、PPT 文件');
+      return false;
+    }
     try {
-      const res: any = await uploadFile({ file }, undefined);
-      const path = res?.url || res?.result || res?.filename || file.name;
+      const { path } = await uploadProjectDocument(file, props.projectId);
       if (target === 'internal') internal.reportFileId = path;
       else if (target === 'customer') customer.completionReportFileId = path;
       else customer.acceptanceFormFileId = path;
       createMessage.success('文件上传成功');
-    } catch (err) {
-      // 上传接口异常时降级存文件名，保证联调流程可走通
-      if (target === 'internal') internal.reportFileId = file.name;
-      else if (target === 'customer') customer.completionReportFileId = file.name;
-      else customer.acceptanceFormFileId = file.name;
-      createMessage.warning('上传失败，已暂存文件名');
+    } catch (error: any) {
+      createMessage.warning(error?.message || '上传失败，请重试');
     }
     return false; // 阻止 a-upload 默认上传
   }

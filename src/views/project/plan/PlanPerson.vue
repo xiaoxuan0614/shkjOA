@@ -1,22 +1,22 @@
 <template>
   <div class="plan-person">
-    <!-- 回显已选定的项目经理 / 销售负责人 -->
-    <a-descriptions v-if="Object.keys(context).length" :column="2" size="small" bordered class="plan-person__context">
-      <a-descriptions-item label="项目经理">{{ context.projectLeaderName || '—' }}</a-descriptions-item>
-      <a-descriptions-item label="销售负责人">{{ context.salesUserName || '—' }}</a-descriptions-item>
-    </a-descriptions>
-
     <!-- 参与人员信息 -->
     <div class="plan-person__group">
-      <div class="plan-person__group-title">
-        <span>参与人员信息</span>
-        <span class="plan-person__hint">选择人员后需发送邀约，对方同意后才计入参与人员</span>
-        <a-button type="primary" size="small" preIcon="ant-design:plus-outlined" @click="addPerson">添加</a-button>
+      <div class="plan-person__group-title" style="margin-top: 10px">
+        <div>
+          <span>参与人员信息</span>
+          <span class="plan-person__hint">提交邀请后立即发送，可为同一成员选择多个项目角色</span>
+        </div>
+        <div class="plan-person__actions">
+          <a-button size="small" preIcon="ant-design:reload-outlined" @click="loadPeople">刷新状态</a-button>
+          <a-button v-if="editable" type="primary" size="small" preIcon="ant-design:plus-outlined" @click="openInviteModal">添加成员</a-button>
+        </div>
       </div>
       <a-table
+        :loading="peopleLoading"
         :columns="personColumns"
         :data-source="personList"
-        :row-key="(record) => record._key"
+        :row-key="(record) => record.id || record._key"
         :pagination="false"
         size="middle"
         bordered
@@ -26,32 +26,21 @@
             {{ record._key }}
           </template>
           <template v-else-if="column.key === 'role'">
-            <a-select v-model:value="record.role" placeholder="请选择角色" style="width: 100%" :options="roleOptions" :disabled="!editable" />
+            <a-tag color="blue">{{ roleMeta[String(record.role)] || record.role || '—' }}</a-tag>
           </template>
           <template v-else-if="column.key === 'member'">
-            <a-select
-              v-model:value="record.memberId"
-              showSearch
-              allowClear
-              option-filter-prop="label"
-              :disabled="!editable"
-              placeholder="请选择成员"
-              style="width: 100%"
-              :options="userOptions"
-              @change="(v) => onMemberChange(record, v)"
-            />
+            {{ record.memberName || '—' }}
           </template>
           <template v-else-if="column.key === 'inviteStatus'">
-            <a-tag :color="inviteStatusMeta[record.inviteStatus]?.color || 'default'">
-              {{ inviteStatusMeta[record.inviteStatus]?.text || '待接受' }}
+            <a-tag :color="getInviteStatusMeta(record.inviteStatus).color">
+              {{ getInviteStatusMeta(record.inviteStatus).text }}
             </a-tag>
           </template>
           <template v-else-if="column.key === 'action'">
-            <a-button v-if="editable && !record.memberId" type="link" danger size="small" @click="removePerson(record._key)">删除</a-button>
-            <template v-else-if="editable && record.memberId">
-              <a-button v-if="record.inviteStatus !== '1'" type="link" size="small" @click="sendInvite(record)">发送邀约</a-button>
-              <a-button v-if="record.inviteStatus !== '1'" type="link" danger size="small" @click="removePerson(record._key)">删除</a-button>
-            </template>
+            <a-popconfirm v-if="canDeleteMember(record)" title="确认删除该项目成员？" @confirm="deletePerson(record)">
+              <a-button type="link" danger size="small">删除</a-button>
+            </a-popconfirm>
+            <span v-else class="plan-person__action-placeholder">—</span>
           </template>
         </template>
       </a-table>
@@ -61,9 +50,10 @@
     <div class="plan-person__group">
       <div class="plan-person__group-title">
         <span>外协配置</span>
-        <a-button type="primary" size="small" preIcon="ant-design:plus-outlined" @click="addOutsourcing">添加</a-button>
+        <a-button v-if="canEditOutsource" type="primary" size="small" preIcon="ant-design:plus-outlined" @click="addOutsourcing">添加</a-button>
       </div>
       <a-table
+        :loading="outsourcingLoading"
         :columns="outsourcingColumns"
         :data-source="outsourcingList"
         :row-key="(record) => record._key"
@@ -77,110 +67,177 @@
           </template>
           <template v-else-if="column.key === 'unit'">
             <a-select
-              v-model:value="record.unit"
+              v-model:value="record.unitId"
               showSearch
               allowClear
-              :disabled="!editable"
+              :disabled="!canEditOutsource"
               placeholder="请选择外协单位"
               style="width: 100%"
               :options="outsourcingOptions"
+              @change="(value: string) => handleOutsourcingUnitChange(record, value)"
               :filter-option="(input: string, option: any) => (option?.label || '').toLowerCase().includes(input.toLowerCase())"
             />
           </template>
           <template v-else-if="column.key === 'peopleNum'">
-            <a-input-number v-model:value="record.peopleNum" :min="0" placeholder="人数" style="width: 100%" :disabled="!editable" />
+            <a-input-number v-model:value="record.peopleNum" :min="0" placeholder="人数" style="width: 100%" :disabled="!canEditOutsource" />
           </template>
           <template v-else-if="column.key === 'hours'">
-            <a-input-number v-model:value="record.hours" :min="0" placeholder="工时" style="width: 100%" :disabled="!editable" />
+            <a-input-number v-model:value="record.hours" :min="0" placeholder="工时" style="width: 100%" :disabled="!canEditOutsource" />
           </template>
           <template v-else-if="column.key === 'contact'">
-            <a-input v-model:value="record.contact" placeholder="联系人" :disabled="!editable" />
+            <a-input v-model:value="record.contact" placeholder="联系人" :disabled="!canEditOutsource" />
           </template>
           <template v-else-if="column.key === 'phone'">
-            <a-input v-model:value="record.phone" placeholder="联系方式" :disabled="!editable" />
+            <a-input v-model:value="record.phone" placeholder="联系方式" :disabled="!canEditOutsource" />
           </template>
           <template v-else-if="column.key === 'action'">
-            <a-button v-if="editable" type="link" danger size="small" @click="removeOutsourcing(record._key)">删除</a-button>
+            <a-button v-if="canEditOutsource" type="link" danger size="small" @click="removeOutsourcing(record._key)">删除</a-button>
+            <span v-else>—</span>
           </template>
         </template>
       </a-table>
     </div>
+
+    <a-modal
+      v-model:open="inviteModalOpen"
+      class="member-invite-modal"
+      title="邀请项目成员"
+      :width="520"
+      ok-text="提交邀请"
+      cancel-text="取消"
+      :confirm-loading="inviteSubmitting"
+      centered
+      destroy-on-close
+      @ok="submitInvite"
+    >
+      <div class="member-invite-modal__intro">
+        <strong>选择成员及项目角色</strong>
+        <span>点击“提交邀请”会立即向该成员发送邀请；一个成员可同时承担多个角色。</span>
+      </div>
+      <a-form class="member-invite-modal__form" layout="vertical">
+        <a-form-item label="项目角色" required>
+          <a-select
+            v-model:value="inviteForm.roles"
+            mode="multiple"
+            show-search
+            allow-clear
+            option-filter-prop="label"
+            placeholder="请选择角色"
+            :loading="roleOptionsLoading"
+            :options="inviteRoleOptions"
+          />
+        </a-form-item>
+        <a-form-item label="邀请成员" required>
+          <a-select
+            v-model:value="inviteForm.userId"
+            show-search
+            allow-clear
+            option-filter-prop="label"
+            placeholder="请输入姓名搜索并选择成员"
+            :loading="userOptionsLoading"
+            :options="userOptions"
+          />
+        </a-form-item>
+      </a-form>
+    </a-modal>
   </div>
 </template>
 
 <script lang="ts" setup>
-  import { ref, unref, onMounted } from 'vue';
-  import { list as fetchOutsourcingList } from '../../resource/outsourcing/Outsourcing.api';
+  import { ref, reactive, computed, unref, onMounted, watch } from 'vue';
   import { loadUserOptions } from '/@/views/resource/userOptions';
   import { loadDictOptions } from '../Project.data';
-  import { projectDetail } from '../Project.api';
-  import { contractList } from '/@/views/payment/Payment.api';
-  import { addInvitation } from './Invite.api';
+  import { ajaxGetDictItems } from '/@/utils/dict';
+  import { addPlanMembersBatch, deletePlanMembersBatch, getOutsourcingUnits, getPlanMembers, getPlanOutsources } from './Plan.api';
   import { useMessage } from '/@/hooks/web/useMessage';
 
   const { createMessage } = useMessage();
 
-  // 属性: editable 控制是否可编辑; periodId 用于回显项目经理/销售负责人
+  // 属性: editable 控制是否可编辑; periodId 用于查询项目成员。
   const props = defineProps<{
     editable?: boolean;
+    outsourceEditable?: boolean;
     periodId?: string;
   }>();
 
-  // 回显上下文(项目经理 + 销售负责人)
-  const context = ref<Recordable>({});
   onMounted(async () => {
-    // 回显项目经理/销售负责人
-    if (props.periodId) {
-      try {
-        const data: any = await projectDetail({ periodId: props.periodId });
-        context.value.projectLeaderName = data?.projectLeaderName || '';
-        const res: any = await contractList({ periodId: props.periodId, pageNo: 1, pageSize: 1 });
-        const c = (res?.records || res || [])[0] || {};
-        context.value.salesUserName = c?.salesUserName || '';
-      } catch {
-        context.value = {};
-      }
-    }
-    // 外协单位下拉(进入页面自动请求)
-    try {
-      const res: any = await fetchOutsourcingList({ pageNo: 1, pageSize: 1000 });
-      const records = res?.records || res || [];
-      outsourcingOptions.value = (records || []).map((o: any) => ({ label: o.unitName, value: o.unitName }));
-    } catch {
-      outsourcingOptions.value = [];
-    }
-    // 成员角色下拉(字典 member_role, 失败兜底硬编码)
-    roleOptions.value = await loadDictOptions('member_role', memberRoleFallback);
-    // 全量用户(成员选择)
-    userOptions.value = (await loadUserOptions()) || [];
-    // 邀请状态字典(invite_status)
-    try {
-      const items: any[] = (await loadDictOptions('invite_status')) || [];
-      inviteStatusMeta.value = Object.fromEntries(items.map((i) => [String(i.value), { text: i.label, color: i.color || 'default' }]));
-    } catch {
-      inviteStatusMeta.value = inviteStatusFallback;
-    }
+    await Promise.all([loadOutsourcingOptions(), loadMemberRoleOptions()]);
+    await loadOutsources();
   });
+
+  async function loadOutsourcingOptions() {
+    try {
+      const res: any = await getOutsourcingUnits({ status: 0, pageNo: 1, pageSize: 1000 });
+      const records = res?.records || res || [];
+      outsourcingOptions.value = (records || []).map((item: any) => ({
+        label: item.unitName,
+        value: item.id,
+        unitType: item.unitType,
+        contactPerson: item.contactPerson,
+        contactPhone: item.contactPhone,
+      }));
+    } catch (error: any) {
+      outsourcingOptions.value = [];
+      createMessage.warning(error?.message || '外协单位列表加载失败，请刷新后重试');
+    }
+  }
 
   // 成员用户下拉
   const userOptions = ref<{ label: string; value: string }[]>([]);
+  const userOptionsLoading = ref(false);
 
-  // 角色下拉(兜底: 字典 member_role 加载失败时用)
-  const memberRoleFallback = [
-    { label: '项目负责人', value: '项目负责人' },
-    { label: '现场负责人', value: '现场负责人' },
-    { label: '技术负责人', value: '技术负责人' },
-    { label: '施工人员', value: '施工人员' },
-    { label: '安全员', value: '安全员' },
-  ];
-  const roleOptions = ref<{ label: string; value: string }[]>(memberRoleFallback);
+  // 列表回显使用 member_role 完整字典，邀请下拉过滤系统角色 0/1/2。
+  const roleOptions = ref<{ label: string; value: string }[]>([]);
+  const roleMeta = ref<Recordable>({});
+  const roleOptionsLoading = ref(false);
+  const protectedRoleValues = new Set(['0', '1', '2']);
+  const inviteRoleOptions = computed(() => roleOptions.value.filter((item) => !protectedRoleValues.has(String(item.value))));
 
-  // 邀请状态字典(字典 invite_status: 0待接受 / 1已接收)
-  const inviteStatusMeta = ref<Recordable>({});
-  const inviteStatusFallback: Recordable = {
-    '0': { text: '待接受', color: 'default' },
-    '1': { text: '已接收', color: 'success' },
-  };
+  function normalizeRoleOptions(payload: any): { label: string; value: string }[] {
+    let source = payload;
+    for (let depth = 0; depth < 3 && source?.result && !Array.isArray(source); depth += 1) source = source.result;
+    const items = Array.isArray(source) ? source : source?.records || source?.list || [];
+    return items
+      .map((item: any) => {
+        const value = item.value ?? item.dictItemValue ?? item.code;
+        const label = item.text ?? item.label ?? item.title ?? item.dictItemText ?? item.name;
+        return value == null || label == null ? null : { value: String(value), label: String(label) };
+      })
+      .filter(Boolean) as { label: string; value: string }[];
+  }
+
+  async function loadMemberRoleOptions() {
+    if (roleOptionsLoading.value) return;
+    roleOptionsLoading.value = true;
+    try {
+      // 直接读取实时字典，避免登录时缓存了空的 member_role 后一直不再请求后端。
+      const liveItems = normalizeRoleOptions(await ajaxGetDictItems('member_role', undefined, { joinTime: false }));
+      roleOptions.value = liveItems.length ? liveItems : await loadDictOptions('member_role');
+      roleMeta.value = Object.fromEntries(roleOptions.value.map((item) => [String(item.value), item.label]));
+      if (!roleOptions.value.length) createMessage.warning('member_role 字典暂无数据，请检查字典配置');
+      else if (!inviteRoleOptions.value.length) createMessage.warning('member_role 字典中没有 0、1、2 以外的可邀请角色');
+    } catch {
+      roleOptions.value = [];
+      roleMeta.value = {};
+      createMessage.warning('成员角色加载失败，请检查 member_role 字典后重试');
+    } finally {
+      roleOptionsLoading.value = false;
+    }
+  }
+
+  async function loadMemberUserOptions(force = false) {
+    if (userOptionsLoading.value) return;
+    userOptionsLoading.value = true;
+    try {
+      userOptions.value = await loadUserOptions(force);
+      if (!userOptions.value.length) createMessage.warning('系统用户列表暂无可邀请成员');
+    } catch {
+      userOptions.value = [];
+      createMessage.warning('系统用户列表加载失败，请重试');
+    } finally {
+      userOptionsLoading.value = false;
+    }
+  }
 
   // 参与人员
   const personColumns = [
@@ -191,7 +248,12 @@
     { title: '操作', key: 'action', width: 140, align: 'center' },
   ];
   const personList = ref<any[]>([]);
+  const peopleLoading = ref(false);
   let personSeed = 0;
+
+  const inviteModalOpen = ref(false);
+  const inviteForm = reactive<{ roles?: string[]; userId?: string }>({});
+  const inviteSubmitting = ref(false);
 
   // 外协配置
   const outsourcingColumns = [
@@ -204,59 +266,199 @@
     { title: '操作', key: 'action', width: 80, align: 'center' },
   ];
   const outsourcingList = ref<any[]>([]);
+  const outsourcingOptions = ref<any[]>([]);
+  const outsourcingLoading = ref(false);
+  const canEditOutsource = computed(() => !!props.outsourceEditable);
   let outsourcingSeed = 0;
+
+  function getMemberData() {
+    return { personList: unref(personList) };
+  }
+
+  function getOutsourceData() {
+    const invalidOutsource = outsourcingList.value.find((item) => !item.unitId);
+    if (invalidOutsource) throw new Error('请选择外协单位');
+    return unref(outsourcingList);
+  }
 
   // 暴露给父级
   defineExpose({
     getData() {
-      return { personList: unref(personList), outsourcingList: unref(outsourcingList) };
+      return {
+        ...getMemberData(),
+        outsourcingList: getOutsourceData(),
+      };
     },
+    getMemberData,
+    getOutsourceData,
+    getOutsourceRecords: () => mapOutsourceRecords(getOutsourceData()),
     setData(data: any) {
-      personList.value = (data?.personList || []).map((item) => ({ ...item, _key: ++personSeed, memberId: item.memberId, memberName: item.memberName || item.member || '' }));
+      personList.value = (data?.personList || []).map((item) => ({
+        ...item,
+        _key: ++personSeed,
+        memberId: item.memberId,
+        memberName: item.memberName || item.member || '',
+      }));
       outsourcingList.value = (data?.outsourcingList || []).map((item) => ({ ...item, _key: ++outsourcingSeed }));
     },
+    reloadPeople: loadPeople,
+    reloadOutsources: loadOutsources,
+    reload: () => Promise.all([loadPeople(), loadOutsourcingOptions(), loadOutsources()]),
   });
 
-  // 添加参与人员
-  function addPerson() {
-    personList.value.push({ _key: ++personSeed, role: undefined, memberId: undefined, memberName: '', inviteStatus: '0' });
-  }
-
-  // 成员选中 → 记录成员名, 邀请状态置待接受(0)
-  function onMemberChange(record: any, v: any) {
-    const opt = userOptions.value.find((o) => o.value === v);
-    record.memberName = opt?.label || '';
-    record.inviteStatus = '0';
-  }
-
-  // 发送邀约 → 生成待办(站内待办页处理同意/拒绝)
-  async function sendInvite(record: any) {
-    if (!record.memberId) {
-      createMessage.warning('请先选择成员');
+  async function loadPeople() {
+    if (!props.periodId) {
+      personList.value = [];
       return;
     }
+    peopleLoading.value = true;
     try {
-      await addInvitation({ periodId: props.periodId, memberId: record.memberId, memberName: record.memberName });
-      record.inviteStatus = '0'; // 待接受, 对方在站内待办同意后置 1(已接收)
-      createMessage.success(`已向「${record.memberName}」发送邀约`);
-    } catch {
-      createMessage.warning('邀约发送失败');
+      const result: any = await getPlanMembers({ periodId: props.periodId, pageNo: 1, pageSize: 1000 });
+      const records = Array.isArray(result) ? result : result?.records || [];
+      personSeed = 0;
+      personList.value = records
+        .filter((item: any) => !item.outsourcingFlag)
+        .map((item: any) => ({
+          ...item,
+          _key: ++personSeed,
+          role: item.memberRole,
+          memberId: item.userId,
+          memberName: item.userName || '',
+        }));
+    } catch (error: any) {
+      personList.value = [];
+      createMessage.warning(error?.message || '项目成员加载失败，请刷新后重试');
+    } finally {
+      peopleLoading.value = false;
     }
   }
 
-  // 移除参与人员
-  function removePerson(key: number) {
-    personList.value = personList.value.filter((p) => p._key !== key);
+  watch(() => props.periodId, loadPeople, { immediate: true });
+
+  async function loadOutsources() {
+    if (!props.periodId) {
+      outsourcingList.value = [];
+      return;
+    }
+    outsourcingLoading.value = true;
+    try {
+      const result: any = await getPlanOutsources({ periodId: props.periodId, pageNo: 1, pageSize: 1000 });
+      const records = Array.isArray(result) ? result : result?.records || [];
+      outsourcingSeed = 0;
+      outsourcingList.value = records.map((item: any) => ({
+        ...item,
+        _key: ++outsourcingSeed,
+        unitId: item.unitId,
+        unit: item.unitName,
+        peopleNum: item.headcount,
+        hours: item.workHours,
+        contact: item.contactPerson,
+        phone: item.contactPhone,
+      }));
+    } catch (error: any) {
+      outsourcingList.value = [];
+      createMessage.warning(error?.message || '外协配置加载失败，请刷新后重试');
+    } finally {
+      outsourcingLoading.value = false;
+    }
+  }
+
+  watch(
+    () => props.periodId,
+    () => Promise.all([loadOutsourcingOptions(), loadOutsources()])
+  );
+
+  async function openInviteModal() {
+    inviteForm.roles = [];
+    inviteForm.userId = undefined;
+    inviteModalOpen.value = true;
+    await Promise.all([loadMemberRoleOptions(), loadMemberUserOptions(true)]);
+  }
+
+  function getInviteStatusMeta(status: unknown) {
+    const value = String(status ?? '');
+    if (value === '0') return { text: '拒绝', color: 'error' };
+    if (value === '1') return { text: '接受', color: 'success' };
+    return { text: '待接受', color: 'processing' };
+  }
+
+  function canDeleteMember(record: any) {
+    if (!props.editable || protectedRoleValues.has(String(record.role))) return false;
+    return !!record.id;
+  }
+
+  async function submitInvite() {
+    if (!props.periodId) return createMessage.warning('缺少项目分期 ID，无法发送邀请');
+    const selectedRoles = [...new Set((inviteForm.roles || []).map(String))];
+    if (!selectedRoles.length) return createMessage.warning('请至少选择一个成员角色');
+    if (!inviteForm.userId) return createMessage.warning('请选择成员');
+    if (selectedRoles.some((role) => protectedRoleValues.has(role))) return createMessage.warning('角色 0、1、2 不允许通过邀请添加');
+    const existingRoles = new Set(
+      personList.value.filter((item) => String(item.memberId) === String(inviteForm.userId)).map((item) => String(item.memberRole ?? item.role))
+    );
+    const rolesToInvite = selectedRoles.filter((role) => !existingRoles.has(role));
+    if (!rolesToInvite.length) {
+      createMessage.warning('该成员已拥有所选项目角色，请选择其他角色');
+      return;
+    }
+    const selectedUser = userOptions.value.find((item) => String(item.value) === String(inviteForm.userId));
+    if (!selectedUser) return createMessage.warning('未找到所选成员，请刷新用户列表后重试');
+    if (inviteSubmitting.value) return;
+    inviteSubmitting.value = true;
+    try {
+      await addPlanMembersBatch({
+        periodId: props.periodId,
+        records: rolesToInvite.map((memberRole) => ({ userId: inviteForm.userId, memberRole })),
+      });
+      await loadPeople();
+      inviteModalOpen.value = false;
+      if (rolesToInvite.length < selectedRoles.length) createMessage.info('已跳过该成员已有的角色，其余邀请已发送');
+    } catch (error: any) {
+      createMessage.warning(error?.message || '成员邀请发送失败，请重试');
+    } finally {
+      inviteSubmitting.value = false;
+    }
+  }
+
+  async function deletePerson(record: any) {
+    if (!canDeleteMember(record)) return createMessage.warning('当前成员不可删除');
+    try {
+      await deletePlanMembersBatch({ ids: String(record.id) });
+      await loadPeople();
+    } catch (error: any) {
+      createMessage.warning(error?.message || '成员删除失败，请重试');
+    }
   }
 
   // 添加外协
   function addOutsourcing() {
-    outsourcingList.value.push({ _key: ++outsourcingSeed, unit: '', peopleNum: 0, hours: 0, contact: '', phone: '' });
+    outsourcingList.value.push({ _key: ++outsourcingSeed, unitId: undefined, unit: '', peopleNum: 0, hours: 0, contact: '', phone: '' });
+  }
+
+  function handleOutsourcingUnitChange(record: any, unitId: string) {
+    const selected = outsourcingOptions.value.find((item) => String(item.value) === String(unitId));
+    record.unit = selected?.label || '';
+    record.unitType = selected?.unitType;
+    record.contact = selected?.contactPerson || '';
+    record.phone = selected?.contactPhone || '';
   }
 
   // 移除外协
   function removeOutsourcing(key: number) {
     outsourcingList.value = outsourcingList.value.filter((p) => p._key !== key);
+  }
+
+  function mapOutsourceRecords(rows: any[]) {
+    return rows.map((item) => ({
+      ...(item.id ? { id: item.id } : {}),
+      unitType: item.unitType,
+      unitId: item.unitId,
+      unitName: item.unit,
+      headcount: item.peopleNum,
+      workHours: item.hours,
+      contactPerson: item.contact,
+      contactPhone: item.phone,
+    }));
   }
 </script>
 
@@ -273,6 +475,67 @@
         font-size: 14px;
         color: #333;
         margin-bottom: 12px;
+      }
+    }
+
+    &__hint {
+      margin-inline-start: 12px;
+      color: #595959;
+      font-size: 13px;
+      font-weight: 400;
+    }
+
+    &__actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    &__action-placeholder {
+      color: #bfbfbf;
+    }
+  }
+
+  .member-invite-modal {
+    &__intro {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin: -4px 0 22px;
+      padding: 16px 18px;
+      color: #595959;
+      background: #f5f8ff;
+      border-radius: 10px;
+
+      strong {
+        color: #1f1f1f;
+        font-size: 15px;
+        line-height: 1.5;
+      }
+
+      span {
+        font-size: 13px;
+        line-height: 1.6;
+      }
+    }
+
+    &__form {
+      :deep(.ant-form-item) {
+        margin-bottom: 20px;
+      }
+
+      :deep(.ant-form-item:last-child) {
+        margin-bottom: 4px;
+      }
+
+      :deep(.ant-form-item-label > label) {
+        color: #262626;
+        font-weight: 600;
+      }
+
+      :deep(.ant-select-selector) {
+        min-height: 40px !important;
+        align-items: center;
+        border-radius: 8px !important;
       }
     }
   }

@@ -4,16 +4,16 @@ import { initDictOptions } from '/@/utils/dict/index';
 /**
  * 外协单位 - 列定义 / 表单
  * 对齐 apifox OaOutsourcingUnit:
- *   unitCode/unitName/contactPerson/contactPhone/address/
+ *   unitCode/unitName/unitType/contactPerson/contactPhone/address/
  *   invoiceTitle/invoiceTaxNo/invoiceBank/invoiceAccount/invoiceAddress/invoicePhone/
  *   status(0启用/1停用)/remark
- * ⚠️ 下拉统一走字典 outsourcing_status
+ * ⚠️ 下拉统一走字典 outsourcing_status / outsourcing_type
  */
 
 /** 外协单位状态下拉(字典 outsourcing_status) */
 export const loadOutsourcingStatusOptions = () => initDictOptions('outsourcing_status');
 
-/** 外协单位类型下拉(字典 outsourcing_type: 个人/单位) */
+/** 外协单位类型下拉(字典 outsourcing_type: 0个人/1企业) */
 export const loadOutsourcingTypeOptions = () => initDictOptions('outsourcing_type');
 
 /** 外协单位状态展示兜底(字典加载失败时用) */
@@ -52,9 +52,8 @@ export const columns: BasicColumn[] = [
   {
     title: '类型',
     align: 'center',
-    dataIndex: 'type',
+    dataIndex: 'unitType',
     width: 90,
-    customRender: ({ text }) => text || '—',
   },
   {
     title: '联系人',
@@ -108,12 +107,6 @@ export const searchFormSchema: FormSchema[] = [
     componentProps: { placeholder: '请输入外协单位名称' },
   },
   {
-    label: '类型',
-    field: 'type',
-    component: 'ApiSelect',
-    componentProps: { api: loadOutsourcingTypeOptions, placeholder: '请选择类型', allowClear: true },
-  },
-  {
     label: '状态',
     field: 'status',
     component: 'ApiSelect',
@@ -128,6 +121,7 @@ export const formSchema: FormSchema[] = [
     field: 'unitCode',
     component: 'Input',
     componentProps: { placeholder: '新增后自动生成', disabled: true },
+    ifShow: false,
   },
   {
     label: '单位名称',
@@ -167,9 +161,10 @@ export const formSchema: FormSchema[] = [
   },
   {
     label: '类型',
-    field: 'type',
+    field: 'unitType',
     component: 'ApiSelect',
     componentProps: { api: loadOutsourcingTypeOptions, placeholder: '请选择类型' },
+    dynamicRules: () => [{ required: true, message: '请选择单位类型!' }],
   },
   {
     label: '备注',

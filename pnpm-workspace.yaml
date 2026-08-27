@@ -1,6 +1,9 @@
 allowBuilds:
   '@logicflow/core': true
   '@scarf/scarf': true
+  '@vue-office/docx': true
+  '@vue-office/excel': true
+  '@vue-office/pptx': true
   core-js: true
   esbuild: true
   vue-demi: true

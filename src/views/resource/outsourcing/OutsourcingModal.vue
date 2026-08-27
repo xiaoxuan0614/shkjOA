@@ -1,12 +1,5 @@
 <template>
-  <BasicModal
-    v-bind="$attrs"
-    @register="registerModal"
-    destroyOnClose
-    :title="title"
-    :width="620"
-    @ok="handleSubmit"
-  >
+  <BasicModal v-bind="$attrs" @register="registerModal" destroyOnClose :title="title" :width="820" @ok="handleSubmit">
     <BasicForm @register="registerForm" name="OutsourcingForm" />
   </BasicModal>
 </template>
@@ -29,7 +22,7 @@
   });
 
   // 表单配置
-  const [registerForm, { setProps, resetFields, setFieldsValue, validate, scrollToField }] = useForm({
+  const [registerForm, { setProps, resetFields, setFieldsValue, validate, scrollToField, updateSchema }] = useForm({
     labelWidth: 100,
     schemas: formSchema,
     showActionButtonGroup: false,
@@ -45,6 +38,7 @@
       showOkBtn: !!data?.showFooter,
     });
     isUpdate.value = !!data?.isUpdate;
+    await updateSchema({ field: 'unitCode', ifShow: () => isUpdate.value });
     // showFooter=false 表示只读详情
     isDetail.value = !!data?.showFooter;
     if (data?.record) {
