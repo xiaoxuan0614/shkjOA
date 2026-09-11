@@ -10,45 +10,22 @@
     <div class="material-apply__card">
       <div class="material-apply__card-title">
         <span>物料明细</span>
-        <a-button type="primary" preIcon="ant-design:plus-outlined" @click="handleAddMaterial">
-          添加物料
-        </a-button>
+        <a-button type="primary" preIcon="ant-design:plus-outlined" @click="handleAddMaterial"> 添加物料 </a-button>
       </div>
-      <a-table
-        :columns="detailColumns"
-        :data-source="detailList"
-        :row-key="(record) => record._key"
-        :pagination="false"
-        size="middle"
-        bordered
-      >
+      <a-table :columns="detailColumns" :data-source="detailList" :row-key="(record) => record._key" :pagination="false" size="middle" bordered>
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'stockQty'">
             <!-- 库存：接口 currentStockQty + baseUnitName（如 1个） -->
             {{ formatStock(record) }}
           </template>
           <template v-else-if="column.key === 'useNum'">
-            <a-input-number
-              v-model:value="record.useNum"
-              :min="1"
-              :max="record.stock ?? 99999"
-              placeholder="请输入使用数量"
-              style="width: 100%"
-            />
+            <a-input-number v-model:value="record.useNum" :min="1" :max="record.stock ?? 99999" placeholder="请输入使用数量" style="width: 100%" />
           </template>
           <template v-else-if="column.key === 'unit'">
-            <a-select
-              v-model:value="record.unit"
-              allowClear
-              placeholder="请选择单位"
-              style="width: 100%"
-              :options="unitOptions"
-            />
+            <a-select v-model:value="record.unit" allowClear placeholder="请选择单位" style="width: 100%" :options="unitOptions" />
           </template>
           <template v-else-if="column.key === 'action'">
-            <a-button type="link" danger size="small" @click="handleRemoveDetail(record._key)">
-              移除
-            </a-button>
+            <a-button type="link" danger size="small" @click="handleRemoveDetail(record._key)"> 移除 </a-button>
           </template>
         </template>
       </a-table>
@@ -76,6 +53,7 @@
   import { saveApply, submitApply } from './MaterialApply.api';
   import MaterialSelectDrawer from './components/MaterialSelectDrawer.vue';
   import { loadUnitOptions } from '../material.util';
+  import { validateEditableRows } from '/@/components/EditableTable';
 
   const router = useRouter();
   const { createMessage } = useMessage();
@@ -127,7 +105,7 @@
    * 添加物料: 打开抽屉
    */
   function handleAddMaterial() {
-    openDrawer(true);
+    openDrawer(true, { excludeMaterialIds: detailList.value.map((item) => item.id) });
   }
 
   /**
@@ -177,21 +155,27 @@
       createMessage.warning('请添加物料明细');
       return null;
     }
-    // 校验明细必填
-    const invalid = detailList.value.find((d) => !d.useNum || !d.unit);
-    if (invalid) {
-      createMessage.warning('请填写完整的使用数量和单位');
+    const issues = validateEditableRows(detailList.value, {
+      selectorField: 'id',
+      selectorLabel: '物料',
+      optionLabel: (value) => detailList.value.find((item) => String(item.id) === String(value))?.materialName || String(value),
+      rules: [
+        { field: 'useNum', label: '使用数量', required: true, validate: (value) => Number(value) > 0 || '使用数量必须大于 0' },
+        { field: 'unit', label: '单位', required: true },
+      ],
+    });
+    if (issues.length) {
+      createMessage.warning(issues[0].message);
       return null;
     }
     return {
-      ...formValues,
-      // 明细映射为 StockApplyItem 契约提交
+      applyType: formValues.applyType,
+      ...(formValues.applyNo ? { applyNo: formValues.applyNo } : {}),
+      useDate: formValues.useDate,
+      remark: formValues.remark,
+      // 展示字段由后端派生，明细只提交新增接口需要的三个字段。
       itemList: detailList.value.map((d) => ({
         materialId: d.id,
-        materialCategory: d.materialCategory,
-        materialName: d.materialName,
-        brand: d.brand,
-        model: d.model,
         unitName: d.unit,
         unitQty: d.useNum,
       })),

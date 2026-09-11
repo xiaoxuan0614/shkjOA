@@ -11,13 +11,17 @@
           <a-tag :color="dictColor(typeMap, detail.applyType)">{{ dictText(typeMap, detail.applyType) }}</a-tag>
         </a-descriptions-item>
         <a-descriptions-item label="审批状态">
-          <a-tag :color="dictColor(statusMap, detail.status)">{{ dictText(statusMap, detail.status) }}</a-tag>
+          <a-tag :color="getStockStatusMeta(detail).color">{{ getStockStatusMeta(detail).text }}</a-tag>
         </a-descriptions-item>
         <a-descriptions-item label="执行状态">
           <a-tag :color="dictColor(execMap, detail.executeStatus)">{{ dictText(execMap, detail.executeStatus) }}</a-tag>
         </a-descriptions-item>
         <a-descriptions-item label="申请人">{{ detail.applyUserName || '—' }}</a-descriptions-item>
+        <a-descriptions-item v-if="detail.bizType === 'PICK' || detail.usageType" label="领料类型">{{
+          getMaterialUsageTypeText(detail.usageType)
+        }}</a-descriptions-item>
         <a-descriptions-item label="部门">{{ detail.deptName || '—' }}</a-descriptions-item>
+        <a-descriptions-item v-if="detail.usageType === 'MAINTENANCE'" label="维修单号">{{ detail.repairOrderNo || '—' }}</a-descriptions-item>
         <a-descriptions-item label="项目">{{ detail.projectName || detail.projectNo || '—' }}</a-descriptions-item>
         <a-descriptions-item v-if="detail.supplierName" label="供应商">{{ detail.supplierName }}</a-descriptions-item>
         <a-descriptions-item v-if="detail.returnUser" label="还料人">{{ detail.returnUser }}</a-descriptions-item>
@@ -36,6 +40,9 @@
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'applyQty'">
                 {{ record.applyQty ?? record.unitQty ?? 0 }}
+              </template>
+              <template v-else-if="column.dataIndex === 'status'">
+                <a-tag :color="getApprovalStatusMeta(record.status).color">{{ getApprovalStatusMeta(record.status).text }}</a-tag>
               </template>
               <template v-else-if="column.dataIndex === 'executeStatus'">
                 <a-tag :color="dictColor(execMap, record.executeStatus)">{{ dictText(execMap, record.executeStatus) }}</a-tag>
@@ -73,6 +80,9 @@
   import { useListPage } from '/@/hooks/system/useListPage';
   import { queryById, queryItems, queryApprovals } from '../record/StockApply.api';
   import { loadDictMap, loadUserMap } from '../material.util';
+  import { getMaterialUsageTypeText } from '../material.constants';
+  import { getStockStatusMeta } from '../record/stockAccess';
+  import { getApprovalStatusMeta } from '/@/utils/approvalStatus';
 
   // 只读明细抽屉，无对外事件(register 由 useDrawerInner 提供)
   defineEmits(['register']);
@@ -85,7 +95,6 @@
   type DictMap = Record<string, { text: string; color: string }>;
   const bizMap = ref<DictMap>({});
   const typeMap = ref<DictMap>({});
-  const statusMap = ref<DictMap>({});
   const execMap = ref<DictMap>({});
   const resultMap = ref<DictMap>({});
   const dictText = (m: DictMap, v: string) => (v ? m[v]?.text || v : '—');
@@ -113,7 +122,6 @@
   // 打开时加载字典
   loadDictMap('stock_apply_biz_type').then((m) => (bizMap.value = m));
   loadDictMap('stock_apply_type').then((m) => (typeMap.value = m));
-  loadDictMap('stock_apply_status').then((m) => (statusMap.value = m));
   loadDictMap('stock_execute_status').then((m) => (execMap.value = m));
   loadDictMap('approval_result').then((m) => (resultMap.value = m));
 
@@ -129,7 +137,7 @@
     { title: '型号', dataIndex: 'model', key: 'model', width: 110 },
     { title: '申请数量', key: 'applyQty', width: 90 },
     { title: '单位', dataIndex: 'unitName', key: 'unitName', width: 70 },
-    // 审批为整单审批，无「明细审批状态」概念；明细仅展示执行维度(已执行数量/执行状态/执行人/执行时间)
+    { title: '审批状态', dataIndex: 'status', key: 'status', width: 100 },
     { title: '已执行数量', dataIndex: 'executedQty', key: 'executedQty', width: 90 },
     { title: '执行状态', dataIndex: 'executeStatus', key: 'executeStatus', width: 100 },
     { title: '执行人', dataIndex: 'executeUserName', key: 'executeUserName', width: 100 },

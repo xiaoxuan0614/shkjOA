@@ -2,6 +2,13 @@
   <div class="project-apply">
     <!-- 申请信息 -->
     <div class="project-apply__card">
+      <a-alert v-if="!editId" type="info" show-icon class="project-apply__mode">
+        <template #message>{{ createModeTitle }}</template>
+        <template #description>
+          <span v-if="isPeriodCreate">所属主项目：{{ selectedMainProjectName || '加载中…' }}</span>
+          <span v-else>请填写新的主项目及首个分期信息，保存后将一次创建完成。</span>
+        </template>
+      </a-alert>
       <BasicForm @register="registerForm">
         <template #attachment>
           <div class="project-apply__attachment">
@@ -30,7 +37,7 @@
 </template>
 
 <script lang="ts" setup>
-  import { ref, onMounted } from 'vue';
+  import { computed, ref, onMounted } from 'vue';
   import type { UploadFile } from 'ant-design-vue';
   import { useRouter, useRoute } from 'vue-router';
   import { BasicForm, useForm } from '/@/components/Form/index';
@@ -54,6 +61,11 @@
 
   // 编辑模式(带 id 时为编辑回显, id 即分期ID)
   const editId = ref<string | undefined>(route.query?.id as string | undefined);
+  const createMode = computed(() => (route.query?.mode === 'period' ? 'period' : 'project'));
+  const isPeriodCreate = computed(() => !editId.value && createMode.value === 'period');
+  const selectedParentProjectId = computed(() => String(route.query?.parentProjectId || ''));
+  const selectedMainProjectName = ref('');
+  const createModeTitle = computed(() => (isPeriodCreate.value ? '已有主项目下新增分期' : '新建主项目'));
 
   // 客户列表(甲方选择带出)
   let customerMap: Recordable = {};
@@ -77,7 +89,7 @@
    * 加载主项目列表, 注入「所属主项目」下拉(未选/不选则为新建主项目)
    */
   async function loadMainProjects() {
-    const res: any = await getMainProjectList();
+    const res: any = await getMainProjectList({ pageNo: 1, pageSize: 1000 });
     const data = res?.records || res || [];
     mainProjectMap = (data || []).reduce((map, p) => {
       map[p.id] = p;
@@ -85,6 +97,7 @@
     }, {});
     await updateSchema({
       field: 'projectId',
+      ifShow: () => !!editId.value,
       componentProps: {
         options: (data || []).map((p) => ({ label: p.projectName, value: p.id })),
         showSearch: true,
@@ -93,6 +106,16 @@
         onChange: handleParentChange,
       },
     });
+    if (isPeriodCreate.value) {
+      const parent = mainProjectMap[selectedParentProjectId.value];
+      if (!parent) {
+        createMessage.error('所选主项目不存在或已失效，请重新选择');
+        await router.replace('/project/list');
+        return;
+      }
+      selectedMainProjectName.value = parent.projectName || '';
+      await setFieldsValue({ projectId: parent.id, projectName: parent.projectName || '' });
+    }
   }
 
   /**
@@ -253,6 +276,10 @@
     try {
       saving.value = true;
       const values = await validate();
+      if (isPeriodCreate.value && !selectedParentProjectId.value) {
+        createMessage.warning('缺少所属主项目，请返回项目列表重新选择');
+        return;
+      }
       if (attachmentReplacementRequired.value && !selectedAttachment.value) {
         createMessage.warning('已移除原附件，请先选择新文件后再保存');
         return;
@@ -277,7 +304,15 @@
         await editProject({ ...base, projectName, periodId: editId.value, periodName }, selectedAttachment.value);
       } else {
         // parentProjectId 为空时新建主项目，存在时给已有主项目新增分期。
-        await addProject({ ...base, parentProjectId: projectId || undefined, projectName, periodName }, selectedAttachment.value);
+        await addProject(
+          {
+            ...base,
+            parentProjectId: isPeriodCreate.value ? selectedParentProjectId.value : undefined,
+            projectName,
+            periodName,
+          },
+          selectedAttachment.value
+        );
       }
       createMessage.success('保存成功');
       router.push('/project/list');
@@ -315,6 +350,10 @@
       border-radius: 4px;
       padding: 16px;
       margin-bottom: 16px;
+    }
+
+    &__mode {
+      margin: 0 20px 20px;
     }
 
     &__footer {

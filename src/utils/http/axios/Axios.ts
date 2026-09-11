@@ -185,7 +185,8 @@ export class VAxios {
   }
 
   get<T = any>(config: AxiosRequestConfig, options?: RequestOptions): Promise<T> {
-    return this.request({ ...config, method: 'GET' }, options);
+    // 查询成功只负责刷新页面数据，默认不重复弹“操作成功”；调用方仍可显式开启。
+    return this.request({ ...config, method: 'GET' }, { successMessageMode: 'none', ...options });
   }
 
   post<T = any>(config: AxiosRequestConfig, options?: RequestOptions): Promise<T> {

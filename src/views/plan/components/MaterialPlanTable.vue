@@ -1,10 +1,8 @@
 <template>
   <div class="material-plan-table">
-    <div class="material-plan-table__toolbar">
-      <a-button type="primary" preIcon="ant-design:plus-outlined" :disabled="!editable" @click="openDrawer(true)"> 选择物料 </a-button>
-      <span v-if="editable" class="material-plan-table__hint">
-        从物料库选择后会自动带出物料编码，可继续填写{{ mode === 'quotation' ? '数量、单位' : '计划数量和备注' }}。
-      </span>
+    <div v-if="showToolbar" class="material-plan-table__toolbar">
+      <a-button type="primary" preIcon="ant-design:plus-outlined" :disabled="!editable" @click="openMaterialDrawer"> 选择物料 </a-button>
+      <span v-if="editable" class="material-plan-table__hint"> 从物料库选择后会自动带出物料编码，可继续填写{{ quantityText }}、单位和备注。 </span>
       <span v-else class="material-plan-table__hint">{{ mode === 'quotation' ? '报价已锁定或当前账号无编辑权限' : '清单已锁定' }}，仅支持查看。</span>
     </div>
 
@@ -12,7 +10,7 @@
       :columns="columns"
       :data-source="rows"
       :row-key="(record) => record._key"
-      :pagination="false"
+      :pagination="tablePagination"
       :loading="loading"
       :scroll="{ x: 1180 }"
       size="middle"
@@ -20,6 +18,12 @@
     >
       <template #emptyText>
         <a-empty description="暂未添加物料，请从现有物料库中选择" />
+      </template>
+      <template #headerCell="{ column }">
+        <span>
+          {{ column.title }}
+          <span v-if="column.required" class="material-plan-table__required" aria-hidden="true">*</span>
+        </span>
       </template>
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'plannedQty'">
@@ -54,10 +58,15 @@
       </template>
     </a-table>
 
-    <div v-if="rows.length" class="material-plan-table__summary">
-      共 {{ rows.length }} 种物料，{{ mode === 'quotation' ? '数量' : '计划数量' }}合计 {{ totalQty }}
-    </div>
-    <MaterialSelectDrawer @register="registerDrawer" @success="handleSelected" />
+    <div v-if="rows.length" class="material-plan-table__summary"> 共 {{ rows.length }} 种物料，{{ quantityText }}合计 {{ totalQty }} </div>
+    <MaterialSelectDrawer
+      v-if="editable && showToolbar"
+      :show-selected-materials="mode === 'plan' || mode === 'quotation'"
+      :show-select-all="mode === 'quotation'"
+      :code-tooltip="mode === 'quotation'"
+      @register="registerDrawer"
+      @success="handleSelected"
+    />
   </div>
 </template>
 
@@ -66,25 +75,68 @@
   import { useDrawer } from '/@/components/Drawer';
   import { useMessage } from '/@/hooks/web/useMessage';
   import MaterialSelectDrawer from '/@/views/material/apply/components/MaterialSelectDrawer.vue';
-  import { getMaterialCandidateItemList, getMaterialDetail, getPlanMaterialList } from '../Plan.api';
+  import { loadMaterialMap } from '/@/views/material/material.util';
+  import { getAllMaterialCandidateItems, getPlanMaterialList } from '../Plan.api';
+  import { validateEditableRows } from '/@/components/EditableTable';
 
   const props = withDefaults(
     defineProps<{
       periodId?: string;
       candidateId?: string;
       editable?: boolean;
-      mode?: 'plan' | 'quotation';
+      mode?: 'plan' | 'quotation' | 'supplement' | 'rework';
+      showToolbar?: boolean;
+      showAction?: boolean;
+      showRemark?: boolean;
+      paginated?: boolean;
     }>(),
-    { editable: true, mode: 'plan' }
+    { editable: true, mode: 'plan', showToolbar: true, showAction: true, showRemark: true, paginated: false }
   );
 
   const { createMessage } = useMessage();
   const emit = defineEmits<{ loaded: [count: number] }>();
   const [registerDrawer, { openDrawer }] = useDrawer();
   const rows = ref<any[]>([]);
+  const currentPage = ref(1);
+  const pageSize = ref(10);
+  // 分页只控制展示；草稿、校验和全量同步始终使用完整 rows，避免遗漏其他页。
+  const tablePagination = computed(() =>
+    props.paginated
+      ? {
+          current: currentPage.value,
+          pageSize: pageSize.value,
+          total: rows.value.length,
+          showSizeChanger: true,
+          showQuickJumper: true,
+          pageSizeOptions: ['10', '20', '50', '100'],
+          showTotal: (total: number) => `共 ${total} 条`,
+          onChange: (page: number, size: number) => {
+            currentPage.value = size === pageSize.value ? page : 1;
+            pageSize.value = size;
+          },
+        }
+      : false
+  );
+  watch(
+    () => rows.value.length,
+    (count) => {
+      currentPage.value = Math.min(currentPage.value, Math.max(1, Math.ceil(count / pageSize.value)));
+    }
+  );
   const loading = ref(false);
+  const loaded = ref(false);
   const loadFailed = ref(false);
+  const persistedSnapshot = ref('[]');
   let keySeed = 0;
+  let loadSequence = 0;
+  let materialMapPrimed = false;
+
+  const quantityText = computed(() => {
+    if (props.mode === 'quotation') return '数量';
+    if (props.mode === 'supplement') return '补料数量';
+    if (props.mode === 'rework') return '额外领料量';
+    return '计划数量';
+  });
 
   const columns = computed(() => [
     { title: '物料编码', dataIndex: 'materialCode', key: 'materialCode', width: 150, fixed: 'left' },
@@ -92,23 +144,47 @@
     { title: '物料名称', dataIndex: 'materialName', key: 'materialName', width: 180 },
     { title: '品牌', dataIndex: 'brand', key: 'brand', width: 120 },
     { title: '型号', dataIndex: 'model', key: 'model', width: 140 },
-    { title: '单位', dataIndex: 'unit', key: 'unit', width: 120, align: 'center' },
-    { title: props.mode === 'quotation' ? '数量' : '计划数量', key: 'plannedQty', width: 130 },
-    { title: '备注', key: 'remark', width: 220 },
-    { title: '操作', key: 'action', width: 80, align: 'center', fixed: 'right' },
+    { title: '单位', dataIndex: 'unit', key: 'unit', width: 120, align: 'center', required: props.editable },
+    { title: quantityText.value, key: 'plannedQty', width: 130, required: props.editable },
+    ...(props.showRemark ? [{ title: '备注', key: 'remark', width: 220 }] : []),
+    ...(props.showAction ? [{ title: '操作', key: 'action', width: 80, align: 'center', fixed: 'right' }] : []),
   ]);
 
   const totalQty = computed(() =>
     rows.value.reduce((sum, item) => sum + (Number(item.plannedQty) || 0), 0).toLocaleString('zh-CN', { maximumFractionDigits: 2 })
   );
 
+  function serializeRows(list: any[]) {
+    return JSON.stringify(
+      list.map((item) => ({
+        id: item.id ? String(item.id) : '',
+        materialId: item.materialId ? String(item.materialId) : '',
+        unitValue: item._unitValue == null ? '' : String(item._unitValue),
+        plannedQty: item.plannedQty == null || item.plannedQty === '' ? null : Number(item.plannedQty),
+        remark: String(item.remark || ''),
+      }))
+    );
+  }
+
+  const dirty = computed(() => serializeRows(rows.value) !== persistedSnapshot.value);
+
+  function openMaterialDrawer() {
+    if (loading.value) {
+      createMessage.warning('用料清单仍在加载，请稍后再选择物料');
+      return;
+    }
+    openDrawer(true, { excludeMaterialIds: rows.value.map((item) => item.materialId) });
+  }
+
   function createUnitOptions(material: any, currentUnitId?: string, currentUnit?: string) {
     const units = Array.isArray(material?.unitList) ? [...material.unitList] : [];
     units.sort((a: any, b: any) => Number(b.isBaseUnit || 0) - Number(a.isBaseUnit || 0) || Number(a.sortNo || 0) - Number(b.sortNo || 0));
-    if (props.mode === 'quotation') {
+    if (props.mode !== 'supplement') {
       const options = units.filter((item: any) => item.id && item.unitName).map((item: any) => ({ label: item.unitName, value: String(item.id) }));
-      if (currentUnitId && !options.some((item: any) => item.value === String(currentUnitId))) {
-        options.push({ label: currentUnit || '原单位', value: String(currentUnitId) });
+      const matchedUnit = units.find((item: any) => String(item.unitName || '') === String(currentUnit || ''));
+      const resolvedCurrentUnitId = currentUnitId || matchedUnit?.id;
+      if (resolvedCurrentUnitId && !options.some((item: any) => item.value === String(resolvedCurrentUnitId))) {
+        options.push({ label: currentUnit || '原单位', value: String(resolvedCurrentUnitId) });
       }
       return options;
     }
@@ -119,60 +195,93 @@
   }
 
   function getDefaultUnit(material: any, options: { value: string }[], currentUnitId?: string, currentUnit?: string) {
-    const currentValue = props.mode === 'quotation' ? currentUnitId : currentUnit;
+    const currentUnitRecord = material?.unitList?.find(
+      (item: any) => String(item.id || '') === String(currentUnitId || currentUnit || '') || String(item.unitName || '') === String(currentUnit || '')
+    );
+    const useUnitId = props.mode !== 'supplement';
+    const currentValue = useUnitId ? currentUnitId || currentUnitRecord?.id : currentUnitRecord?.unitName || currentUnit;
     if (currentValue && options.some((item) => item.value === String(currentValue))) return String(currentValue);
     const baseUnit = material?.unitList?.find((item: any) => item.isBaseUnit);
-    return props.mode === 'quotation'
-      ? baseUnit?.id
-        ? String(baseUnit.id)
-        : options[0]?.value
-      : baseUnit?.unitName || material?.unit || options[0]?.value;
+    return useUnitId ? (baseUnit?.id ? String(baseUnit.id) : options[0]?.value) : baseUnit?.unitName || material?.unit || options[0]?.value;
   }
 
   async function load() {
+    currentPage.value = 1;
+    const requestSequence = ++loadSequence;
     const queryId = props.mode === 'quotation' ? props.candidateId : props.periodId;
     if (!queryId) {
       rows.value = [];
+      persistedSnapshot.value = serializeRows(rows.value);
+      loading.value = false;
+      loaded.value = false;
+      loadFailed.value = false;
+      emit('loaded', 0);
+      return;
+    }
+    if (props.mode === 'supplement' || props.mode === 'rework') {
+      rows.value = [];
+      persistedSnapshot.value = serializeRows(rows.value);
+      loading.value = false;
+      loaded.value = true;
+      loadFailed.value = false;
       emit('loaded', 0);
       return;
     }
     loading.value = true;
+    loaded.value = false;
     loadFailed.value = false;
     try {
-      const result: any =
+      const listRequest =
         props.mode === 'quotation'
-          ? await getMaterialCandidateItemList({ candidateId: props.candidateId, pageNo: 1, pageSize: 1000 })
-          : await getPlanMaterialList({ periodId: props.periodId, pageNo: 1, pageSize: 1000 });
+          ? getAllMaterialCandidateItems(props.candidateId!)
+          : getPlanMaterialList({ periodId: props.periodId, pageNo: 1, pageSize: 1000 });
+      // 首载时让清单和物料主数据并发；当前组件生命周期内只强制刷新一次，后续回查复用模块缓存。
+      const shouldRefreshMaterialMap = !materialMapPrimed;
+      materialMapPrimed = true;
+      const [result, materialMap]: any[] = await Promise.all([listRequest, loadMaterialMap({ force: shouldRefreshMaterialMap })]);
       const list = result?.records || result || [];
-      const detailMap = new Map<string, any>();
-      await Promise.all(
-        list.map(async (item: any) => {
-          if (!item.materialId || detailMap.has(item.materialId)) return;
-          try {
-            const material: any = await getMaterialDetail({ id: item.materialId });
-            detailMap.set(item.materialId, material || {});
-          } catch {
-            detailMap.set(item.materialId, {});
-          }
-        })
-      );
-      rows.value = list.map((item: any) => {
-        const material = detailMap.get(item.materialId) || {};
-        const unitOptions = createUnitOptions(material, item.unitId, item.unit);
-        return {
-          ...item,
-          _key: ++keySeed,
-          materialCode: material.materialCode || item.materialCode || '—',
-          _unitValue: getDefaultUnit(material, unitOptions, item.unitId, item.unit),
-          _unitOptions: unitOptions,
-          _unitLoading: false,
-          plannedQty: props.mode === 'quotation' ? (item.quantity ?? 1) : (item.plannedQty ?? item.purchaseQty ?? 1),
-        };
-      });
-      emit('loaded', rows.value.length);
+      await hydrateRows(list, requestSequence, materialMap);
     } catch (error: any) {
-      loadFailed.value = true;
-      createMessage.error(error?.message || '用料清单加载失败，请刷新后重试');
+      if (requestSequence === loadSequence) {
+        loaded.value = false;
+        loadFailed.value = true;
+        createMessage.error(error?.message || '用料清单加载失败，请刷新后重试');
+      }
+    } finally {
+      if (requestSequence === loadSequence) loading.value = false;
+    }
+  }
+
+  async function hydrateRows(list: any[], requestSequence?: number, providedMaterialMap?: Record<string, any>) {
+    // 物料分页列表已包含 unitList，统一从模块缓存补齐编码和单位，避免保存后逐条请求 queryById。
+    const materialMap = providedMaterialMap || (await loadMaterialMap());
+    if (requestSequence && requestSequence !== loadSequence) return;
+    rows.value = list.map((item: any) => {
+      const material = materialMap[String(item.materialId || '')] || {};
+      const unitOptions = createUnitOptions(material, item.unitId, item.unit);
+      return {
+        ...item,
+        _key: ++keySeed,
+        materialCode: material.materialCode || item.materialCode || '—',
+        _unitValue: getDefaultUnit(material, unitOptions, item.unitId, item.unit),
+        _unitOptions: unitOptions,
+        _unitLoading: false,
+        plannedQty: props.mode === 'quotation' ? (item.quantity ?? 1) : (item.plannedQty ?? item.purchaseQty ?? 1),
+      };
+    });
+    persistedSnapshot.value = serializeRows(rows.value);
+    loaded.value = true;
+    emit('loaded', rows.value.length);
+  }
+
+  async function hydrateSavedQuotationRows(records: any[]) {
+    if (props.mode !== 'quotation') return;
+    // 保存响应是本次写入的权威结果，避免候选单 ID 变化触发的旧查询覆盖回显。
+    loadSequence += 1;
+    loading.value = true;
+    loadFailed.value = false;
+    try {
+      await hydrateRows(Array.isArray(records) ? records : []);
     } finally {
       loading.value = false;
     }
@@ -203,12 +312,14 @@
       };
       rows.value.push(row);
       try {
-        const detail: any = material.unitList?.length ? material : await getMaterialDetail({ id: material.id });
+        const materialMap = material.unitList?.length ? undefined : await loadMaterialMap();
+        const detail = materialMap?.[String(material.id || '')] || material;
         row._unitOptions = createUnitOptions(detail, material.unitId, material.unit);
         row._unitValue = getDefaultUnit(detail, row._unitOptions, material.unitId, material.unit);
+        if (!row._unitOptions.length) throw new Error('没有可用单位');
       } catch {
-        row._unitOptions = createUnitOptions(material, material.unitId, material.unit);
-        row._unitValue = getDefaultUnit(material, row._unitOptions, material.unitId, material.unit);
+        row._unitOptions = [];
+        row._unitValue = undefined;
         createMessage.warning(`「${material.materialName}」的单位列表加载失败，请稍后重试`);
       } finally {
         row._unitLoading = false;
@@ -221,7 +332,8 @@
   }
 
   async function importRows(records: Recordable[]) {
-    if (!props.editable || props.mode !== 'plan') throw new Error('当前用料计划不可编辑');
+    if (!props.editable || !['plan', 'rework'].includes(props.mode)) throw new Error('当前用料计划不可编辑');
+    if (loading.value) throw new Error('用料清单仍在加载，请稍后再导入');
     const incoming = Array.from(
       new Map<string, Recordable>(
         (records || []).filter((item) => item.materialId).map((item) => [String(item.materialId), item] as [string, Recordable])
@@ -230,27 +342,20 @@
     if (!incoming.length) throw new Error('没有可导入的物料');
     loading.value = true;
     try {
-      const detailMap = new Map<string, any>();
-      await Promise.all(
-        incoming.map(async (item) => {
-          const materialId = String(item.materialId || '');
-          if (!materialId || detailMap.has(materialId)) return;
-          const detail: any = await getMaterialDetail({ id: materialId });
-          detailMap.set(materialId, detail || {});
-        })
-      );
+      const materialMap = await loadMaterialMap();
       let added = 0;
       let updated = 0;
       const nextRows = [...rows.value];
       incoming.forEach((item) => {
         const materialId = String(item.materialId || '');
         if (!materialId) return;
-        const detail = detailMap.get(materialId) || {};
+        const detail = materialMap[materialId] || item;
         const unitOptions = createUnitOptions(detail);
         if (!unitOptions.length) throw new Error(`「${detail.materialName || item.materialName || materialId}」没有可用单位`);
         const requestedUnit = String(item.unit || '');
+        const requestedUnitId = String(item.unitId || detail?.unitList?.find((unit: any) => String(unit.unitName || '') === requestedUnit)?.id || '');
         const unitValue =
-          requestedUnit && unitOptions.some((option) => option.value === requestedUnit) ? requestedUnit : getDefaultUnit(detail, unitOptions);
+          requestedUnitId && unitOptions.some((option) => option.value === requestedUnitId) ? requestedUnitId : getDefaultUnit(detail, unitOptions);
         const existingIndex = nextRows.findIndex((row) => String(row.materialId) === materialId);
         const existing = existingIndex >= 0 ? nextRows[existingIndex] : undefined;
         const normalized = {
@@ -289,10 +394,24 @@
     if (loadFailed.value) throw new Error('用料清单加载失败，为避免覆盖原数据，请刷新后重试');
     const loadingUnit = rows.value.find((item) => item._unitLoading);
     if (loadingUnit) throw new Error(`「${loadingUnit.materialName || '未命名物料'}」的单位仍在加载，请稍后再保存`);
-    const missingUnit = rows.value.find((item) => !item._unitValue);
-    if (missingUnit) throw new Error(`请选择「${missingUnit.materialName || '未命名物料'}」的单位`);
-    const invalid = rows.value.find((item) => !item.materialId || !(Number(item.plannedQty) > 0));
-    if (invalid) throw new Error(`请填写「${invalid.materialName || '未命名物料'}」的${props.mode === 'quotation' ? '数量' : '计划数量'}`);
+    const issues = validateEditableRows(rows.value, {
+      selectorField: 'materialId',
+      selectorLabel: '物料',
+      optionLabel: (value) => rows.value.find((item) => String(item.materialId) === String(value))?.materialName || String(value),
+      rules: [
+        { field: '_unitValue', label: '单位', required: true },
+        {
+          field: 'plannedQty',
+          label: quantityText.value,
+          required: true,
+          validate: (value) => Number(value) > 0 || `${quantityText.value}必须大于 0`,
+        },
+      ],
+    });
+    if (issues.length) {
+      if (props.paginated) currentPage.value = Math.floor(issues[0].rowIndex / pageSize.value) + 1;
+      throw new Error(issues[0].message);
+    }
     if (props.mode === 'quotation') {
       return rows.value.map((item) => ({
         ...(item.id ? { id: item.id } : {}),
@@ -302,14 +421,25 @@
         remark: item.remark,
       }));
     }
+    if (props.mode === 'plan' || props.mode === 'rework') {
+      return rows.value.map((item) => ({
+        ...(item.id ? { id: item.id } : {}),
+        materialId: item.materialId,
+        plannedQty: Number(item.plannedQty),
+        unitId: item._unitValue,
+        remark: item.remark,
+      }));
+    }
     return rows.value.map((item) => ({
       ...(item.id ? { id: item.id } : {}),
       materialId: item.materialId,
+      materialCode: item.materialCode,
       materialCategory: item.materialCategory,
       materialName: item.materialName,
       brand: item.brand,
       model: item.model,
-      unit: item._unitValue,
+      // 补料接口仍提交单位名称；计划用料 editBatch 在上方单独提交 unitId。
+      unit: item._unitOptions?.find((option: any) => String(option.value) === String(item._unitValue))?.label || String(item._unitValue),
       supplierId: item.supplierId,
       supplierName: item.supplierName,
       purchaseQty: item.purchaseQty,
@@ -321,7 +451,37 @@
     }));
   }
 
-  defineExpose({ getData, importRows, reload: load, getRowCount: () => rows.value.length });
+  function reset() {
+    loadSequence += 1;
+    rows.value = [];
+    persistedSnapshot.value = serializeRows(rows.value);
+    loading.value = false;
+    loaded.value = false;
+    loadFailed.value = false;
+    emit('loaded', 0);
+  }
+
+  function getSubmissionState() {
+    return {
+      loading: loading.value,
+      loaded: loaded.value,
+      loadFailed: loadFailed.value,
+      saving: false,
+      dirty: dirty.value,
+      hasData: rows.value.length > 0,
+    };
+  }
+
+  defineExpose({
+    getData,
+    getRows: () => rows.value,
+    importRows,
+    hydrateSavedQuotationRows,
+    reload: load,
+    reset,
+    getRowCount: () => rows.value.length,
+    getSubmissionState,
+  });
 
   watch(() => [props.periodId, props.candidateId, props.mode], load, { immediate: true });
 </script>
@@ -346,6 +506,11 @@
       color: #595959;
       text-align: right;
       font-variant-numeric: tabular-nums;
+    }
+
+    &__required {
+      margin-left: 4px;
+      color: @error-color;
     }
   }
 </style>

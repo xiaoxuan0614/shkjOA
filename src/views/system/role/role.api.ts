@@ -13,7 +13,11 @@ enum Api {
   queryTreeListForRole = '/sys/role/queryTreeList',
   queryRolePermission = '/sys/permission/queryRolePermission',
   saveRolePermission = '/sys/permission/saveRolePermission',
+  queryRoleAppPermission = '/sys/permission/queryRoleAppPermission',
+  saveRoleAppPermission = '/sys/permission/saveRoleAppPermission',
+  queryAppTreeList = '/sys/permission/list',
   queryDataRule = '/sys/role/datarule',
+  queryAppDataRule = '/sys/role/appDatarule',
   getParentDesignList = '/act/process/extActDesignFlowData/getDesFormFlows',
   getRoleDegisnList = '/joa/designform/designFormCommuse/getRoleDegisnList',
   saveRoleDesign = '/joa/designform/designFormCommuse/sysRoleDesignAdd',
@@ -69,7 +73,7 @@ export const batchDeleteRole = (params, handleSuccess) => {
  * @param params
  */
 export const saveOrUpdateRole = (params, isUpdate) => {
-  let url = isUpdate ? Api.edit : Api.save;
+  const url = isUpdate ? Api.edit : Api.save;
   return defHttp.post({ url: url, params });
 };
 /**
@@ -106,6 +110,18 @@ export const queryRolePermission = (params) => defHttp.get({ url: Api.queryRoleP
  */
 export const saveRolePermission = (params) => defHttp.post({ url: Api.saveRolePermission, params });
 /**
+ * 查询移动端角色权限树
+ */
+export const queryAppTreeList = () => defHttp.get({ url: Api.queryAppTreeList, params: { clientType: 'APP' } });
+/**
+ * 查询移动端角色已选权限
+ */
+export const queryRoleAppPermission = (params) => defHttp.get({ url: Api.queryRoleAppPermission, params });
+/**
+ * 保存移动端角色权限
+ */
+export const saveRoleAppPermission = (params) => defHttp.post({ url: Api.saveRoleAppPermission, params });
+/**
  * 查询角色数据规则
  */
 export const queryDataRule = (params) =>
@@ -114,6 +130,15 @@ export const queryDataRule = (params) =>
  * 保存角色数据规则
  */
 export const saveDataRule = (params) => defHttp.post({ url: Api.queryDataRule, params });
+/**
+ * 查询移动端角色数据规则
+ */
+export const queryAppDataRule = (params) =>
+  defHttp.get({ url: `${Api.queryAppDataRule}/${params.functionId}/${params.roleId}` }, { isTransformResponse: false });
+/**
+ * 保存移动端角色数据规则
+ */
+export const saveAppDataRule = (params) => defHttp.post({ url: Api.queryAppDataRule, params });
 /**
  * 获取表单数据
  * @return List<Map>
@@ -172,7 +197,7 @@ export const addUserRole = (params, handleSuccess) => {
  * @param isUpdate 是否是更新数据
  */
 export const saveOrUpdateRoleIndex = (params, isUpdate) => {
-  let url = isUpdate ? Api.editRoleIndex : Api.saveRoleIndex;
+  const url = isUpdate ? Api.editRoleIndex : Api.saveRoleIndex;
   return defHttp.post({ url: url, params });
 };
 /**

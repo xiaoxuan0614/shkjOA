@@ -1,7 +1,6 @@
 <template>
   <Layout :class="[layoutBoxClass]" v-bind="lockEvents">
     <LayoutFeatures />
-    <ProjectInvitationModal />
     <LayoutHeader fixed v-if="getShowFullHeaderRef" />
     <Layout :class="[layoutClass]">
       <LayoutSideBar v-if="getShowSidebar || getIsMobile" />
@@ -30,7 +29,6 @@
   import { useLockPage } from '/@/hooks/web/useLockPage';
 
   import { useAppInject } from '/@/hooks/web/useAppInject';
-  import ProjectInvitationModal from '/@/views/project/plan/ProjectInvitationModal.vue';
 
   export default defineComponent({
     name: 'DefaultLayout',
@@ -42,7 +40,6 @@
       LayoutSideBar,
       LayoutMultipleHeader,
       Layout,
-      ProjectInvitationModal,
     },
     setup() {
       const { prefixCls } = useDesign('default-layout');

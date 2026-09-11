@@ -36,6 +36,13 @@
           <a-descriptions-item label="合同状态">
             <a-tag :color="contractStatus.color">{{ contractStatus.text }}</a-tag>
           </a-descriptions-item>
+          <a-descriptions-item v-if="invitation.id" label="我的项目角色" :span="2">
+            <a-spin v-if="memberRoleLoading" size="small" />
+            <template v-else-if="memberRoleLabels.length">
+              <a-tag v-for="role in memberRoleLabels" :key="role" color="blue">{{ role }}</a-tag>
+            </template>
+            <span v-else class="project-basic-drawer__role-empty">{{ memberRoleError || '未查询到当前用户的项目角色' }}</span>
+          </a-descriptions-item>
           <a-descriptions-item label="项目对接人">{{ detail.projectLiaisonUserName || '—' }}</a-descriptions-item>
           <a-descriptions-item label="甲方联系人">{{ detail.contactPerson || '—' }}</a-descriptions-item>
           <a-descriptions-item label="联系电话">{{ detail.contactPhone || '—' }}</a-descriptions-item>
@@ -67,14 +74,17 @@
   import { computed, ref } from 'vue';
   import { BasicDrawer, useDrawerInner } from '/@/components/Drawer';
   import { useMessage } from '/@/hooks/web/useMessage';
+  import { useUserStore } from '/@/store/modules/user';
   import { getApprovalStatusMeta } from '/@/utils/approvalStatus';
   import { projectDetail } from '../Project.api';
   import { loadDictOptions, loadProjectStatusMap, loadProjectTypeMap, projectStatusMap } from '../Project.data';
+  import { getPlanMembers } from '../plan/Plan.api';
   import { ProjectInvitation, useProjectInvitations } from '../plan/useProjectInvitations';
 
   const emit = defineEmits(['register', 'invitation-processed']);
   const { createMessage } = useMessage();
   const { handleInvitation } = useProjectInvitations();
+  const userStore = useUserStore();
 
   const detail = ref<Recordable>({});
   const invitation = ref<Partial<ProjectInvitation>>({});
@@ -84,6 +94,9 @@
   const statusMap = ref<Record<string, { text: string; color: string }>>({});
   const businessAttributeMap = ref<Recordable>({});
   const involvedProductsMap = ref<Recordable>({});
+  const memberRoleLabels = ref<string[]>([]);
+  const memberRoleLoading = ref(false);
+  const memberRoleError = ref('');
   const descriptionColumns = { xs: 1, sm: 1, md: 2 };
 
   const hasDetail = computed(() => Boolean(detail.value.projectId || detail.value.periodId || detail.value.projectName));
@@ -95,6 +108,10 @@
   const contractStatus = computed(() => getApprovalStatusMeta(detail.value.contractStatus));
   const businessAttributeText = computed(() => mapMultipleValues(detail.value.businessAttribute, businessAttributeMap.value));
   const involvedProductsText = computed(() => mapMultipleValues(detail.value.involvedProducts, involvedProductsMap.value));
+  const currentUserId = computed(() => {
+    const user: any = userStore.getUserInfo;
+    return String(user?.id ?? user?.userId ?? '');
+  });
 
   const [register, { setDrawerProps, closeDrawer }] = useDrawerInner(async (data) => {
     const record = data?.record || {};
@@ -103,6 +120,8 @@
     responding.value = '';
     detail.value = { ...record };
     loadError.value = '';
+    memberRoleLabels.value = [];
+    memberRoleError.value = '';
     if (!periodId) {
       loadError.value = '缺少项目分期 ID，无法加载基本信息';
       return;
@@ -110,12 +129,15 @@
 
     setDrawerProps({ loading: true });
     try {
+      // 计划页父级已拿到完整分期详情时直接复用，避免点击“详情”再次请求同一接口。
+      const detailRequest = data?.useProvidedDetail ? Promise.resolve(record) : projectDetail({ periodId });
       const [result, typeMap, loadedStatusMap, businessOptions, productOptions] = await Promise.all([
-        projectDetail({ periodId }),
+        detailRequest,
         loadProjectTypeMap(),
         loadProjectStatusMap(),
         loadDictOptions('project_business_attr'),
         loadDictOptions('project_products'),
+        invitation.value.id ? loadInvitationMemberRoles(String(periodId)) : Promise.resolve(),
       ]);
       detail.value = { ...record, ...(result || {}) };
       projectTypeMap.value = typeMap;
@@ -137,6 +159,44 @@
       .filter(Boolean)
       .map((item) => valueMap[item] || item)
       .join('、');
+  }
+
+  function splitMemberRoles(value: unknown) {
+    return String(value ?? '')
+      .split(/[,，、]/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  async function loadInvitationMemberRoles(periodId: string) {
+    memberRoleLoading.value = true;
+    try {
+      if (!currentUserId.value) throw new Error('无法识别当前登录用户');
+      const result: any = await getPlanMembers({ periodId, pageNo: 1, pageSize: 1000 });
+      const records: Recordable[] = Array.isArray(result) ? result : result?.records || [];
+      const ownRecords = records.filter((item) => String(item.userId ?? '') === currentUserId.value);
+      const invitationId = String(invitation.value.id || '');
+      const exactRecords = invitationId ? ownRecords.filter((item) => String(item.id ?? '') === invitationId) : [];
+      const pendingRecords = ownRecords.filter((item) => String(item.inviteStatus ?? '') === '2');
+      const roleRecords = exactRecords.length ? exactRecords : pendingRecords.length ? pendingRecords : ownRecords;
+      const roleValues = [...new Set(roleRecords.flatMap((item) => splitMemberRoles(item.memberRole)))];
+      if (!roleValues.length) {
+        memberRoleError.value = '未查询到当前用户在该项目中的角色';
+        return;
+      }
+      let roleMap: Record<string, string> = {};
+      try {
+        const roleOptions = await loadDictOptions('member_role');
+        roleMap = Object.fromEntries(roleOptions.map((item) => [String(item.value), item.label]));
+      } catch {
+        // 字典失败时仍回显接口角色编码，避免项目详情整体不可用。
+      }
+      memberRoleLabels.value = roleValues.map((role) => roleMap[role] || role);
+    } catch (error: any) {
+      memberRoleError.value = error?.message || '项目角色加载失败，请稍后重试';
+    } finally {
+      memberRoleLoading.value = false;
+    }
   }
 
   async function respondToInvitation(status: '0' | '1') {
@@ -183,6 +243,10 @@
         color: #262626;
         overflow-wrap: anywhere;
       }
+    }
+
+    &__role-empty {
+      color: #8c8c8c;
     }
   }
 

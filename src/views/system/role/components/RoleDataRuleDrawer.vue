@@ -1,5 +1,5 @@
 <template>
-  <BasicDrawer v-bind="$attrs" @register="registerDrawer" title="数据规则配置" width="450px" destroyOnClose>
+  <BasicDrawer v-bind="$attrs" @register="registerDrawer" :title="drawerTitle" width="450px" destroyOnClose>
     <a-tabs defaultActiveKey="1">
       <a-tab-pane tab="数据规则" key="1">
         <a-checkbox-group v-model:value="dataRuleChecked" v-if="dataRuleList.length > 0">
@@ -21,18 +21,20 @@
   </BasicDrawer>
 </template>
 <script lang="ts" setup>
-  import { ref, unref } from 'vue';
+  import { computed, ref, unref } from 'vue';
   import { BasicDrawer, useDrawerInner } from '/src/components/Drawer';
   import { useMessage } from '/src/hooks/web/useMessage';
-  import { queryDataRule, saveDataRule } from '../role.api';
+  import { queryAppDataRule, queryDataRule, saveAppDataRule, saveDataRule } from '../role.api';
   // 声明Emits
   const emit = defineEmits(['success', 'register']);
   const { createMessage } = useMessage();
   // 声明数据
   const functionId = ref('');
   const roleId = ref('');
+  const clientType = ref<'PC' | 'APP'>('PC');
   const dataRuleList = ref([]);
   const dataRuleChecked = ref([]);
+  const drawerTitle = computed(() => (clientType.value === 'APP' ? '移动端数据规则配置' : 'PC端数据规则配置'));
 
   /**
    * 数据
@@ -44,8 +46,10 @@
     functionId.value = data.functionId;
     //角色的id
     roleId.value = data.roleId;
+    clientType.value = data.clientType === 'APP' ? 'APP' : 'PC';
     //查询数据
-    const res = await queryDataRule({ functionId: unref(functionId), roleId: unref(roleId) });
+    const params = { functionId: unref(functionId), roleId: unref(roleId) };
+    const res = clientType.value === 'APP' ? await queryAppDataRule(params) : await queryDataRule(params);
     if (res.success) {
       dataRuleList.value = res.result.datarule;
       if (res.result.drChecked) {
@@ -60,6 +64,7 @@
   function reset() {
     functionId.value = '';
     roleId.value = '';
+    clientType.value = 'PC';
     dataRuleList.value = [];
     dataRuleChecked.value = [];
   }
@@ -76,7 +81,11 @@
       roleId: unref(roleId),
       dataRuleIds: unref(dataRuleChecked).join(','),
     };
-    await saveDataRule(params);
+    if (clientType.value === 'APP') {
+      await saveAppDataRule(params);
+    } else {
+      await saveDataRule(params);
+    }
     //关闭弹窗
     closeDrawer();
     //刷新列表

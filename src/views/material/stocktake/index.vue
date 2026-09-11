@@ -23,23 +23,19 @@
   // 物料 id → 物料信息(物料编码/名称富化，台账只回 materialId)
   let materialMapLoaded = false;
   async function ensureMaterialMap() {
-    if (materialMapLoaded) return;
+    const materialMap = await loadMaterialMap({ force: !materialMapLoaded });
     materialMapLoaded = true;
-    try {
-      await loadMaterialMap();
-    } catch (e) {
-      // 失败不阻塞列表，物料编码/名称留空
-    }
+    return materialMap;
   }
 
   /**
    * 列表包装：固定只查盘存台账(sourceType=stocktake) + 按 materialId 富化物料编码/名称 + 计算差异
    */
   async function listWithMaterial(params: any) {
-    await ensureMaterialMap();
+    const materialMap = await ensureMaterialMap();
     const res: any = await listRecord(params);
     const records = res?.records || (Array.isArray(res) ? res : []);
-    enrichMaterialInfo(records);
+    enrichMaterialInfo(records, materialMap);
     (records || []).forEach((r: any) => {
       r.diff = Number(r.afterQty || 0) - Number(r.beforeQty || 0);
     });

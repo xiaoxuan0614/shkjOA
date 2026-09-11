@@ -21,13 +21,19 @@ enum Api {
   start = '/project/period/start',
   debugComplete = '/project/period/debugComplete',
   implementComplete = '/project/period/implementComplete',
-  internalAccept = '/project/period/internalAccept',
-  internalAcceptComplete = '/project/period/internalAcceptComplete',
-  accept = '/project/period/accept',
-  acceptComplete = '/project/period/acceptComplete',
   warranty = '/project/period/warranty',
   complete = '/project/period/complete',
   close = '/project/period/close',
+  arrivalStatus = '/project/period/arrivalStatus',
+  // 项目补料申请
+  materialApplyList = '/project/materialApply/list',
+  materialApplyDetail = '/project/materialApply/queryById',
+  materialApplyAddBatch = '/project/materialApply/addBatch',
+  materialApplyApprove = '/project/materialApply/approve',
+  materialApplyApproveBatch = '/project/materialApply/approveBatch',
+  // 实施计划工序完成
+  processDetail = '/project/process/detail',
+  processStatus = '/project/process/status',
 }
 
 /**
@@ -40,7 +46,8 @@ export const projectList = (params) => defHttp.get({ url: Api.list, params });
  * 项目详情(新增页详情, 主项目+分期合并字段)
  * @param params { periodId }
  */
-export const projectDetail = (params) => defHttp.get({ url: Api.detail, params });
+export const projectDetail = (params, quiet = false) =>
+  defHttp.get({ url: Api.detail, params }, quiet ? { successMessageMode: 'none', errorMessageMode: 'none' } : undefined);
 
 /**
  * 新增主项目及分期。
@@ -116,7 +123,21 @@ export const addPlan = (params) => defHttp.post({ url: '/project/plan/add', para
  * ⚠️ 后端将提供 /project/period/status; 当前未就绪时调用会报错(先画页面)
  * @param params { periodId, status }
  */
-export const changePeriodStatus = (params) => defHttp.post({ url: '/project/period/status', params }, { successMessageMode: 'success' });
+export const changePeriodStatus = (params) => defHttp.post({ url: '/project/period/status', params }, { successMessageMode: 'none' });
+
+/**
+ * 确认项目分期到货。
+ * 后端根据确认日期和合同中的到货款回款周期生成计划回款日期，前端只提交到货状态。
+ * @param params { periodId, arrivalStatus: 0 | 1 }
+ */
+export const changeArrivalStatus = (params) => defHttp.post({ url: Api.arrivalStatus, params }, { successMessageMode: 'none' });
+
+/** 按分期读取整份实施计划及全部有效工序。 */
+export const getProjectProcessDetail = (params: { periodId: string }) => defHttp.get({ url: Api.processDetail, params });
+
+/** 更新单道工序状态；最后一道完成后的项目状态由后端自动推进。 */
+export const changeProjectProcessStatus = (params: { processId: string; status: 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETED' }) =>
+  defHttp.post({ url: Api.processStatus, params }, { successMessageMode: 'none' });
 
 /**
  * 状态流转推进(旧: 每个动作对应后端独立的流转接口, 保留兼容)
@@ -124,3 +145,19 @@ export const changePeriodStatus = (params) => defHttp.post({ url: '/project/peri
  * @param params { id/periodId }
  */
 export const periodFlow = (action: string, params) => defHttp.post({ url: Api[action], params }, { successMessageMode: 'success' });
+
+/** 按项目分期查询补料申请单。 */
+export const getProjectMaterialApplies = (params) => defHttp.get({ url: Api.materialApplyList, params });
+
+/** 查询补料申请单详情（含 items 物料明细）。 */
+export const getProjectMaterialApplyDetail = (params) => defHttp.get({ url: Api.materialApplyDetail, params });
+
+/** 提交一张补料申请单；申请信息放 apply，物料明细放 items。 */
+export const addProjectMaterialApplies = (params) => defHttp.post({ url: Api.materialApplyAddBatch, params }, { successMessageMode: 'none' });
+
+/** 审批一张补料申请单；id 为申请单 ID，驳回时 approvalReason 必填。 */
+export const approveProjectMaterialApply = (params) => defHttp.post({ url: Api.materialApplyApprove, params }, { successMessageMode: 'none' });
+
+/** 批量审批多张补料申请单；ids 为申请单 ID。 */
+export const approveProjectMaterialAppliesBatch = (params) =>
+  defHttp.post({ url: Api.materialApplyApproveBatch, params }, { successMessageMode: 'none' });

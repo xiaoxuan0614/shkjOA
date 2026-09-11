@@ -12,7 +12,7 @@
         <div class="pass-padding">
           <a-input-password v-model:value="formState.password" placeholder="新密码" autocomplete="new-password" />
         </div>
-        <span class="gray-9e font-size-13">8-20位，需包含字母和数字</span>
+        <span class="gray-9e font-size-13">密码至少6位</span>
       </a-form-item>
     </a-form>
   </BasicModal>
@@ -24,6 +24,7 @@
   import { updatePasswordNotBindPhone } from '../UserSetting.api';
   import { useMessage } from '/@/hooks/web/useMessage';
   import { useUserStore } from '/@/store/modules/user';
+  import { createPasswordLengthRule } from '@/utils/password';
 
   const { createMessage } = useMessage();
   //用户名
@@ -44,10 +45,7 @@
   const userStore = useUserStore();
   const validatorRules: Record<string, Rule[]> = {
     oldPassword: [{ required: true, message: '请输入旧密码' }],
-    password: [
-      { required: true, validator: checkPassword },
-      { pattern: /^(?=.*[0-9])(?=.*[a-zA-Z])(.{8,20})$/, message: '8-20位，需包含字母和数字' },
-    ],
+    password: [{ required: true, validator: checkPassword }, createPasswordLengthRule()],
   };
 
   //表单提交事件

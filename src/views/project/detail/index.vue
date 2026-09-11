@@ -14,18 +14,17 @@
               <span
                 >当前状态：<a-tag :color="statusColor">{{ statusText }}</a-tag></span
               >
-              <!-- 状态推进按钮(按当前状态动态显示, 可多动作) -->
-              <template v-for="(action, i) in flowActions" :key="i">
+              <!-- 状态推进按钮(项目详情不提供实施完成入口) -->
+              <template v-for="action in flowActions" :key="action.act || action.status || action.label">
                 <a-popconfirm v-if="action.pop" :title="`确认执行「${action.label}」？`" @confirm="handleAdvance(action)">
-                  <a-button v-auth="action.auth" type="primary" size="small">{{ action.label }}</a-button>
+                  <a-button v-auth="action.auth" type="primary" size="small" :loading="advancing">{{ action.label }}</a-button>
                 </a-popconfirm>
-                <a-button v-else v-auth="action.auth" type="primary" size="small" @click="handleAdvance(action)">
+                <a-button v-else v-auth="action.auth" type="primary" size="small" :loading="advancing" @click="handleAdvance(action)">
                   {{ action.label }}
                 </a-button>
               </template>
-              <a-button v-if="hasContractInfo" size="small" @click="handleContractInfo">合同信息</a-button>
               <span>项目编号：{{ project.projectNo || '—' }}</span>
-              <span>项目类型：{{ project.projectType || '—' }}</span>
+              <span>项目类型：{{ projectTypeText }}</span>
               <span>甲方名称：{{ project.customerName || '—' }}</span>
               <span>项目对接人：{{ project.projectLiaisonUserName || '—' }}</span>
             </div>
@@ -33,14 +32,21 @@
         </div>
       </a-card>
 
-      <!-- 8 个 tab -->
+      <!-- 项目详情 tab -->
       <a-card class="project-detail__body">
         <a-tabs v-model:activeKey="activeKey">
           <a-tab-pane key="basic" tab="基本信息">
-            <DetailBasic :project="project" :editable="canEditProject" @edit="handleEditProject" />
+            <DetailBasic
+              :project="project"
+              :editable="canEditProject"
+              :project-type-text="projectTypeText"
+              :business-attribute-text="businessAttributeText"
+              :involved-products-text="involvedProductsText"
+              @edit="handleEditProject"
+            />
           </a-tab-pane>
-          <a-tab-pane key="plan" tab="计划方案">
-            <DetailPlan :project-id="projectId" />
+          <a-tab-pane key="contract" tab="合同信息">
+            <DetailContract :project-id="projectId" :project="project" />
           </a-tab-pane>
           <a-tab-pane key="member" tab="项目成员">
             <DetailMember :project-id="projectId" />
@@ -52,13 +58,13 @@
             <DetailImplement :project-id="projectId" />
           </a-tab-pane>
           <a-tab-pane key="acceptance" tab="验收记录">
-            <DetailAcceptance :project-id="projectId" />
+            <DetailAcceptance :project-id="projectId" :project="project" :initial-rework-id="initialReworkId" @changed="handleBusinessChanged" />
           </a-tab-pane>
           <a-tab-pane key="file" tab="项目文件">
             <DetailFile :project-id="projectId" :editable="canManageFiles" />
           </a-tab-pane>
-          <a-tab-pane key="material" tab="用料清单">
-            <DetailMaterial :project-id="projectId" />
+          <a-tab-pane key="material" tab="用料统计">
+            <DetailMaterialAccount :project-id="projectId" />
           </a-tab-pane>
         </a-tabs>
       </a-card>
@@ -86,19 +92,19 @@
 <script lang="ts" name="project-detail" setup>
   import { ref, computed, onMounted } from 'vue';
   import { useRoute, useRouter } from 'vue-router';
-  import { getProjectBasic, getActivities, getAcceptance } from './ProjectDetail.api';
-  import { statusFlow, projectStatusMap, statusColorMap, loadProjectStatusMap } from '../Project.data';
+  import { getProjectBasic, getActivities } from './ProjectDetail.api';
+  import { statusFlow, projectStatusMap, statusColorMap, loadProjectStatusMap, loadProjectTypeMap, loadDictOptions } from '../Project.data';
   import { changePeriodStatus } from '../Project.api';
   import { useMessage } from '/@/hooks/web/useMessage';
   import { useUserStore } from '/@/store/modules/user';
   import DetailBasic from './components/DetailBasic.vue';
-  import DetailPlan from './components/DetailPlan.vue';
+  import DetailContract from './components/DetailContract.vue';
   import DetailMember from './components/DetailMember.vue';
   import DetailPosition from './components/DetailPosition.vue';
   import DetailImplement from './components/DetailImplement.vue';
   import DetailAcceptance from './components/DetailAcceptance.vue';
   import DetailFile from './components/DetailFile.vue';
-  import DetailMaterial from './components/DetailMaterial.vue';
+  import DetailMaterialAccount from './components/DetailMaterialAccount.vue';
 
   const route = useRoute();
   const router = useRouter();
@@ -106,17 +112,24 @@
   const userStore = useUserStore();
   const projectId = route.params.id as string; // 分期ID periodId
 
-  const activeKey = ref('basic');
+  const detailTabs = new Set(['basic', 'contract', 'member', 'position', 'implement', 'acceptance', 'file', 'material']);
+  const requestedTab = String(route.query.tab || 'basic');
+  const activeKey = ref(detailTabs.has(requestedTab) ? requestedTab : 'basic');
+  const initialReworkId = String(route.query.reworkId || '');
   const project = ref<any>({});
   const activities = ref<any[]>([]);
+  const advancing = ref(false);
   // 状态字典映射(数据源 project_period_status, 加载失败回退 projectStatusMap)
   const statusMeta = ref<Recordable>({});
-  // 客户验收记录(判断客户验收是否完成 → 是否可进入质保)
-  const customerAcceptDone = ref(false);
-
+  const projectTypeMeta = ref<Record<string, string>>({});
+  const businessAttributeMeta = ref<Record<string, string>>({});
+  const involvedProductsMeta = ref<Record<string, string>>({});
   const statusText = computed(
     () => statusMeta.value[project.value.status]?.text || projectStatusMap[project.value.status] || project.value.status || '—'
   );
+  const projectTypeText = computed(() => mapDictValue(project.value.projectType, projectTypeMeta.value));
+  const businessAttributeText = computed(() => mapDictValue(project.value.businessAttribute, businessAttributeMeta.value, true));
+  const involvedProductsText = computed(() => mapDictValue(project.value.involvedProducts, involvedProductsMeta.value, true));
   const progressPercent = computed(() => Number(project.value.totalProgress) || 0);
   const statusColor = computed(() => statusMeta.value[project.value.status]?.color || statusColorMap[project.value.status] || 'default');
   const currentUserId = computed(() => {
@@ -131,25 +144,30 @@
       .filter(Boolean)
       .some((userId) => String(userId) === currentUserId.value);
   });
-  const hasContractInfo = computed(() => !!project.value.contractId || ['0', '1', '2', '3'].includes(String(project.value.contractStatus ?? '')));
+  function mapDictValue(value: unknown, dictionary: Record<string, string>, multiple = false) {
+    if (value === undefined || value === null || value === '') return '—';
+    const values = multiple ? (Array.isArray(value) ? value : String(value).split(/[,，]/)) : [value];
+    return values
+      .map((item) => {
+        const code = String(item).trim();
+        return dictionary[code] || code;
+      })
+      .filter(Boolean)
+      .join('、');
+  }
 
   /**
-   * 状态流转按钮: statusFlow 配置 + 验收阶段附加「进入质保」(客户验收完成即进入质保)
-   * ⚠️ 合同签订/审批入口只在项目管理列表, 详情页不展示(过滤 contractSign)
+   * 状态流转按钮：合同签订/审批和实施完成不在项目详情页办理。
+   * 验收、返工和质保均由专用业务接口校验并推进，详情页不再手工改状态。
    */
   const flowActions = computed(() => {
     const flow = statusFlow[project.value.status];
     const actions: any[] = [];
     if (flow && flow.actions) {
       flow.actions.forEach((action) => {
-        if (action.act === 'contractSign') return;
+        if (['contractSign', 'processComplete'].includes(action.act)) return;
         actions.push({ ...action, pop: true });
       });
-    }
-    // 验收阶段内, 客户验收已完成 → 附加「进入质保」
-    const inAcceptPhase = ['IMPLEMENT_COMPLETED', 'INTERNAL_ACCEPTING', 'ACCEPTING'].includes(project.value.status);
-    if (inAcceptPhase && customerAcceptDone.value) {
-      actions.push({ label: '进入质保', status: 'WARRANTY', auth: 'project:accept', pop: false });
     }
     return actions;
   });
@@ -160,24 +178,27 @@
     const acts = await getActivities({ periodId: projectId, pageNo: 1, pageSize: 50 });
     const list = acts?.records || acts || [];
     activities.value = list || [];
-    // 客户验收是否有已验收记录(result 非空)
-    try {
-      const res: any = await getAcceptance({ periodId: projectId, pageNo: 1, pageSize: 1 });
-      const records = res?.records || res || [];
-      const record = records[0];
-      customerAcceptDone.value = !!record && !!record.result;
-    } catch (e) {
-      customerAcceptDone.value = false;
-    }
   }
 
   /**
    * 状态推进: 前端传 periodId + status 给统一状态变更接口
    */
   async function handleAdvance(action: any) {
-    await changePeriodStatus({ periodId: projectId, status: action.status });
-    createMessage.success(`操作成功：${action.label}`);
-    load();
+    if (advancing.value) return;
+    advancing.value = true;
+    try {
+      await changePeriodStatus({ periodId: projectId, status: action.status });
+      createMessage.success(`操作成功：${action.label}`);
+      await load();
+    } catch (error: any) {
+      createMessage.error(error?.message || `${action.label || '操作'}失败，请重试`);
+    } finally {
+      advancing.value = false;
+    }
+  }
+
+  async function handleBusinessChanged() {
+    await load();
   }
 
   function goBack() {
@@ -192,20 +213,18 @@
     });
   }
 
-  function handleContractInfo() {
-    router.push({
-      path: '/project/contract',
-      query: {
-        mode: 'view',
-        periodId: projectId,
-        projectId: project.value.projectId,
-      },
-    });
-  }
-
   onMounted(async () => {
-    statusMeta.value = await loadProjectStatusMap();
-    load();
+    const [loadedStatusMeta, loadedProjectTypeMeta, businessOptions, productOptions] = await Promise.all([
+      loadProjectStatusMap(),
+      loadProjectTypeMap(),
+      loadDictOptions('project_business_attr'),
+      loadDictOptions('project_products'),
+    ]);
+    statusMeta.value = loadedStatusMeta;
+    projectTypeMeta.value = loadedProjectTypeMeta;
+    businessAttributeMeta.value = Object.fromEntries(businessOptions.map((item) => [String(item.value), item.label]));
+    involvedProductsMeta.value = Object.fromEntries(productOptions.map((item) => [String(item.value), item.label]));
+    await load();
   });
 </script>
 

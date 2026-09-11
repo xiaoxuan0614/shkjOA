@@ -1,27 +1,30 @@
 <template>
   <div class="plan-file-mgmt">
     <div class="plan-file-mgmt__toolbar">
-      <a-button type="primary" preIcon="ant-design:plus-outlined" :disabled="!editable" @click="addRow">添加</a-button>
+      <a-button type="primary" preIcon="ant-design:plus-outlined" :disabled="!canWrite" @click="addRow">添加</a-button>
       <span class="plan-file-mgmt__tip">支持 PDF、Word、Excel、PPT；方案名称、类型和文件均为必填</span>
     </div>
 
-    <a-table :loading="loading" :columns="columns" :data-source="list" :row-key="(record) => record._key" :pagination="false" size="middle" bordered>
-      <template #bodyCell="{ column, record }">
+    <a-table
+      :loading="loading || saving"
+      :columns="columns"
+      :data-source="list"
+      :row-key="(record) => record._key"
+      :pagination="false"
+      size="middle"
+      bordered
+    >
+      <template #bodyCell="{ column, record, index }">
         <template v-if="column.key === 'index'">
-          {{ record._key }}
+          {{ index + 1 }}
         </template>
         <template v-else-if="column.key === 'planName'">
-          <a-input
-            v-model:value="record.planName"
-            :disabled="!editable || record._locked"
-            placeholder="请输入方案名称"
-            @change="record._dirty = true"
-          />
+          <a-input v-model:value="record.planName" :disabled="!canWrite" placeholder="请输入方案名称" @change="record._dirty = true" />
         </template>
         <template v-else-if="column.key === 'planType'">
           <a-select
             v-model:value="record.planType"
-            :disabled="!editable || record._locked"
+            :disabled="!canWrite"
             placeholder="请选择方案类型"
             style="width: 100%"
             :options="planTypeOptions"
@@ -32,28 +35,26 @@
           <a-upload
             :accept="DOCUMENT_UPLOAD_ACCEPT"
             :before-upload="handleBeforeUpload"
-            :disabled="!editable || record._locked"
+            :disabled="!canWrite"
             :file-list="record._uploadFileList"
             :max-count="1"
-            :show-upload-list="{ showRemoveIcon: editable && !record._locked }"
+            :show-upload-list="{ showRemoveIcon: canWrite }"
             @change="(info) => handleUploadChange(record, info)"
             @preview="(file) => previewFileInModal(file, record._fileText)"
             @remove="() => handleRemoveFile(record)"
           >
-            <a-button v-if="!record._uploadFileList.length && !record._locked" :disabled="!editable" preIcon="ant-design:cloud-upload-outlined">
+            <a-button v-if="!record._uploadFileList.length && editable" :disabled="!canWrite" preIcon="ant-design:cloud-upload-outlined">
               选择文件
             </a-button>
           </a-upload>
         </template>
         <template v-else-if="column.key === 'remark'">
-          <a-input v-model:value="record.remark" :disabled="!editable || record._locked" placeholder="备注" @change="record._dirty = true" />
+          <a-input v-model:value="record.remark" :disabled="!canWrite" placeholder="备注" @change="record._dirty = true" />
         </template>
         <template v-else-if="column.key === 'action'">
           <template v-if="editable">
-            <a-button v-if="record._locked" type="link" size="small" @click="unlockRow(record)">修改</a-button>
-            <a-button v-else type="link" size="small" :loading="record._saving" @click="saveRow(record)">保存</a-button>
-            <a-popconfirm title="确认删除这条方案文件吗？" @confirm="removeRow(record)">
-              <a-button type="link" danger size="small">删除</a-button>
+            <a-popconfirm title="确认移除这条方案文件？保存本页后生效" @confirm="removeRow(record)">
+              <a-button type="link" danger size="small" :disabled="!canWrite">删除</a-button>
             </a-popconfirm>
           </template>
         </template>
@@ -63,7 +64,7 @@
 </template>
 
 <script lang="ts" setup>
-  import { ref, unref, onMounted, watch } from 'vue';
+  import { computed, ref, onMounted, watch } from 'vue';
   import { Upload } from 'ant-design-vue';
   import { useMessage } from '/@/hooks/web/useMessage';
   import { DOCUMENT_UPLOAD_ACCEPT, isAllowedDocumentFile } from '/@/utils/documentUpload';
@@ -71,7 +72,7 @@
   import { previewFileInModal } from '/@/utils/filePreview';
   import { loadDictOptions } from '../Project.data';
   import { getPlan } from '../detail/ProjectDetail.api';
-  import { addProjectPlan, deleteProjectPlansBatch, editProjectPlan } from './Plan.api';
+  import { addProjectPlansBatch, deleteProjectPlansBatch, editProjectPlan } from './Plan.api';
 
   const { createMessage } = useMessage();
 
@@ -79,6 +80,8 @@
     editable?: boolean;
     periodId?: string;
   }>();
+
+  const emit = defineEmits<{ 'persisted-change': [persisted: boolean] }>();
 
   // 方案类型下拉(兜底: 字典 plan_type 加载失败时用)
   const planTypeFallback = [
@@ -103,7 +106,32 @@
   // 方案文件列表：进入页面时按项目分期从 project_plan 读取。
   const list = ref<any[]>([]);
   const loading = ref(false);
+  const loaded = ref(false);
+  const loadFailed = ref(false);
+  const saving = ref(false);
+  const deletedIds = ref<string[]>([]);
+  const dirty = computed(() => deletedIds.value.length > 0 || list.value.some((item) => !item.id || item._dirty));
+  const savedCount = computed(() => list.value.filter((item) => !!item.id).length);
+  const canWrite = computed(() => !!props.editable && loaded.value && !loading.value && !loadFailed.value && !saving.value);
   let seed = 0;
+  let loadSequence = 0;
+
+  function ensureLoadedForWrite() {
+    if (loading.value) {
+      createMessage.warning('方案文件仍在加载，请稍后再操作');
+      return false;
+    }
+    if (!loaded.value || loadFailed.value) {
+      createMessage.warning('方案文件加载失败，为避免覆盖原数据，请刷新后重试');
+      return false;
+    }
+    return true;
+  }
+
+  function assertLoadedForWrite() {
+    if (loading.value) throw new Error('方案文件仍在加载，请稍后再保存');
+    if (!loaded.value || loadFailed.value) throw new Error('方案文件加载失败，为避免覆盖原数据，请刷新后重试');
+  }
 
   function normalizeFile(record: Recordable) {
     const fileId = record.fileId ?? record.planFileId ?? '';
@@ -111,7 +139,7 @@
     const key = ++seed;
     return {
       ...record,
-      planName: fileName,
+      planName: record.planName ?? fileName,
       planType: record.fileType ?? record.planType,
       planFileId: fileId,
       _key: key,
@@ -132,33 +160,77 @@
     };
   }
 
-  async function loadFiles() {
-    if (!props.periodId) {
+  function setLoadedFiles(records: Recordable[], preserveLocalChanges: boolean) {
+    const localChanges = preserveLocalChanges
+      ? list.value.filter((item) => !item._saving && (!item.id || item._dirty)).map((item) => ({ ...item, _saving: false }))
+      : [];
+    if (!preserveLocalChanges) seed = 0;
+    const loadedRows = records
+      .filter(
+        (record: Recordable) =>
+          (!record.periodId || String(record.periodId) === String(props.periodId)) &&
+          record.planType !== 'CONTRACT_MATERIAL_DRAFT' &&
+          !deletedIds.value.includes(String(record.id))
+      )
+      .map(normalizeFile);
+
+    localChanges.forEach((localRow) => {
+      if (localRow.id) {
+        const index = loadedRows.findIndex((item) => String(item.id) === String(localRow.id));
+        if (index >= 0) loadedRows[index] = localRow;
+        else loadedRows.push(localRow);
+      } else {
+        loadedRows.push(localRow);
+      }
+    });
+    list.value = loadedRows;
+    if (!preserveLocalChanges) emit('persisted-change', loadedRows.length > 0);
+  }
+
+  async function loadFiles(preserveLocalChanges = false) {
+    const requestSequence = ++loadSequence;
+    const periodId = props.periodId;
+    if (!periodId) {
       list.value = [];
+      loading.value = false;
+      loaded.value = false;
+      loadFailed.value = false;
       return;
     }
+    if (!preserveLocalChanges) list.value = [];
     loading.value = true;
+    loaded.value = false;
+    loadFailed.value = false;
     try {
-      const result: any = await getPlan({ periodId: props.periodId, pageNo: 1, pageSize: 1000 });
+      const result: any = await getPlan({ periodId, pageNo: 1, pageSize: 1000 }, true);
+      if (requestSequence !== loadSequence || periodId !== props.periodId) return;
       const records = Array.isArray(result) ? result : result?.records || [];
       // 方案页只读取 project_plan；合同用料草稿等合同记录不属于方案文件。
-      list.value = records
-        .filter(
-          (record: Recordable) =>
-            (!record.periodId || String(record.periodId) === String(props.periodId)) && record.planType !== 'CONTRACT_MATERIAL_DRAFT'
-        )
-        .map(normalizeFile);
+      setLoadedFiles(records, preserveLocalChanges);
+      loaded.value = true;
     } catch (error: any) {
-      list.value = [];
-      createMessage.warning(error?.message || '方案文件加载失败，请刷新后重试');
+      if (requestSequence === loadSequence && periodId === props.periodId) {
+        if (!preserveLocalChanges) list.value = [];
+        loadFailed.value = true;
+        loaded.value = false;
+        createMessage.warning(error?.message || '方案文件加载失败，请刷新后重试');
+      }
     } finally {
-      loading.value = false;
+      if (requestSequence === loadSequence) loading.value = false;
     }
   }
 
-  watch(() => props.periodId, loadFiles, { immediate: true });
+  watch(
+    () => props.periodId,
+    () => {
+      deletedIds.value = [];
+      void loadFiles(false);
+    },
+    { immediate: true }
+  );
 
   function handleBeforeUpload(file: File) {
+    if (!canWrite.value) return Upload.LIST_IGNORE;
     if (!isAllowedDocumentFile(file)) {
       createMessage.warning('仅支持 PDF、Word、Excel、PPT 文件');
       return Upload.LIST_IGNORE;
@@ -191,6 +263,7 @@
   }
 
   function handleRemoveFile(record: any) {
+    if (!ensureLoadedForWrite() || saving.value) return false;
     record.planFileId = '';
     record._fileText = '';
     record._uploadFileList = [];
@@ -200,7 +273,7 @@
   }
 
   function addRow() {
-    if (!props.editable) return;
+    if (!props.editable || !ensureLoadedForWrite() || saving.value) return;
     list.value.push({
       _key: ++seed,
       planName: '',
@@ -215,13 +288,10 @@
     });
   }
 
-  function unlockRow(record: any) {
-    record._locked = false;
-  }
-
-  async function removeRow(record: any) {
-    if (record.id) await deleteProjectPlansBatch({ ids: record.id });
-    list.value = list.value.filter((r) => r._key !== record._key);
+  function removeRow(record: any) {
+    if (!canWrite.value) return;
+    if (record.id) deletedIds.value.push(String(record.id));
+    list.value = list.value.filter((item) => item._key !== record._key);
   }
 
   function validateRow(record: any) {
@@ -230,64 +300,95 @@
     if (!record.planFileId && !record._pendingFile) throw new Error(`请上传方案「${record.planName}」的文件`);
   }
 
-  async function saveRow(record: any, reloadAfterSave = true) {
-    if (record._saving) return;
-    if (!props.periodId) {
-      createMessage.warning('缺少项目分期 ID，无法保存方案文件');
-      throw new Error('period-id-empty');
-    }
+  function planPayload(record: any) {
+    return {
+      ...(record.id ? { id: record.id } : {}),
+      planName: record.planName,
+      planType: record.planType,
+      status: record.status || 'DRAFT',
+      remark: record.remark,
+    };
+  }
+
+  async function saveAll() {
+    assertLoadedForWrite();
+    if (!props.editable || saving.value) throw new Error('方案文件当前不可保存');
+    const periodId = props.periodId;
+    if (!periodId) throw new Error('缺少项目分期 ID');
+    if (!list.value.length) throw new Error('请至少添加一个方案文件');
+    list.value.forEach(validateRow);
+    saving.value = true;
+    const isCurrent = () => periodId === props.periodId;
+    const refreshSaved = async () => {
+      if (!isCurrent()) throw new Error('项目分期已切换，请在原分期确认保存结果');
+      await loadFiles(true);
+      if (!isCurrent() || !loaded.value || loadFailed.value) throw new Error('部分方案文件已保存，但回查失败，请刷新确认后继续');
+    };
     try {
-      validateRow(record);
-    } catch (error: any) {
-      createMessage.warning(error.message);
-      throw error;
-    }
-    record._saving = true;
-    try {
-      const data = {
-        ...(record.id ? { id: record.id } : {}),
-        periodId: props.periodId,
-        planName: record.planName,
-        planType: record.planType,
-        status: record.status || 'DRAFT',
-        remark: record.remark,
-      };
-      if (record.id) await editProjectPlan(data, record._pendingFile);
-      else await addProjectPlan(data, record._pendingFile);
-      record._locked = true;
-      record._dirty = false;
-      record._pendingFile = undefined;
-      createMessage.success(`方案文件「${record.planName}」保存成功`);
-      if (reloadAfterSave) await loadFiles();
-    } catch (error: any) {
-      createMessage.warning(error?.message || '方案文件保存失败，请重试');
-      throw error;
+      // 每次成功后回查并保留其余草稿，后续失败重试不会重新新增已完成的记录。
+      while (true) {
+        const row = list.value.find((item) => item.id && item._dirty);
+        if (!row) break;
+        row._saving = true;
+        try {
+          await editProjectPlan({ ...planPayload(row), periodId }, row._pendingFile);
+          row._dirty = false;
+          row._pendingFile = undefined;
+          await refreshSaved();
+        } catch (error: any) {
+          throw new Error(`方案「${row.planName}」保存未完成：${error?.message || '请重试'}`);
+        } finally {
+          row._saving = false;
+        }
+      }
+      const additions = list.value.filter((item) => !item.id);
+      if (additions.length) {
+        additions.forEach((row) => (row._saving = true));
+        try {
+          await addProjectPlansBatch(
+            periodId,
+            additions.map((row) => ({ plan: planPayload(row), attachment: row._pendingFile }))
+          );
+          await refreshSaved();
+        } finally {
+          additions.forEach((row) => (row._saving = false));
+        }
+      }
+      if (!isCurrent()) throw new Error('项目分期已切换，请在原分期确认保存结果');
+      if (deletedIds.value.length) {
+        await deleteProjectPlansBatch({ ids: deletedIds.value.join(',') }, false);
+        if (!isCurrent()) throw new Error('项目分期已切换，请在原分期确认保存结果');
+        deletedIds.value = [];
+      }
+      await loadFiles(false);
+      if (!isCurrent() || !loaded.value || loadFailed.value) throw new Error('方案文件已提交，但回查失败，请刷新确认');
     } finally {
-      record._saving = false;
+      saving.value = false;
     }
   }
 
-  // 暴露给父级：整套保存时逐条保存新增或已修改的方案文件。
   defineExpose({
-    async saveAll() {
-      const rows = unref(list);
-      if (!rows.length) {
-        createMessage.warning('请至少添加一个方案文件');
-        throw new Error('plan-empty');
-      }
-      try {
-        rows.forEach(validateRow);
-      } catch (error: any) {
-        createMessage.warning(error.message);
-        throw error;
-      }
-      for (const row of rows.filter((item) => !item.id || item._dirty)) await saveRow(row, false);
-      await loadFiles();
-    },
+    saveAll,
     setData(docs: any[]) {
-      list.value = (docs || []).map(normalizeFile);
+      loadSequence += 1;
+      loading.value = false;
+      loaded.value = true;
+      loadFailed.value = false;
+      setLoadedFiles(docs || [], false);
     },
-    reload: loadFiles,
+    reload: () => loadFiles(false),
+    getSubmissionState() {
+      return {
+        loading: loading.value,
+        loaded: loaded.value,
+        loadFailed: loadFailed.value,
+        saving: saving.value,
+        dirty: dirty.value,
+        hasData: savedCount.value > 0,
+        savedCount: savedCount.value,
+        sequence: loadSequence,
+      };
+    },
   });
 </script>
 

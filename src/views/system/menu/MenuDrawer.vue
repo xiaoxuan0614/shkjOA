@@ -6,7 +6,7 @@
 <script lang="ts" setup>
   import { ref, computed, unref, useAttrs } from 'vue';
   import { BasicForm, useForm } from '/@/components/Form/index';
-  import { formSchema, ComponentTypes } from './menu.data';
+  import { formSchema, ComponentTypes, clientScopeOptions } from './menu.data';
   import { BasicDrawer, useDrawerInner } from '/@/components/Drawer';
   import { list, saveOrUpdateMenu } from './menu.api';
   import { useDrawerAdaptiveWidth } from '/@/hooks/jeecg/useAdaptiveWidth';
@@ -17,6 +17,7 @@
   const attrs = useAttrs();
   const isUpdate = ref(true);
   const menuType = ref(0);
+  const menuTreeData = ref<Recordable[]>([]);
   const isButton = (type) => type === 2;
   const [registerForm, { setProps, resetFields, setFieldsValue, updateSchema, validate, clearValidate }] = useForm({
     labelCol: {
@@ -39,11 +40,12 @@
 
     //获取下拉树信息
     const treeData = await list();
+    menuTreeData.value = translateMenu(treeData, 'name');
     updateSchema([
       {
         field: 'parentId',
         // 代码逻辑说明: 【QQYUN-8379】菜单管理页菜单国际化
-        componentProps: { treeData: translateMenu(treeData, 'name') },
+        componentProps: { treeData: menuTreeData.value },
       },
       {
         field: 'name',
@@ -51,18 +53,27 @@
       },
       {
         field: 'url',
-        required: !isButton(unref(menuType)),
         componentProps: {
           onChange: (e) => onUrlChange(e.target.value),
+        },
+      },
+      {
+        field: 'clientScope',
+        componentProps: {
+          options: clientScopeOptions,
+          onChange: handleClientScopeChange,
         },
       },
     ]);
 
     // 无论新增还是编辑，都可以设置表单值
     if (typeof data.record === 'object') {
-      let values = { ...data.record };
+      let values = { clientScope: 'PC', ...data.record };
       setFieldsValue(values);
       onUrlChange(values.url);
+      handleClientScopeChange(values.clientScope);
+    } else {
+      handleClientScopeChange('PC');
     }
     //按钮类型情况下，编辑时候清除一下地址的校验
     if (menuType.value == 2) {
@@ -71,6 +82,36 @@
     //禁用表单
     setProps({ disabled: !attrs.showFooter });
   });
+
+  function handleClientScopeChange(clientScope = 'PC') {
+    updateSchema([
+      {
+        field: 'url',
+        required: !isButton(unref(menuType)) && clientScope !== 'APP',
+      },
+      {
+        field: 'component',
+        required: !isButton(unref(menuType)) && clientScope !== 'APP',
+      },
+      {
+        field: 'parentId',
+        componentProps: {
+          treeData: filterParentTree(menuTreeData.value, clientScope),
+        },
+      },
+    ]);
+    clearValidate(['url', 'component', 'miniAppPath']);
+  }
+
+  function filterParentTree(treeData: Recordable[], clientScope: string): Recordable[] {
+    const allowedScopes = clientScope === 'ALL' ? ['ALL'] : [clientScope, 'ALL'];
+    return (treeData || [])
+      .filter((item) => allowedScopes.includes(item.clientScope || 'PC'))
+      .map((item) => ({
+        ...item,
+        children: filterParentTree(item.children || [], clientScope),
+      }));
+  }
   //获取弹窗标题
   const getTitle = computed(() => (!unref(isUpdate) ? '新增菜单' : '编辑菜单'));
   //提交事件

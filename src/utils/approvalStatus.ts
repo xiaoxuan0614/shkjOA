@@ -1,21 +1,28 @@
 /**
- * 合同审批状态约定：
+ * 通用数值审批状态约定：
+ * - -1：待提交
  * - 0：驳回
- * - 1：通过
- * - 2：待审核
+ * - 1：审核通过
+ * - 2：待审批
  * - 3：已撤回
  * - 其他值（包括 null / undefined / 空字符串）：待提交
  *
- * 仅用于合同及明确采用相同数值约定的审批字段。接口使用英文状态码或其他
- * 业务状态机时，仍应遵循对应接口协议。
+ * 正式后台统一字典编码：approval_status。这里保留同值映射作为页面判断和
+ * 字典缓存不可用时的展示兜底，不再使用 contract_status、stock_apply_status、
+ * stock_item_status 三套历史字典。
+ *
+ * 用于计划方案、合同、项目用料申请、项目延期、出入库申请及其明细的
+ * 审批状态字段。审批动作、执行状态及其他业务状态机仍遵循各自接口协议。
  */
+export const APPROVAL_STATUS_DICT_CODE = 'approval_status';
+export const APPROVAL_PENDING_SUBMIT = '-1';
 export const APPROVAL_REJECTED = '0';
 export const APPROVAL_APPROVED = '1';
 export const APPROVAL_PENDING = '2';
 export const APPROVAL_WITHDRAWN = '3';
 
 export interface ApprovalStatusMeta {
-  text: '驳回' | '通过' | '待审核' | '已撤回' | '待提交';
+  text: '待提交' | '驳回' | '审核通过' | '待审批' | '已撤回';
   color: 'error' | 'success' | 'gold' | 'default';
   rejected: boolean;
   approved: boolean;
@@ -35,7 +42,7 @@ const REJECTED_META: ApprovalStatusMeta = {
 };
 
 const APPROVED_META: ApprovalStatusMeta = {
-  text: '通过',
+  text: '审核通过',
   color: 'success',
   rejected: false,
   approved: true,
@@ -45,7 +52,7 @@ const APPROVED_META: ApprovalStatusMeta = {
 };
 
 const PENDING_META: ApprovalStatusMeta = {
-  text: '待审核',
+  text: '待审批',
   color: 'gold',
   rejected: false,
   approved: false,
@@ -76,6 +83,7 @@ const PENDING_SUBMIT_META: ApprovalStatusMeta = {
 
 export function getApprovalStatusMeta(status: unknown): ApprovalStatusMeta {
   const value = String(status ?? '');
+  if (value === APPROVAL_PENDING_SUBMIT) return PENDING_SUBMIT_META;
   if (value === APPROVAL_REJECTED) return REJECTED_META;
   if (value === APPROVAL_APPROVED) return APPROVED_META;
   if (value === APPROVAL_PENDING) return PENDING_META;

@@ -1,51 +1,65 @@
 import { BasicColumn } from '/@/components/Table';
 import { FormSchema } from '/@/components/Table';
-import { loadDictOptions } from '../project/Project.data';
+import {
+  loadProjectProcessStatusOptions,
+  loadProjectStatusOptions,
+  loadProjectTypeOptions,
+  projectProcessStatusOptions,
+} from '../project/Project.data';
 
 /**
- * 实施管理 - 常量(字段对齐后端 /project/process 项目工序)
- * 状态下拉走字典(work_status), 加载失败回退硬编码
+ * 实施管理 - 项目分期列表 + 工序日志。
  */
 
-// 工序状态(兜底: 字典 work_status 加载失败时用)
-export const workStatusOptions = [
-  { label: '未开始', value: '未开始' },
-  { label: '进行中', value: '进行中' },
-  { label: '已延期', value: '已延期' },
-  { label: '已完成', value: '已完成' },
-];
+export const workStatusOptions = projectProcessStatusOptions;
 
-// 工序状态(字典 work_status)
-export const loadWorkStatusOptions = () => loadDictOptions('work_status', workStatusOptions);
+// 工序状态(字典 project_process_status)
+export const loadWorkStatusOptions = loadProjectProcessStatusOptions;
 
 /**
- * 工序列表列(后端 project_process 字段)
+ * 项目分期列表列（后端 projectPeriodList 字段）。
  */
 export const columns: BasicColumn[] = [
-  { title: '工序名称', align: 'center', dataIndex: 'processName' },
-  { title: '现场负责人', align: 'center', dataIndex: 'siteLeaderName' },
-  { title: '计划开始时间', align: 'center', dataIndex: 'plannedStartTime' },
-  { title: '计划完成时间', align: 'center', dataIndex: 'plannedEndTime' },
-  { title: '计划工时', align: 'center', dataIndex: 'plannedHours' },
-  { title: '实际开始时间', align: 'center', dataIndex: 'actualStartTime' },
-  { title: '实际完成时间', align: 'center', dataIndex: 'actualEndTime' },
-  { title: '状态', align: 'center', dataIndex: 'status' },
+  { title: '主项目名称', dataIndex: 'projectName', width: 220, ellipsis: true },
+  { title: '分期名称', dataIndex: 'periodName', width: 160, ellipsis: true },
+  { title: '客户名称', dataIndex: 'customerName', width: 190, ellipsis: true },
+  { title: '项目类型', align: 'center', dataIndex: 'projectType', width: 130 },
+  { title: '项目状态', align: 'center', dataIndex: 'status', width: 120 },
+  { title: '计划验收日期', align: 'center', dataIndex: 'plannedAcceptanceDate', width: 140 },
 ];
 
 /**
- * 工序列表搜索(后端支持字段)
+ * 项目分期列表搜索（与 projectPeriodList 契约一致）。
  */
 export const searchFormSchema: FormSchema[] = [
   {
-    label: '工序名称',
-    field: 'processName',
+    label: '主项目名称',
+    field: 'projectName',
     component: 'Input',
-    componentProps: { placeholder: '请输入工序名称' },
+    componentProps: { placeholder: '请输入主项目名称' },
+  },
+  {
+    label: '分期名称',
+    field: 'periodName',
+    component: 'Input',
+    componentProps: { placeholder: '请输入分期名称' },
+  },
+  {
+    label: '客户名称',
+    field: 'customerName',
+    component: 'Input',
+    componentProps: { placeholder: '请输入客户名称' },
+  },
+  {
+    label: '项目类型',
+    field: 'projectType',
+    component: 'ApiSelect',
+    componentProps: { api: loadProjectTypeOptions, placeholder: '请选择项目类型' },
   },
   {
     label: '状态',
     field: 'status',
     component: 'ApiSelect',
-    componentProps: { api: loadWorkStatusOptions, placeholder: '请选择状态' },
+    componentProps: { api: loadProjectStatusOptions, placeholder: '请选择状态' },
   },
 ];

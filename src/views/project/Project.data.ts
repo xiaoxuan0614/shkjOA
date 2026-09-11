@@ -21,13 +21,13 @@ export function isProjectAttachmentFile(file: File) {
  * 项目管理 - 下拉选项统一走数据字典(sys_dict)
  * ⚠️ 原则: 所有「类型/状态/属性」下拉不再硬编码, 一律由字典配置驱动
  *   project_type / project_business_attr / project_products / project_period_status / contract_type
- * 字段以 apifox 项目模块接口为准（/project/project、/project/period、/project/acceptance、/project/internalAcceptance）
+ * 字段以 apifox 项目模块接口为准（/project/project、/project/period、/project/acceptance）
  */
 
 /**
  * 项目分期状态(字段为后端 period.status 值)
- * 生命周期: 未开始 → 开始实施(实施中) → 调试完成 → 实施完成
- * → 验收阶段(内部验收 + 客户验收 并行, 顺序随意) → 进入质保(质保中) → 项目完结
+ * 生命周期: 未开始 → 合同/计划审批 → 实施中 → 全部工序完成后由后端推进待验收
+ * → 验收阶段(内部验收 + 外部验收并行) → 两项通过后自动进入质保 → 项目完结；失败可返工复验
  * 关闭为例外终态
  * ✅ 状态字典编码已确认: project_period_status(后端 sys_dict)
  *    状态码/文案以后端字典为准; 下方 map 仅为展示兜底(字典加载失败/未知状态时使用)
@@ -35,12 +35,16 @@ export function isProjectAttachmentFile(file: File) {
 export const projectStatusMap: Recordable = {
   NOT_STARTED: '未开始',
   PREPARING: '筹备中',
-  PENDING_APPROVAL: '待立项',
+  PENDING_APPROVAL: '待审批',
   IMPLEMENTING: '实施中',
+  DEBUGGING: '调试中',
+  // 兼容历史数据；新接口已改用 DEBUGGING。
   DEBUG_COMPLETED: '调试完成',
   IMPLEMENT_COMPLETED: '实施完成',
+  PENDING_ACCEPT: '待验收',
   INTERNAL_ACCEPTING: '内部验收中',
-  ACCEPTING: '客户验收中',
+  ACCEPTING: '验收中',
+  REWORKING: '返工中',
   WARRANTY: '质保中',
   COMPLETED: '完结',
   CLOSED: '关闭',
@@ -90,6 +94,18 @@ export const loadDictOptions = async (
   return fallback;
 };
 
+/** 工序状态字典；接口只接受英文状态码，中文仅用于展示。 */
+export const projectProcessStatusOptions = [
+  { label: '未开始', value: 'NOT_STARTED', color: 'default' },
+  { label: '进行中', value: 'IN_PROGRESS', color: 'processing' },
+  { label: '已完成', value: 'COMPLETED', color: 'success' },
+];
+
+export const loadProjectProcessStatusOptions = () => loadDictOptions('project_process_status', projectProcessStatusOptions);
+
+// 工序名称(字典 work_type，接口 processName 保存字典值)
+export const loadProjectWorkTypeOptions = () => loadDictOptions('work_type');
+
 // 项目状态(字典 project_period_status)
 export const loadProjectStatusOptions = () => loadDictOptions('project_period_status');
 
@@ -116,12 +132,13 @@ export const loadBusinessAttrOptions = () => loadDictOptions('project_business_a
 export const loadProductOptions = () => loadDictOptions('project_products');
 
 /**
- * 项目状态流转配置(前端驱动, 统一传 periodId + status → /project/period/status)
+ * 项目状态流转配置：普通 action 传 periodId + status → /project/period/status，
+ * 验收提交和返工执行由各自专用接口处理。
  * - 普通 action: { label, status, auth } → 调状态流转接口
  * - act='contractSign': 跳转「合同信息」页面(合同提交后待审批，审批通过后项目→筹备中)
  * - act='planAudit': 打开「计划审批」(通过→实施中, 驳回→筹备中)
- * 生命周期: 未开始 →(合同提交/审批)→ 筹备中 →(计划提交审批)→ 待立项 →(计划审批通过)→ 实施中
- *   → 调试/实施完成 → 验收(内/外并行) → 质保 → 完结; 关闭为例外终态
+ * 生命周期: 未开始 →(合同提交/审批)→ 筹备中 →(计划提交审批)→ 待审批 →(计划审批通过)→ 实施中
+ *   → 逐道工序完成 → 待验收 → 验收(内/外并行) → 质保 → 完结；失败验收可进入返工后复验
  * ⚠️ status 为前端约定, 后端提供 status 接口后需对齐状态码
  */
 export const statusFlow: Recordable = {
@@ -136,32 +153,23 @@ export const statusFlow: Recordable = {
     actions: [{ label: '计划审批', act: 'planAudit', auth: 'project:plan:audit' }],
   },
   IMPLEMENTING: {
-    actions: [
-      { label: '调试完成', status: 'DEBUG_COMPLETED', auth: 'project:implement' },
-      { label: '完成实施', status: 'IMPLEMENT_COMPLETED', auth: 'project:implement' },
-    ],
+    actions: [{ label: '实施完成', act: 'processComplete', auth: 'project:implement' }],
   },
+  DEBUGGING: {
+    actions: [{ label: '实施完成', act: 'processComplete', auth: 'project:implement' }],
+  },
+  // 兼容历史数据；新接口不再生成 DEBUG_COMPLETED。
   DEBUG_COMPLETED: {
-    actions: [{ label: '完成实施', status: 'IMPLEMENT_COMPLETED', auth: 'project:implement' }],
+    actions: [{ label: '实施完成', act: 'processComplete', auth: 'project:implement' }],
   },
-  // 验收阶段: 内部验收 + 客户验收 并行, 谁先谁后无所谓
-  IMPLEMENT_COMPLETED: {
-    actions: [
-      { label: '进入内部验收', status: 'INTERNAL_ACCEPTING', auth: 'project:internalAccept' },
-      { label: '进入客户验收', status: 'ACCEPTING', auth: 'project:accept' },
-    ],
-  },
-  INTERNAL_ACCEPTING: {
-    actions: [
-      { label: '内部验收完成', status: 'IMPLEMENT_COMPLETED', auth: 'project:internalAccept' },
-      { label: '进入客户验收', status: 'ACCEPTING', auth: 'project:accept' },
-    ],
-  },
-  ACCEPTING: {
-    actions: [
-      { label: '客户验收完成', status: 'IMPLEMENT_COMPLETED', auth: 'project:accept' },
-      { label: '进入内部验收', status: 'INTERNAL_ACCEPTING', auth: 'project:internalAccept' },
-    ],
+  // 当前轮全部工序完成进入待验收；开始验收入口在列表统一处理。
+  IMPLEMENT_COMPLETED: { actions: [] },
+  PENDING_ACCEPT: { actions: [] },
+  INTERNAL_ACCEPTING: { actions: [] },
+  ACCEPTING: { actions: [] },
+  // 返工审批通过后复用实施工序完成抽屉；最后一道完成后由后端推进验收。
+  REWORKING: {
+    actions: [{ label: '返工进度', act: 'processComplete', auth: 'project:implement' }],
   },
   WARRANTY: { actions: [{ label: '项目完结', status: 'COMPLETED', auth: 'project:warranty' }] },
   COMPLETED: null,
@@ -174,10 +182,13 @@ export const statusColorMap: Recordable = {
   PREPARING: 'gold',
   PENDING_APPROVAL: 'processing',
   IMPLEMENTING: 'blue',
+  DEBUGGING: 'cyan',
   DEBUG_COMPLETED: 'cyan',
   IMPLEMENT_COMPLETED: 'blue',
+  PENDING_ACCEPT: 'gold',
   INTERNAL_ACCEPTING: 'geekblue',
   ACCEPTING: 'orange',
+  REWORKING: 'volcano',
   WARRANTY: 'purple',
   COMPLETED: 'success',
   CLOSED: 'error',
@@ -187,11 +198,6 @@ export const statusColorMap: Recordable = {
  * 列表列(项目管理新增页面-分页列表 projectPeriodList)
  */
 export const columns: BasicColumn[] = [
-  {
-    title: '项目编号',
-    align: 'center',
-    dataIndex: 'projectNo',
-  },
   {
     title: '主项目名称',
     align: 'center',
@@ -233,6 +239,12 @@ export const columns: BasicColumn[] = [
     customRender: ({ text }) => text || '—',
   },
   {
+    title: '到货状态',
+    align: 'center',
+    dataIndex: 'arrivalStatus',
+    width: 100,
+  },
+  {
     title: '合同状态',
     align: 'center',
     dataIndex: 'contractStatus',
@@ -266,8 +278,7 @@ export const searchFormSchema: FormSchema[] = [
     label: '项目类型',
     field: 'projectType',
     component: 'ApiSelect',
-    componentProps: { api: loadProjectTypeOptions, placeholder: '请选择项目类型' },
-    dynamicRules: () => [{ required: true, message: '请选择项目类型!' }],
+    componentProps: { api: loadProjectTypeOptions, placeholder: '请选择项目类型', allowClear: true },
   },
   {
     label: '状态',
@@ -407,7 +418,7 @@ export const projectFormSchema: FormSchema[] = [
     colProps: { span: 24 },
     componentProps: {
       placeholder: '请选择项目地址',
-      inline: true,
+      inline: false,
       mapHeight: '280px',
       // 回显经纬度在 ProjectApply.loadDetail 里通过 updateSchema 注入
       lng: null,

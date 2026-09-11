@@ -46,7 +46,9 @@ const project: AppRouteModule = {
       name: 'ProjectApply',
       component: () => import('/@/views/project/apply/ProjectApply.vue'),
       meta: {
+        hideMenu: true,
         title: '新增项目',
+        currentActiveMenu: '/project/list',
       },
     },
     {
@@ -54,7 +56,9 @@ const project: AppRouteModule = {
       name: 'ProjectPlan',
       component: () => import('/@/views/project/plan/ProjectPlan.vue'),
       meta: {
+        hideMenu: true,
         title: '编辑计划方案',
+        currentActiveMenu: '/project/list',
       },
     },
   ],

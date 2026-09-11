@@ -4,8 +4,12 @@ import { defHttp } from '/@/utils/http/axios';
  * 实施管理 - 对接后端 /project/*(项目域)
  */
 enum Api {
-  // 项目工序列表
-  list = '/project/process/list',
+  // 项目分期列表（实施管理首页按项目分期展示）
+  projectList = '/project/project/projectPeriodList',
+  // 项目分期详情
+  projectDetail = '/project/project/projectPeriodDetail',
+  // 整份实施计划及全部工序
+  processDetail = '/project/process/detail',
   // 实施记录列表
   logList = '/project/implementLog/list',
   // 实施记录详情
@@ -13,14 +17,20 @@ enum Api {
 }
 
 /**
- * 实施管理 - 工序分页列表
- * @param params { periodId?, pageNo, pageSize }
+ * 实施管理 - 项目分期分页列表
+ * @param params { projectName?, periodName?, customerName?, projectType?, status?, pageNo, pageSize }
  */
-export const implementList = (params) => defHttp.get({ url: Api.list, params });
+export const implementProjectList = (params) => defHttp.get({ url: Api.projectList, params });
+
+/** 项目分期基本信息。 */
+export const implementProjectDetail = (params: { periodId: string }) => defHttp.get({ url: Api.projectDetail, params });
+
+/** 当前项目分期的整份实施计划及全部有效工序。 */
+export const implementProcessDetail = (params: { periodId: string }) => defHttp.get({ url: Api.processDetail, params });
 
 /**
- * 某分期的实施记录分页列表
- * @param params { periodId, pageNo, pageSize }
+ * 实施记录分页列表；当前页面按 processId 加载对应工序日志。
+ * @param params { processId, pageNo, pageSize }
  */
 export const logList = (params) => defHttp.get({ url: Api.logList, params });
 

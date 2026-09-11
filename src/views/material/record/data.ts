@@ -1,4 +1,17 @@
 import { BasicColumn, FormSchema } from '/@/components/Table';
+import {
+  APPROVAL_APPROVED,
+  APPROVAL_PENDING,
+  APPROVAL_PENDING_SUBMIT,
+  APPROVAL_REJECTED,
+  APPROVAL_WITHDRAWN,
+  getApprovalStatusMeta,
+} from '/@/utils/approvalStatus';
+
+const approvalStatusOptions = [APPROVAL_PENDING_SUBMIT, APPROVAL_REJECTED, APPROVAL_APPROVED, APPROVAL_PENDING, APPROVAL_WITHDRAWN].map((value) => ({
+  label: getApprovalStatusMeta(value).text,
+  value,
+}));
 
 /**
  * 出入库记录 - 列定义 / 搜索
@@ -25,8 +38,8 @@ export const searchFormSchema: FormSchema[] = [
   {
     label: '审批状态',
     field: 'status',
-    component: 'JDictSelectTag',
-    componentProps: { dictCode: 'stock_apply_status', placeholder: '请选择审批状态' },
+    component: 'Select',
+    componentProps: { options: approvalStatusOptions, placeholder: '请选择审批状态' },
   },
   {
     label: '关联单号',
@@ -44,7 +57,7 @@ export const searchFormSchema: FormSchema[] = [
 
 /**
  * 出入库申请列表列(对齐后端 StockApply：bizType/executeStatus 已补)
- * status 英文码：PENDING 待审批 / PARTIAL_APPROVED 部分通过 / APPROVED 已通过 / REJECTED 已驳回 / WITHDRAWN 已撤回 / CANCELED 已取消
+ * status 统一数值码：-1 待提交 / 0 驳回 / 1 审核通过 / 2 待审批 / 3 已撤回
  */
 export const applyColumns: BasicColumn[] = [
   {
@@ -64,6 +77,12 @@ export const applyColumns: BasicColumn[] = [
     align: 'center',
     dataIndex: 'applyType',
     width: 90,
+  },
+  {
+    title: '领料类型',
+    align: 'center',
+    dataIndex: 'usageType',
+    width: 120,
   },
   {
     title: '申请人',
@@ -94,12 +113,6 @@ export const applyColumns: BasicColumn[] = [
     align: 'center',
     dataIndex: 'executeStatus',
     width: 105,
-  },
-  {
-    title: '关联单号',
-    align: 'center',
-    dataIndex: 'projectNo',
-    width: 130,
   },
   {
     title: '项目名称',

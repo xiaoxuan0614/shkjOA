@@ -22,9 +22,9 @@
           <a-descriptions-item label="合同名称">{{ info.contractName || '—' }}</a-descriptions-item>
           <a-descriptions-item label="合同签订日期">{{ info.contractSignedDate || '—' }}</a-descriptions-item>
           <a-descriptions-item label="计划交付日期">{{ info.plannedDeliveryDate || '—' }}</a-descriptions-item>
-          <a-descriptions-item label="合同金额">{{ info.contractAmount != null ? `${info.contractAmount} 元` : '—' }}</a-descriptions-item>
+          <a-descriptions-item label="项目金额">{{ info.contractAmount != null ? `${info.contractAmount} 元` : '—' }}</a-descriptions-item>
           <a-descriptions-item label="质保期">{{ info.warrantyPeriod != null ? `${info.warrantyPeriod} 月` : '—' }}</a-descriptions-item>
-          <a-descriptions-item label="销售负责人">{{ info.salesUserName || '—' }}</a-descriptions-item>
+          <a-descriptions-item label="销售负责人">{{ salesUserName }}</a-descriptions-item>
           <a-descriptions-item label="项目经理">{{ projectManagerName }}</a-descriptions-item>
           <a-descriptions-item v-if="isApprovalRejected(info.status)" label="驳回原因" :span="2">
             <span class="contract-page__reject-reason">{{ info.approvalReason || '未填写驳回原因' }}</span>
@@ -40,7 +40,7 @@
             </a-button>
             <span v-else>—</span>
           </a-descriptions-item>
-          <a-descriptions-item label="合同物料清单文件" :span="2">
+          <a-descriptions-item label="合同货物清单" :span="2">
             <a-button
               v-if="materialListFileId"
               size="small"
@@ -49,6 +49,10 @@
             >
               预览：{{ materialFileName }}
             </a-button>
+            <span v-else>—</span>
+          </a-descriptions-item>
+          <a-descriptions-item label="关联报价单" :span="2">
+            <a-button v-if="materialCandidateId" @click="openQuotation(false)">{{ selectedCandidate?.candidateName || '查看报价详情' }}</a-button>
             <span v-else>—</span>
           </a-descriptions-item>
           <a-descriptions-item label="备注" :span="2">{{ info.remark || '—' }}</a-descriptions-item>
@@ -98,6 +102,24 @@
           :description="info.approvalReason || '未填写驳回原因'"
         />
         <BasicForm @register="registerForm" name="ContractForm" :colon="false">
+          <template #quotation>
+            <a-space wrap>
+              <a-select
+                v-model:value="materialCandidateId"
+                :options="contractCandidateOptions"
+                :loading="candidatesLoading"
+                :disabled="submitting || hasAdoptedCandidate"
+                show-search
+                option-filter-prop="label"
+                placeholder="请选择已通过的报价单"
+                style="min-width: 240px"
+              />
+              <a-button :disabled="!canAdjustQuotation || submitting" @click="openQuotation(true)">修改调整</a-button>
+              <a-popconfirm v-if="canReleaseQuotation" title="解除采用后可调整同一张报价单，确认解锁？" @confirm="releaseQuotation">
+                <a-button :loading="quotationSaving">解锁报价</a-button>
+              </a-popconfirm>
+            </a-space>
+          </template>
           <template #contractAttachment>
             <a-upload
               class="contract-page__attachment-upload"
@@ -109,7 +131,8 @@
               @preview="(file) => previewFileInModal(file, contractFileName || file.name)"
               @remove="() => handleRemoveUpload('contract')"
             >
-              <a-button v-if="!contractUploadFileList.length" :loading="submitting" preIcon="ant-design:cloud-upload-outlined">
+              <a-button v-if="!contractUploadFileList.length" :loading="submitting">
+                <Icon icon="ant-design:cloud-upload-outlined" />
                 选择合同附件
               </a-button>
             </a-upload>
@@ -125,18 +148,28 @@
               @preview="(file) => previewFileInModal(file, materialFileName || file.name)"
               @remove="() => handleRemoveUpload('material')"
             >
-              <a-button v-if="!materialUploadFileList.length" :loading="submitting" preIcon="ant-design:cloud-upload-outlined">
-                选择物料清单
+              <a-button v-if="!materialUploadFileList.length" :loading="submitting">
+                <Icon icon="ant-design:cloud-upload-outlined" />
+                选择合同货物清单
               </a-button>
             </a-upload>
           </template>
         </BasicForm>
 
-        <!-- 回款计划(节点 + 比例, 金额 = 合同金额 × 比例) -->
+        <!-- 回款计划(节点 + 比例, 金额 = 项目金额 × 比例) -->
         <div class="contract-page__payback">
           <div class="contract-page__payback-title">
             <span>回款计划</span>
-            <a-button type="primary" size="small" preIcon="ant-design:plus-outlined" @click="addPaybackRow">添加款项</a-button>
+            <a-button
+              type="primary"
+              size="small"
+              preIcon="ant-design:plus-outlined"
+              :disabled="!canAddPayback"
+              :title="canAddPayback ? '添加款项' : '所有可用回款项均已添加'"
+              @click="addPaybackRow"
+            >
+              添加款项
+            </a-button>
           </div>
           <a-table
             :columns="paybackColumns"
@@ -151,38 +184,67 @@
               <template v-if="column.key === 'rollbackTime'">
                 <span class="contract-page__payback-cycle-title">
                   回款周期
+                  <span v-if="column.required" class="contract-page__required" aria-hidden="true">*</span>
                   <a-tooltip title="阶段任务完成后回款的周期">
                     <Icon icon="ant-design:question-circle-outlined" size="14" />
                   </a-tooltip>
+                </span>
+              </template>
+              <template v-else>
+                <span>
+                  {{ column.title }}
+                  <span v-if="column.required" class="contract-page__required" aria-hidden="true">*</span>
                 </span>
               </template>
             </template>
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'index'">{{ record._key }}</template>
               <template v-else-if="column.key === 'node'">
-                <a-select v-model:value="record.node" placeholder="请选择节点" style="width: 100%" :options="paybackNodeOptions" />
+                <UniqueRowSelect
+                  v-model="record.node"
+                  :rows="paybackRows"
+                  :row="record"
+                  :options="paybackNodeOptions"
+                  field="node"
+                  placeholder="请选择回款项"
+                  :error="getPaybackError(record, 'node')"
+                  @change="() => clearPaybackError(record, 'node')"
+                />
               </template>
               <template v-else-if="column.key === 'ratio'">
-                <a-input-number
-                  v-model:value="record.ratio"
-                  :min="0"
-                  :max="100"
-                  :precision="2"
-                  addon-after="%"
-                  style="width: 100%"
-                  placeholder="比例%"
-                  @change="calcPaybackAmount(record)"
-                />
+                <div class="contract-page__cell-field">
+                  <a-input-number
+                    v-model:value="record.ratio"
+                    :min="0"
+                    :max="100"
+                    :precision="2"
+                    addon-after="%"
+                    style="width: 100%"
+                    placeholder="请输入比例"
+                    :status="getPaybackError(record, 'ratio') ? 'error' : undefined"
+                    @change="() => handlePaybackRatioChange(record)"
+                  />
+                  <div v-if="getPaybackError(record, 'ratio')" class="contract-page__cell-error" role="alert">
+                    {{ getPaybackError(record, 'ratio') }}
+                  </div>
+                </div>
               </template>
               <template v-else-if="column.key === 'rollbackTime'">
-                <a-input-number
-                  v-model:value="record.rollbackTime"
-                  :min="0"
-                  :precision="0"
-                  addon-after="天"
-                  style="width: 100%"
-                  placeholder="回款周期"
-                />
+                <div class="contract-page__cell-field">
+                  <a-input-number
+                    v-model:value="record.rollbackTime"
+                    :min="0"
+                    :precision="0"
+                    addon-after="天"
+                    style="width: 100%"
+                    placeholder="请输入周期"
+                    :status="getPaybackError(record, 'rollbackTime') ? 'error' : undefined"
+                    @change="() => clearPaybackError(record, 'rollbackTime')"
+                  />
+                  <div v-if="getPaybackError(record, 'rollbackTime')" class="contract-page__cell-error" role="alert">
+                    {{ getPaybackError(record, 'rollbackTime') }}
+                  </div>
+                </div>
               </template>
               <template v-else-if="column.key === 'amount'">
                 <b>{{ record.amount != null ? record.amount.toFixed(2) : '—' }} 元</b>
@@ -254,6 +316,28 @@
       </template>
     </div>
   </div>
+  <a-modal
+    v-model:open="quotationOpen"
+    :title="quotationEditing ? '关联报价单修改调整' : '关联报价单详情'"
+    :width="1100"
+    :mask-closable="false"
+    :closable="!quotationSaving"
+    :keyboard="!quotationSaving"
+    :confirm-loading="quotationSaving"
+    :ok-text="quotationEditing ? '保存调整' : '关闭'"
+    :cancel-button-props="{ disabled: quotationSaving }"
+    @ok="saveQuotation"
+  >
+    <MaterialPlanTable
+      v-if="quotationOpen"
+      :key="materialCandidateId"
+      ref="quotationTable"
+      :candidate-id="materialCandidateId"
+      mode="quotation"
+      paginated
+      :editable="quotationEditing && !quotationSaving"
+    />
+  </a-modal>
 </template>
 
 <script lang="ts" setup>
@@ -262,6 +346,7 @@
   import Big from 'big.js';
   import { useRoute, useRouter } from 'vue-router';
   import { BasicForm, useForm } from '/@/components/Form/index';
+  import { UniqueRowSelect, useUniqueRowOptions, validateEditableRows } from '/@/components/EditableTable';
   import { Icon } from '/@/components/Icon';
   import { useMessage } from '/@/hooks/web/useMessage';
   import { usePermission } from '/@/hooks/web/usePermission';
@@ -278,7 +363,15 @@
   import { changePeriodStatus, projectDetail } from '../Project.api';
   import { loadDictOptions } from '../Project.data';
   import PlanProjectInfo from '../plan/PlanProjectInfo.vue';
-  import { loadUserOptions } from '/@/views/resource/userOptions';
+  import MaterialPlanTable from '/@/views/plan/components/MaterialPlanTable.vue';
+  import {
+    getAllMaterialCandidates,
+    editMaterialCandidateItems,
+    updateMaterialCandidateStatus,
+    QUOTATION_STATUS_APPROVED,
+    QUOTATION_STATUS_ADOPTED,
+  } from '/@/views/plan/Plan.api';
+  import { loadUserOptions, type UserOption } from '/@/views/resource/userOptions';
   import {
     getApprovalStatusMeta,
     isApprovalPending,
@@ -317,25 +410,111 @@
   const contractFileName = ref('');
   const materialListFileId = ref('');
   const materialFileName = ref('');
+  const materialCandidateId = ref<string>();
+  const contractCandidates = ref<Recordable[]>([]);
+  const candidatesLoading = ref(false);
+  const candidatesFailed = ref(false);
+  const quotationOpen = ref(false);
+  const quotationEditing = ref(false);
+  const quotationSaving = ref(false);
+  const quotationTable = ref();
+  const canReleaseQuotation = computed(
+    () =>
+      canEditContract.value &&
+      (isApprovalRejected(info.value.status) || isApprovalWithdrawn(info.value.status)) &&
+      String(selectedCandidate.value?.status) === QUOTATION_STATUS_ADOPTED
+  );
+  async function releaseQuotation() {
+    if (!canReleaseQuotation.value || quotationSaving.value) return;
+    quotationSaving.value = true;
+    try {
+      await loadContractCandidates();
+      if (candidatesFailed.value || !canReleaseQuotation.value) throw new Error('报价状态已变化，请刷新');
+      await updateMaterialCandidateStatus(selectedCandidate.value!, QUOTATION_STATUS_APPROVED, false);
+      await loadContractCandidates();
+      createMessage.success('报价已解锁，可在合同中修改调整');
+    } catch (error: any) {
+      createMessage.error(error?.message || '解锁失败');
+    } finally {
+      quotationSaving.value = false;
+    }
+  }
+  const selectedCandidate = computed(() => contractCandidates.value.find((item) => String(item.id) === materialCandidateId.value));
+  const hasAdoptedCandidate = computed(() => contractCandidates.value.some((item) => String(item.status) === QUOTATION_STATUS_ADOPTED));
+  const contractCandidateOptions = computed(() =>
+    contractCandidates.value
+      .filter((item) => [QUOTATION_STATUS_APPROVED, QUOTATION_STATUS_ADOPTED].includes(String(item.status)))
+      .map((item) => ({ value: String(item.id), label: item.candidateName }))
+  );
+  const canAdjustQuotation = computed(
+    () => !!selectedCandidate.value && String(selectedCandidate.value.status) === QUOTATION_STATUS_APPROVED && (!readonly.value || editing.value)
+  );
+
+  async function loadContractCandidates() {
+    candidatesLoading.value = true;
+    candidatesFailed.value = false;
+    try {
+      contractCandidates.value = await getAllMaterialCandidates(periodId.value);
+      const adopted = contractCandidates.value.filter((item) => String(item.status) === QUOTATION_STATUS_ADOPTED);
+      if (adopted.length > 1) throw new Error('当前分期存在多张已采用报价，请联系管理员核对');
+      if (adopted.length) materialCandidateId.value = String(adopted[0].id);
+    } catch (error: any) {
+      candidatesFailed.value = true;
+      createMessage.error(error?.message || '关联报价加载失败');
+    } finally {
+      candidatesLoading.value = false;
+    }
+  }
+
+  async function openQuotation(edit: boolean) {
+    await loadContractCandidates();
+    if (candidatesFailed.value || !selectedCandidate.value) return;
+    if (edit && !canAdjustQuotation.value) return createMessage.warning('当前报价不可修改');
+    quotationEditing.value = edit;
+    quotationOpen.value = true;
+  }
+
+  async function saveQuotation() {
+    if (!quotationEditing.value) {
+      quotationOpen.value = false;
+      return;
+    }
+    if (quotationSaving.value) return;
+    quotationSaving.value = true;
+    try {
+      const records = quotationTable.value?.getData();
+      if (!records?.length) throw new Error('报价至少需要一条物料');
+      await loadContractCandidates();
+      if (candidatesFailed.value || !canAdjustQuotation.value) throw new Error('报价状态已变化，请重新打开');
+      await editMaterialCandidateItems({ candidateId: materialCandidateId.value, records }, false);
+      quotationOpen.value = false;
+      createMessage.success('报价调整已保存，请继续提交合同');
+    } catch (error: any) {
+      createMessage.error(error?.message || '报价调整保存失败');
+    } finally {
+      quotationSaving.value = false;
+    }
+  }
   const contractUploadFileList = ref<any[]>([]);
   const materialUploadFileList = ref<any[]>([]);
   const pendingContractFile = ref<File>();
   const pendingMaterialFile = ref<File>();
   const contractReplacementRequired = ref(false);
   const materialReplacementRequired = ref(false);
-  const userOptions = ref<{ label: string; value: string }[]>([]);
+  const userOptions = ref<UserOption[]>([]);
   const userOptionsLoading = ref(false);
   const approvalResult = ref<'approve' | 'reject'>();
   const projectManagerUserId = ref<string>();
   const approvalReason = ref('');
 
-  // 回款计划(节点 + 比例, 金额 = 合同金额 × 比例)
+  // 回款计划(节点 + 比例, 金额 = 项目金额 × 比例)
   const paybackColumns = computed(() => {
+    const required = !readonly.value || editing.value;
     const columns: any[] = [
       { title: '序号', key: 'index', width: 60 },
-      { title: '回款项', key: 'node', width: 180 },
-      { title: '比例(%)', key: 'ratio', width: 150 },
-      { title: '回款周期', key: 'rollbackTime', width: 150 },
+      { title: '回款项', key: 'node', width: 180, required },
+      { title: '比例(%)', key: 'ratio', width: 150, required },
+      { title: '回款周期', key: 'rollbackTime', width: 150, required },
       { title: '回款金额(自动)', key: 'amount', width: 170 },
     ];
     if (!readonly.value || editing.value) columns.push({ title: '操作', key: 'action', width: 80, align: 'center' });
@@ -345,6 +524,20 @@
   let paybackSeed = 0;
   const contractTypeOptions = ref<{ label: string; value: string }[]>([]);
   const paybackNodeOptions = ref<{ label: string; value: string }[]>([]);
+  const { canAdd: canAddPayback } = useUniqueRowOptions(paybackRows, paybackNodeOptions, { field: 'node' });
+  const paybackErrors = ref<Record<string, string>>({});
+
+  function getPaybackError(record: Recordable, field: string) {
+    return paybackErrors.value[`${record._key}:${field}`] || '';
+  }
+
+  function clearPaybackError(record: Recordable, field: string) {
+    const key = `${record._key}:${field}`;
+    if (!paybackErrors.value[key]) return;
+    const next = { ...paybackErrors.value };
+    delete next[key];
+    paybackErrors.value = next;
+  }
 
   function getOptionLabel(options: { label: string; value: string }[], value: unknown) {
     if (value == null || value === '') return '—';
@@ -352,6 +545,49 @@
   }
 
   const contractTypeText = computed(() => getOptionLabel(contractTypeOptions.value, info.value.contractType));
+  const salesUserName = computed(() => {
+    const salesUser = info.value.salesUser || info.value.saleUser || {};
+    const isValidName = (value: unknown) => {
+      const text = String(value || '').trim();
+      return !!text && text !== '-' && text !== '—';
+    };
+    const snapshot = [
+      info.value.salesUserName,
+      info.value.saleUserName,
+      info.value.salesUserRealName,
+      info.value.salesName,
+      projectRecord.value.salesUserName,
+      projectRecord.value.saleUserName,
+      projectRecord.value.salesName,
+      salesUser.realname,
+      salesUser.realName,
+      salesUser.name,
+      salesUser.username,
+    ].find(isValidName);
+    if (snapshot) return String(snapshot).trim();
+
+    const salesUserId =
+      info.value.salesUserId ??
+      info.value.saleUserId ??
+      projectRecord.value.salesUserId ??
+      projectRecord.value.saleUserId ??
+      salesUser.id ??
+      salesUser.userId;
+    if (salesUserId != null && salesUserId !== '') {
+      const matched = userOptions.value.find(
+        (item) => String(item.value) === String(salesUserId) || String(item.username || '') === String(salesUserId)
+      );
+      if (matched?.label) return matched.label;
+    }
+
+    const creator = info.value.createBy ?? info.value.createUser ?? info.value.creator;
+    if (isValidName(creator)) {
+      const matched = userOptions.value.find((item) => String(item.username || '') === String(creator) || String(item.value) === String(creator));
+      if (matched?.label) return matched.label;
+      return String(creator).trim();
+    }
+    return '—';
+  });
   const projectManagerName = computed(() => {
     const snapshot = String(info.value.projectManagerUserName || '').trim();
     if (snapshot && snapshot !== '—') return snapshot;
@@ -362,12 +598,17 @@
   });
 
   function addPaybackRow() {
-    paybackRows.value.push({ _key: ++paybackSeed, node: undefined, ratio: 0, rollbackTime: 7, amount: 0 });
+    if (!canAddPayback.value) {
+      createMessage.info('所有可用回款项均已添加');
+      return;
+    }
+    paybackRows.value.push({ _key: ++paybackSeed, node: undefined, ratio: undefined, rollbackTime: 7, amount: 0 });
   }
   function removePaybackRow(key: number) {
     paybackRows.value = paybackRows.value.filter((r) => r._key !== key);
+    paybackErrors.value = Object.fromEntries(Object.entries(paybackErrors.value).filter(([errorKey]) => !errorKey.startsWith(`${key}:`)));
   }
-  /** 金额 = 合同金额 × 比例%，统一保留两位小数 */
+  /** 金额 = 项目金额 × 比例%，统一保留两位小数 */
   function calculatePaybackAmount(contractAmount: unknown, ratio: unknown) {
     const amount = Number(contractAmount) || 0;
     const percent = Number(ratio) || 0;
@@ -377,6 +618,11 @@
 
   function calcPaybackAmount(record: any, contractAmount = getFieldsValue().contractAmount) {
     record.amount = calculatePaybackAmount(contractAmount, record.ratio);
+  }
+
+  function handlePaybackRatioChange(record: Recordable) {
+    clearPaybackError(record, 'ratio');
+    calcPaybackAmount(record);
   }
 
   function recalculateAllPaybackAmounts(contractAmount = getFieldsValue().contractAmount) {
@@ -396,10 +642,10 @@
   const isContractRevisable = computed(
     () => isApprovalRejected(info.value.status) || isApprovalWithdrawn(info.value.status) || isApprovalPendingSubmit(info.value.status)
   );
-  // 合同提交人可撤回待审核合同，并修改待提交、驳回或已撤回合同；审批人仅处理待审核合同。
+  // 合同提交人可撤回待审批合同，并修改待提交、驳回或已撤回合同；审批人仅处理待审批合同。
   const canEditContract = computed(() => isCurrentContractSubmitter.value && isContractRevisable.value);
   const canWithdrawContract = computed(() => isCurrentContractSubmitter.value && isApprovalPending(info.value.status));
-  const canAuditContract = computed(() => isApprovalPending(info.value.status) && hasPermission('project:contract:audit'));
+  const canAuditContract = computed(() => isApprovalPending(info.value.status) && hasPermission('project:contract:approve'));
   const showAuditPanel = computed(() => readonly.value && !editing.value && canAuditContract.value && !contractLoadFailed.value);
   const isContractFormRendered = computed(() => !readonly.value || editing.value);
 
@@ -431,6 +677,7 @@
         component: 'DatePicker',
         helpMessage: '和客户约定的交付时间',
         componentProps: { valueFormat: 'YYYY-MM-DD', placeholder: '请选择计划交付日期', style: { width: '100%' } },
+        dynamicRules: () => [{ required: true, message: '请选择计划交付日期!' }],
       },
       {
         label: '合同编号',
@@ -439,23 +686,25 @@
         componentProps: { placeholder: '请输入合同编号（合同上的编号）' },
       },
       {
-        label: '合同金额',
+        label: '项目金额',
         field: 'contractAmount',
         component: 'InputNumber',
         componentProps: {
           min: 0,
           precision: 2,
-          placeholder: '请输入合同金额',
+          placeholder: '请输入项目金额',
           addonAfter: '元',
           style: { width: '100%' },
           onChange: (value: number | null) => recalculateAllPaybackAmounts(value),
         },
+        dynamicRules: () => [{ required: true, message: '请输入项目金额!' }],
       },
       {
         label: '质保期',
         field: 'warrantyPeriod',
         component: 'InputNumber',
-        componentProps: { min: 0, placeholder: '请输入质保期', addonAfter: '月', style: { width: '100%' } },
+        componentProps: { min: 0, precision: 0, placeholder: '请输入质保期', addonAfter: '月', style: { width: '100%' } },
+        dynamicRules: () => [{ required: true, message: '请输入质保期!' }],
       },
       {
         label: '销售负责人',
@@ -480,11 +729,12 @@
         slot: 'contractAttachment',
       },
       {
-        label: '合同物料清单文件',
+        label: '合同货物清单',
         field: 'materialAttachment',
         component: 'Input',
         slot: 'materialAttachment',
       },
+      { label: '关联报价单', field: 'quotation', component: 'Input', slot: 'quotation', colProps: { span: 24 } },
       {
         label: '备注',
         field: 'remark',
@@ -504,6 +754,7 @@
   });
 
   onMounted(async () => {
+    if (periodId.value) void loadContractCandidates();
     if (pageMode.value !== 'create' && !periodId.value) {
       createMessage.error('查看或编辑合同必须提供项目分期 ID');
       await router.replace('/project/list');
@@ -595,6 +846,7 @@
     contractId.value = '';
     info.value = {};
     paybackRows.value = [];
+    paybackErrors.value = {};
     await setFieldsValue({
       periodId: periodId.value,
       projectId: projectId.value,
@@ -657,6 +909,7 @@
 
   function setPaybackRows(records: any[]) {
     paybackSeed = 0;
+    paybackErrors.value = {};
     paybackRows.value = (records || []).map((record: any) => ({
       ...record,
       _key: ++paybackSeed,
@@ -779,6 +1032,10 @@
       createMessage.warning('当前合同不可审批或您没有审批权限');
       return;
     }
+    if (!info.value.plannedDeliveryDate) {
+      createMessage.warning('合同缺少计划交付日期，请先驳回并补充后重新提交');
+      return;
+    }
     if (!projectManagerUserId.value) {
       createMessage.warning('请选择项目经理');
       return;
@@ -791,6 +1048,7 @@
           periodId: periodId.value,
           projectManagerUserId: projectManagerUserId.value,
           projectManagerUserName: selected?.label || '',
+          ...buildSalesFields(info.value),
         },
         records: buildPaybackRecords(true, info.value.contractAmount),
       });
@@ -836,11 +1094,11 @@
     }
   }
 
-  /** 待审核合同仅允许原提交人撤回，撤回后留在当前页继续修改。 */
+  /** 待审批合同仅允许原提交人撤回，撤回后留在当前页继续修改。 */
   async function handleWithdraw() {
     if (actionSubmitting.value) return;
     if (!canWithdrawContract.value) {
-      createMessage.warning('仅合同提交人可以撤回待审核合同');
+      createMessage.warning('仅合同提交人可以撤回待审批合同');
       return;
     }
     actionSubmitting.value = true;
@@ -866,24 +1124,37 @@
       createMessage.warning('请至少添加一个回款项');
       return false;
     }
-    let totalRatio = new Big(0);
-    for (const row of paybackRows.value) {
-      if (!row.node) {
-        createMessage.warning('请选择每一条回款项');
-        return false;
-      }
-      const ratio = Number(row.ratio);
-      if (!Number.isFinite(ratio) || ratio <= 0 || ratio > 100) {
-        createMessage.warning(`回款项「${row.node}」的比例必须大于 0 且不超过 100%`);
-        return false;
-      }
-      const rollbackTime = Number(row.rollbackTime);
-      if (!Number.isInteger(rollbackTime) || rollbackTime < 0) {
-        createMessage.warning(`回款项「${row.node}」的回款周期必须是大于等于 0 的整数`);
-        return false;
-      }
-      totalRatio = totalRatio.plus(ratio);
+    const issues = validateEditableRows(paybackRows.value, {
+      selectorField: 'node',
+      selectorLabel: '回款项',
+      optionLabel: (value) => getOptionLabel(paybackNodeOptions.value, value),
+      rules: [
+        {
+          field: 'ratio',
+          label: '回款比例',
+          required: true,
+          validate: (value) => {
+            const ratio = Number(value);
+            return (Number.isFinite(ratio) && ratio > 0 && ratio <= 100) || '回款比例必须大于 0 且不超过 100%';
+          },
+        },
+        {
+          field: 'rollbackTime',
+          label: '回款周期',
+          required: true,
+          validate: (value) => {
+            const rollbackTime = Number(value);
+            return (Number.isInteger(rollbackTime) && rollbackTime >= 0) || '回款周期必须是大于等于 0 的整数';
+          },
+        },
+      ],
+    });
+    paybackErrors.value = Object.fromEntries(issues.map((issue) => [`${issue.row._key}:${issue.field}`, issue.message]));
+    if (issues.length) {
+      createMessage.warning(issues[0].message);
+      return false;
     }
+    const totalRatio = paybackRows.value.reduce((total, row) => total.plus(Number(row.ratio)), new Big(0));
     if (!totalRatio.eq(100)) {
       createMessage.warning(`当前回款比例合计为 ${totalRatio.toString()}%，必须等于 100%`);
       return false;
@@ -929,7 +1200,20 @@
     return value == null ? '' : String(value);
   }
 
-  /** 修改接口仅传 periodId 与实际发生变化的合同字段。 */
+  /** 姓名按所选负责人解析，不依赖隐藏字段的 change 回调是否触发。 */
+  function buildSalesFields(values: Recordable) {
+    const salesUserId = values.salesUserId;
+    const selected = userOptions.value.find((item) => String(item.value) === String(salesUserId));
+    const sameUser = String(salesUserId) === String(originalContract.value.salesUserId);
+    const name = selected?.label || values.salesUserName || (sameUser ? originalContract.value.salesUserName : '');
+    const salesUserName = String(name || '').trim();
+    if (!salesUserId || !salesUserName || ['-', '—'].includes(salesUserName)) {
+      throw new Error('销售负责人姓名缺失，请重新选择销售负责人');
+    }
+    return { salesUserId, salesUserName };
+  }
+
+  /** 销售负责人 ID/姓名始终成对传递，其余合同字段差量提交。 */
   function buildChangedContract(values: Recordable) {
     const changed: Recordable = { periodId: periodId.value };
     editableContractFields.forEach((field) => {
@@ -937,15 +1221,32 @@
         changed[field] = values[field];
       }
     });
-    return changed;
+    return { ...changed, ...buildSalesFields(values) };
   }
 
   /**
    * 新增/编辑均使用 multipart 组合接口；编辑合同字段差量提交，回款计划按接口约定全量同步。
    */
   async function handleSubmit() {
+    if (submitting.value) return;
+    submitting.value = true;
     try {
       const values = await validate();
+      delete values.quotation;
+      if (candidatesLoading.value || candidatesFailed.value) throw new Error('请等待报价加载完成；加载失败时请刷新重试');
+      if (!materialCandidateId.value) throw new Error('请选择关联报价单');
+      if (quotationOpen.value || quotationSaving.value) throw new Error('请先完成报价调整');
+      if (!pendingMaterialFile.value && !materialListFileId.value) throw new Error('请上传合同货物清单附件');
+      const requestedCandidateId = materialCandidateId.value;
+      await loadContractCandidates();
+      if (
+        candidatesFailed.value ||
+        requestedCandidateId !== materialCandidateId.value ||
+        !selectedCandidate.value ||
+        ![QUOTATION_STATUS_APPROVED, QUOTATION_STATUS_ADOPTED].includes(String(selectedCandidate.value.status))
+      ) {
+        throw new Error('报价状态已变化，请重新确认关联报价');
+      }
       if (contractReplacementRequired.value && !pendingContractFile.value) {
         createMessage.warning('已移除原合同附件，请先选择新文件后再提交');
         return;
@@ -962,14 +1263,16 @@
       if (wasNewContract) {
         const payload = {
           ...values,
+          ...buildSalesFields(values),
           periodId: periodId.value,
           projectId: projectId.value,
         };
         const result: any = await addContractWithPaymentRecords(
           {
+            materialCandidateId: materialCandidateId.value,
             contract: {
               ...payload,
-              // 合同审批约定：0 驳回、1 通过、2 待审核、3 已撤回、其他待提交。
+              // 通用数值审批约定：-1 待提交、0 驳回、1 审核通过、2 待审批、3 已撤回。
               status: '2',
               approvalReason: '',
             },
@@ -987,6 +1290,7 @@
       } else {
         const result: any = await editContractWithPaymentRecords(
           {
+            materialCandidateId: materialCandidateId.value,
             contract: buildChangedContract(values),
             ...(pendingContractFile.value ? { contractFile: { fileName: pendingContractFile.value.name } } : {}),
             ...(pendingMaterialFile.value ? { materialFile: { fileName: pendingMaterialFile.value.name } } : {}),
@@ -999,7 +1303,7 @@
       }
 
       info.value.status = '2';
-      createMessage.success(wasNewContract ? '合同已提交，等待审核' : '合同与回款计划已修改并重新提交审核');
+      createMessage.success(wasNewContract ? '合同已提交，等待审批' : '合同与回款计划已修改并重新提交审批');
       router.push('/project/list');
     } catch (error: any) {
       if (error?.errorFields) return Promise.reject(error.errorFields);
@@ -1124,6 +1428,17 @@
     &__required {
       margin-right: 4px;
       color: #cf1322;
+    }
+
+    &__cell-field {
+      width: 100%;
+    }
+
+    &__cell-error {
+      margin-top: 4px;
+      color: @error-color;
+      font-size: 12px;
+      line-height: 1.4;
     }
 
     &__footer {

@@ -1,10 +1,13 @@
 import { defHttp } from '/@/utils/http/axios';
 import { ContentTypeEnum } from '/@/enums/httpEnum';
 
-export const QUOTATION_STATUS_DRAFT = '0';
-export const QUOTATION_STATUS_SUBMITTED = '1';
-export const QUOTATION_STATUS_ADOPTED = '2';
-export const QUOTATION_STATUS_VOIDED = '3';
+export const QUOTATION_STATUS_DRAFT = '-1';
+export const QUOTATION_STATUS_REJECTED = '0';
+export const QUOTATION_STATUS_APPROVED = '1';
+export const QUOTATION_STATUS_SUBMITTED = '2';
+export const QUOTATION_STATUS_ADOPTED = '3';
+export const QUOTATION_STATUS_VOIDED = '4';
+export const isQuotationEditable = (status: unknown) => ['-1', '0'].includes(String(status));
 
 /**
  * 计划方案管理 - 对接后端 /project/*(项目域)
@@ -17,7 +20,6 @@ enum Api {
   // 用料计划
   materialList = '/project/materialPlan/list',
   materialEditBatch = '/project/materialPlan/editBatch',
-  materialDetail = '/stock/material/queryById',
   // 报价管理（项目用料候选清单主表/子表）
   candidateList = '/project/materialCandidate/list',
   candidateAdd = '/project/materialCandidate/add',
@@ -40,7 +42,7 @@ async function fetchAllPages(api: (params: Recordable) => Promise<any>, params: 
   const pageSize = 1000;
   const first: any = await api({ ...params, pageNo: 1, pageSize });
   const records = [...getPageRecords(first)];
-  const pages = Number(first?.pages || 1);
+  const pages = Number(first?.pages || Math.ceil(Number(first?.total || records.length) / Number(first?.size || records.length || pageSize)) || 1);
   if (pages > 1) {
     const rest = await Promise.all(Array.from({ length: pages - 1 }, (_, index) => api({ ...params, pageNo: index + 2, pageSize })));
     rest.forEach((page) => records.push(...getPageRecords(page)));
@@ -100,7 +102,7 @@ export async function quotationList(params: Recordable = {}) {
         contains(item.periodName, params.periodName) &&
         contains(item.periodId, params.periodId) &&
         contains(item.candidateName, params.candidateName) &&
-        (!params.status || String(item.status) === String(params.status))
+        (params.status === undefined || params.status === null || params.status === '' || String(item.status) === String(params.status))
     )
     .sort((a: any, b: any) => String(b.updateTime || b.createTime || '').localeCompare(String(a.updateTime || a.createTime || '')));
   const start = (pageNo - 1) * pageSize;
@@ -117,6 +119,8 @@ export async function quotationList(params: Recordable = {}) {
 export const getQuotationPeriods = () => fetchAllPages((pageParams) => planProjectList(pageParams));
 
 export const getMaterialCandidateList = (params) => defHttp.get({ url: Api.candidateList, params });
+export const getAllMaterialCandidates = (periodId: string) => fetchAllPages(getMaterialCandidateList, { periodId });
+export const getAllMaterialCandidateItems = (candidateId: string) => fetchAllPages(getMaterialCandidateItemList, { candidateId });
 
 export const addMaterialCandidate = (params, showSuccessMessage = true) =>
   defHttp.post({ url: Api.candidateAdd, params }, { successMessageMode: showSuccessMessage ? 'success' : 'none' });
@@ -167,13 +171,17 @@ export const planDetail = (params) => defHttp.get({ url: Api.detail, params });
 export const getPlanMaterialList = (params) => defHttp.get({ url: Api.materialList, params });
 
 /**
- * 按分期全量同步用料计划。records 中有 id 更新、无 id 新增，未提交的旧数据删除。
+ * 按分期全量同步用料计划。
+ * records 仅提交 id（已有记录）、materialId、plannedQty、unitId、remark；未提交的旧数据删除。
  */
 export const editPlanMaterialBatch = (params, showSuccessMessage = true) =>
-  defHttp.post({ url: Api.materialEditBatch, params }, { successMessageMode: showSuccessMessage ? 'success' : 'none' });
-
-/** 物料详情（用于根据 materialId 补齐物料编码） */
-export const getMaterialDetail = (params) => defHttp.get({ url: Api.materialDetail, params });
+  defHttp.post(
+    { url: Api.materialEditBatch, params },
+    {
+      successMessageMode: showSuccessMessage ? 'success' : 'none',
+      errorMessageMode: showSuccessMessage ? 'message' : 'none',
+    }
+  );
 
 /**
  * 实施位置列表

@@ -2,13 +2,25 @@ import { BasicColumn } from '/@/components/Table';
 import { FormSchema } from '/@/components/Table';
 import { h } from 'vue';
 import { Icon } from '/@/components/Icon';
-import { duplicateCheck } from '../user/user.api';
-import { ajaxGetDictItems ,checkPermDuplication } from './menu.api';
+import { ajaxGetDictItems, checkPermDuplication } from './menu.api';
 import { render } from '/@/utils/common/renderUtils';
+import { Tag } from 'ant-design-vue';
 
 const isDir = (type) => type === 0;
 const isMenu = (type) => type === 1;
 const isButton = (type) => type === 2;
+
+export const clientScopeOptions = [
+  { label: 'PC端', value: 'PC' },
+  { label: '移动端', value: 'APP' },
+  { label: '两端共用', value: 'ALL' },
+];
+
+const clientScopeMeta = {
+  PC: { label: 'PC端', color: 'blue' },
+  APP: { label: '移动端', color: 'green' },
+  ALL: { label: '两端共用', color: 'purple' },
+};
 
 // 定义可选择的组件类型
 export enum ComponentTypes {
@@ -29,6 +41,15 @@ export const columns: BasicColumn[] = [
     width: 150,
     customRender: ({ text }) => {
       return render.renderDict(text, 'menu_type');
+    },
+  },
+  {
+    title: '适用终端',
+    dataIndex: 'clientScope',
+    width: 110,
+    customRender: ({ text }) => {
+      const meta = clientScopeMeta[text] || clientScopeMeta.PC;
+      return h(Tag, { color: meta.color }, () => meta.label);
     },
   },
   {
@@ -71,6 +92,16 @@ export const searchFormSchema: FormSchema[] = [
     component: 'Input',
     colProps: { span: 8 },
   },
+  {
+    field: 'clientType',
+    label: '适用终端',
+    component: 'Select',
+    componentProps: {
+      options: clientScopeOptions,
+      allowClear: true,
+    },
+    colProps: { span: 8 },
+  },
 ];
 
 export const formSchema: FormSchema[] = [
@@ -104,7 +135,11 @@ export const formSchema: FormSchema[] = [
             },
             {
               field: 'url',
-              required: !isButton(e),
+              required: !isButton(e) && formModel.clientScope !== 'APP',
+            },
+            {
+              field: 'component',
+              required: !isButton(e) && formModel.clientScope !== 'APP',
             },
           ]);
           // 代码逻辑说明: [VUEN-1834]只有一级菜单，才默认值，子菜单的时候，清空------------
@@ -114,6 +149,17 @@ export const formSchema: FormSchema[] = [
         },
       };
     },
+  },
+  {
+    field: 'clientScope',
+    label: '适用终端',
+    component: 'RadioButtonGroup',
+    defaultValue: 'PC',
+    required: true,
+    componentProps: {
+      options: clientScopeOptions,
+    },
+    helpMessage: ['PC端仅用于电脑后台，移动端仅用于小程序，两端共用会同时进入两套角色授权树。'],
   },
   {
     field: 'name',
@@ -144,12 +190,15 @@ export const formSchema: FormSchema[] = [
     field: 'url',
     label: '访问路径',
     component: 'Input',
-    required: true,
+    required: false,
     // 代码逻辑说明: [issues/5008]子表数据权限设置不生效
-    ifShow: ({ values }) => !(values.component === ComponentTypes.IFrame && values.internalOrExternal),
+    ifShow: ({ values }) =>
+      !isButton(values.menuType) &&
+      values.clientScope !== 'APP' &&
+      !(values.component === ComponentTypes.IFrame && values.internalOrExternal),
     // 代码逻辑说明: 聚合路由允许路径重复
     dynamicRules: ({ model, schema,values }) => {
-      return checkPermDuplication(model, schema,  values.menuType !== 2?true:false);
+      return checkPermDuplication(model, schema, !isButton(values.menuType) && values.clientScope !== 'APP');
     },
   },
   {
@@ -161,7 +210,7 @@ export const formSchema: FormSchema[] = [
       allowClear: true,
     },
     helpMessage: [
-      '仅用于 App/小程序一级菜单跳转，留空表示不在移动端展示。',
+      '用于 App/小程序授权工作台跳转，一级菜单和子菜单均可按需配置。',
       '必须填写 pages.json 已注册的绝对路径，不要携带域名、查询参数或 hash。',
     ],
     rules: [
@@ -175,7 +224,7 @@ export const formSchema: FormSchema[] = [
         },
       },
     ],
-    ifShow: ({ values }) => isDir(values.menuType),
+    ifShow: ({ values }) => !isButton(values.menuType) && values.clientScope !== 'PC',
   },
   {
     field: 'component',
@@ -185,8 +234,14 @@ export const formSchema: FormSchema[] = [
       placeholder: '请输入前端组件',
     },
     defaultValue:'layouts/default/index',
-    required: true,
-    ifShow: ({ values }) => !isButton(values.menuType),
+    required: false,
+    dynamicRules: ({ values }) => [
+      {
+        required: !isButton(values.menuType) && values.clientScope !== 'APP',
+        message: '请输入前端组件',
+      },
+    ],
+    ifShow: ({ values }) => !isButton(values.menuType) && values.clientScope !== 'APP',
   },
   {
     field: 'componentName',
@@ -202,7 +257,7 @@ export const formSchema: FormSchema[] = [
       '非必填，留空则会根据访问路径自动生成。',
     ],
     defaultValue: '',
-    ifShow: ({ values }) => !isButton(values.menuType),
+    ifShow: ({ values }) => !isButton(values.menuType) && values.clientScope !== 'APP',
   },
   {
     field: 'frameSrc',
@@ -212,13 +267,14 @@ export const formSchema: FormSchema[] = [
       { required: true, message: '请输入Iframe地址' },
       { type: 'url', message: '请输入正确的url地址' },
     ],
-    ifShow: ({ values }) => !isButton(values.menuType) && values.component === ComponentTypes.IFrame,
+    ifShow: ({ values }) =>
+      !isButton(values.menuType) && values.clientScope !== 'APP' && values.component === ComponentTypes.IFrame,
   },
   {
     field: 'redirect',
     label: '默认跳转地址',
     component: 'Input',
-    ifShow: ({ values }) => isDir(values.menuType),
+    ifShow: ({ values }) => isDir(values.menuType) && values.clientScope !== 'APP',
   },
   {
     field: 'perms',
@@ -426,7 +482,7 @@ export const dataRuleFormSchema: FormSchema[] = [
       params: { code: 'rule_conditions' },
       labelField: 'text',
       valueField: 'value',
-      getPopupContainer: (node) => document.body,
+      getPopupContainer: (_node) => document.body,
     },
   },
   // 代码逻辑说明: 【TV360X-1864】添加系统变量

@@ -4,6 +4,7 @@ import { ref, computed, unref, Ref } from 'vue';
 import { useI18n } from '/@/hooks/web/useI18n';
 import { checkOnlyUser } from '/@/api/sys/user';
 import { defHttp } from '/@/utils/http/axios';
+import { createPasswordLengthRule } from '/@/utils/password';
 
 export enum LoginStateEnum {
   LOGIN,
@@ -49,6 +50,7 @@ export function useFormRules(formData?: Recordable) {
 
   const getAccountFormRule = computed(() => createRule(t('sys.login.accountPlaceholder')));
   const getPasswordFormRule = computed(() => createRule(t('sys.login.passwordPlaceholder')));
+  const getNewPasswordFormRule = computed(() => [...createRule(t('sys.login.passwordPlaceholder')), createPasswordLengthRule()]);
   const getSmsFormRule = computed(() => createRule(t('sys.login.smsPlaceholder')));
   const getMobileFormRule = computed(() => createRule(t('sys.login.mobilePlaceholder')));
 
@@ -74,6 +76,7 @@ export function useFormRules(formData?: Recordable) {
   const getFormRules = computed((): { [k: string]: ValidationRule | ValidationRule[] } => {
     const accountFormRule = unref(getAccountFormRule);
     const passwordFormRule = unref(getPasswordFormRule);
+    const newPasswordFormRule = unref(getNewPasswordFormRule);
     const smsFormRule = unref(getSmsFormRule);
     const mobileFormRule = unref(getMobileFormRule);
 
@@ -89,7 +92,7 @@ export function useFormRules(formData?: Recordable) {
       case LoginStateEnum.REGISTER:
         return {
           account: registerAccountRule,
-          password: passwordFormRule,
+          password: newPasswordFormRule,
           mobile: registerMobileRule,
           sms: smsFormRule,
           confirmPassword: [{ validator: validateConfirmPassword(formData?.password), trigger: 'change' }],
@@ -100,6 +103,7 @@ export function useFormRules(formData?: Recordable) {
       case LoginStateEnum.RESET_PASSWORD:
         return {
           username: accountFormRule,
+          password: newPasswordFormRule,
           confirmPassword: [{ validator: validateConfirmPassword(formData?.password), trigger: 'change' }],
           ...mobileRule,
         };

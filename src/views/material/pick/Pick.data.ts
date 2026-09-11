@@ -1,29 +1,61 @@
+import { h } from 'vue';
 import { FormSchema } from '/@/components/Table';
+import { MATERIAL_USAGE_TYPE, materialUsageTypeOptions } from '../material.constants';
 
 /**
  * 领料申请 - 申请信息表单
- * 字段对齐 StockApply（扩展：projectNo/projectName/bizType）
+ * 项目选择以 periodId 关联 StockApply
  * 使用人/部门默认当前操作人(页面注入)
  */
 export const pickFormSchema: FormSchema[] = [
   {
-    label: '分期项目',
-    field: 'projectNo',
+    label: '维修单号',
+    field: 'repairOrderNo',
+    component: 'Input',
+    componentProps: { placeholder: '请输入维修单号', maxlength: 100 },
+    ifShow: ({ values }) => values.usageType === MATERIAL_USAGE_TYPE.MAINTENANCE,
+    dynamicRules: ({ values }) =>
+      values.usageType === MATERIAL_USAGE_TYPE.MAINTENANCE ? [{ required: true, whitespace: true, message: '请输入维修单号' }] : [],
+  },
+  {
+    label: '领料类型',
+    field: 'usageType',
+    component: 'Select',
+    defaultValue: MATERIAL_USAGE_TYPE.PROJECT,
+    componentProps: {
+      options: materialUsageTypeOptions,
+      placeholder: '请选择领料类型',
+      allowClear: false,
+    },
+    dynamicRules: () => [{ required: true, message: '请选择领料类型!' }],
+  },
+  {
+    label: '项目名称',
+    field: 'periodId',
     component: 'Select',
     componentProps: {
       showSearch: true,
       allowClear: true,
-      filterOption: false, // 远程模糊搜索
-      placeholder: '输入分期项目名称模糊搜索，自动带出编号',
-      options: [], // 远程加载(页面 onSearch 注入)
+      optionLabelProp: 'label',
+      filterOption: (input: string, option: any) =>
+        [option.projectName, option.periodName].some((name) =>
+          String(name || '')
+            .toLowerCase()
+            .includes(input.trim().toLowerCase())
+        ),
+      placeholder: '输入主项目名称/分期项目名称搜索',
+      notFoundContent: '暂无符合条件的参与项目',
+      options: [],
     },
-  },
-  {
-    label: '项目名称',
-    field: 'projectName',
-    component: 'Input',
-    componentProps: { placeholder: '选择分期项目后自动带出', disabled: true },
-    dynamicRules: () => [{ required: true, message: '请选择分期项目带出项目名称!' }],
+    renderComponentContent: () => ({
+      option: ({ projectName, periodName }: any) =>
+        h('div', { style: { display: 'flex', gap: '12px', justifyContent: 'space-between', whiteSpace: 'normal' } }, [
+          h('span', {}, projectName || '未命名项目'),
+          h('span', { style: { color: '#8c8c8c' } }, periodName || '未命名分期'),
+        ]),
+    }),
+    ifShow: ({ values }) => values.usageType === MATERIAL_USAGE_TYPE.PROJECT,
+    dynamicRules: ({ values }) => (values.usageType === MATERIAL_USAGE_TYPE.PROJECT ? [{ required: true, message: '请选择项目分期!' }] : []),
   },
   {
     label: '使用人',

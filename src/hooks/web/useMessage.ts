@@ -27,14 +27,6 @@ export interface ModalOptionsEx extends Omit<ModalFuncProps, 'iconType'> {
 }
 export type ModalOptionsPartial = Partial<ModalOptionsEx> & Pick<ModalOptionsEx, 'content'>;
 
-interface ConfirmOptions {
-  info: ModalFunc;
-  success: ModalFunc;
-  error: ModalFunc;
-  warn: ModalFunc;
-  warning: ModalFunc;
-}
-
 function getIcon(iconType: string) {
   try {
     if (iconType === 'warning') {
@@ -138,6 +130,11 @@ function createConfirmSync(options: MOE) {
 notification.config({
   placement: 'topRight',
   duration: 3,
+});
+
+Message.config({
+  duration: 3,
+  maxCount: 2,
 });
 
 /**

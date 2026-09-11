@@ -32,7 +32,15 @@
         <span>回款计划</span>
         <span class="plan-payment__hint">金额 = 合同金额 × 比例</span>
       </div>
-      <a-table :columns="columns" :data-source="rows" :row-key="(record) => record._key" :pagination="false" size="middle" bordered>
+      <a-table
+        :loading="loading"
+        :columns="columns"
+        :data-source="rows"
+        :row-key="(record) => record._key"
+        :pagination="false"
+        size="middle"
+        bordered
+      >
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'index'">
             {{ record._key }}
@@ -62,16 +70,16 @@
 </template>
 
 <script lang="ts" setup>
-  import { computed, ref, unref, watch, onMounted } from 'vue';
-  import { contractDetail, paybackList } from '/@/views/payment/Payment.api';
+  import { computed, ref, unref, watch } from 'vue';
   import { initDictOptions } from '/@/utils/dict/index';
   import { loadUserOptions, type UserOption } from '/@/views/resource/userOptions';
   import { getPlanMembers } from './Plan.api';
-  import { projectDetail } from '../Project.api';
   import { previewFileInModal } from '/@/utils/filePreview';
 
   const props = defineProps<{
     periodId?: string;
+    contractRecord?: Recordable;
+    projectRecord?: Recordable;
   }>();
 
   const contract = ref<Recordable>({});
@@ -81,6 +89,10 @@
   const userOptions = ref<UserOption[]>([]);
   const projectMembers = ref<any[]>([]);
   const project = ref<Recordable>({});
+  const loading = ref(false);
+  const loaded = ref(false);
+  const loadFailed = ref(false);
+  let loadSequence = 0;
 
   const contractFileId = computed(
     () => contract.value.contractFile?.fileId || contract.value.contractFileId || contract.value.contractFilePath || ''
@@ -99,12 +111,13 @@
     return option?.label || option?.text || option?.title || String(value);
   });
 
+  function isValidName(value: unknown) {
+    const text = String(value || '').trim();
+    return !!text && text !== '-' && text !== '—';
+  }
+
   const salesUserText = computed(() => {
     const salesUser = contract.value.salesUser || contract.value.saleUser || {};
-    const isValidName = (value: unknown) => {
-      const text = String(value || '').trim();
-      return !!text && text !== '-' && text !== '—';
-    };
     const snapshot = [
       contract.value.salesUserName,
       contract.value.saleUserName,
@@ -142,52 +155,81 @@
       )?.label;
       if (creatorName) return creatorName;
     }
-    const salesMember = projectMembers.value.find((item) => String(item.memberRole ?? item.role) === '1');
+    const salesMember = projectMembers.value.find((item) =>
+      String(item.memberRole ?? item.role)
+        .split(/[,，、]/)
+        .map((role) => role.trim())
+        .includes('1')
+    );
     const memberName = salesMember?.userName || salesMember?.memberName;
     if (isValidName(memberName)) return memberName;
     return isValidName(creator) ? String(creator).trim() : '—';
   });
 
+  function hasSalesNameSnapshot() {
+    const salesUser = contract.value.salesUser || contract.value.saleUser || {};
+    return [
+      contract.value.salesUserName,
+      contract.value.saleUserName,
+      contract.value.salesUserRealName,
+      contract.value.salesName,
+      project.value.salesUserName,
+      project.value.saleUserName,
+      project.value.salesName,
+      salesUser.realname,
+      salesUser.realName,
+      salesUser.name,
+      salesUser.username,
+    ].some(isValidName);
+  }
+
+  /**
+   * 合同与回款明细由父页面已经完成的上下文请求直接传入，避免页签再次查询同一份数据。
+   * 只有销售负责人没有姓名快照时，才按需请求用户与项目成员作为兜底。
+   */
   async function load() {
-    if (!props.periodId) return;
+    const sequence = ++loadSequence;
+    loading.value = true;
+    loaded.value = false;
+    loadFailed.value = false;
     try {
-      const [contractResult, paybackResult, nodeResult, typeResult, userResult, memberResult, projectResult] = await Promise.allSettled([
-        contractDetail({ periodId: props.periodId }),
-        paybackList({ periodId: props.periodId, pageNo: 1, pageSize: 100 }),
-        initDictOptions('payback_node'),
-        initDictOptions('contract_type'),
-        loadUserOptions(true),
-        getPlanMembers({ periodId: props.periodId, pageNo: 1, pageSize: 1000 }),
-        projectDetail({ periodId: props.periodId }),
-      ]);
-      if (contractResult.status === 'rejected') throw contractResult.reason;
-      const paybackRes: any = paybackResult.status === 'fulfilled' ? paybackResult.value : [];
-      contract.value = contractResult.value || {};
-      project.value = projectResult.status === 'fulfilled' ? projectResult.value || {} : {};
+      contract.value = { ...(props.contractRecord || {}) };
+      project.value = { ...(props.projectRecord || {}) };
+      userOptions.value = [];
+      projectMembers.value = [];
+      setRows(Array.isArray(contract.value.records) ? contract.value.records : []);
+
+      const dictionaryPromise = Promise.allSettled([initDictOptions('payback_node'), initDictOptions('contract_type')]);
+      const fallbackPromise =
+        !hasSalesNameSnapshot() && props.periodId
+          ? Promise.allSettled([loadUserOptions(false), getPlanMembers({ periodId: props.periodId, pageNo: 1, pageSize: 1000 })])
+          : Promise.resolve([]);
+      const [dictionaryResults, fallbackResults] = await Promise.all([dictionaryPromise, fallbackPromise]);
+      if (sequence !== loadSequence) return;
+
+      const [nodeResult, typeResult] = dictionaryResults;
       nodeOptions.value = nodeResult.status === 'fulfilled' ? nodeResult.value || [] : [];
       contractTypeOptions.value = typeResult.status === 'fulfilled' ? typeResult.value || [] : [];
-      userOptions.value = userResult.status === 'fulfilled' ? userResult.value || [] : [];
-      const memberPayload: any = memberResult.status === 'fulfilled' ? memberResult.value : [];
-      projectMembers.value = memberPayload?.records || memberPayload || [];
-      const paymentRecords = Array.isArray(paybackRes?.records) ? paybackRes.records : Array.isArray(paybackRes) ? paybackRes : [];
-      setRows(paymentRecords.length ? paymentRecords : contract.value.records || []);
+
+      if (fallbackResults.length) {
+        const [userResult, memberResult] = fallbackResults;
+        userOptions.value = userResult.status === 'fulfilled' ? userResult.value || [] : [];
+        const memberPayload: any = memberResult.status === 'fulfilled' ? memberResult.value : [];
+        projectMembers.value = memberPayload?.records || memberPayload || [];
+      }
+      loaded.value = true;
     } catch {
+      if (sequence !== loadSequence) return;
+      loaded.value = false;
+      loadFailed.value = true;
       contract.value = {};
       project.value = {};
       projectMembers.value = [];
       rows.value = [];
+    } finally {
+      if (sequence === loadSequence) loading.value = false;
     }
   }
-
-  onMounted(() => {
-    load();
-  });
-
-  // 合同金额变化 → 重算所有行金额
-  watch(
-    () => contract.value.contractAmount,
-    () => rows.value.forEach((r) => calcAmount(r))
-  );
 
   // 回款计划行
   const columns = [
@@ -212,15 +254,42 @@
   }
 
   function setRows(list: any[]) {
-    rows.value = (list || []).map((item) => ({ ...item, _key: ++rowSeed, amount: Number(item.amount) || 0 }));
+    rowSeed = 0;
+    rows.value = (list || []).map((item) => ({
+      ...item,
+      _key: ++rowSeed,
+      node: item.paymentNode ?? item.node,
+      amount: Number(item.plannedAmount ?? item.amount) || 0,
+    }));
     rows.value.forEach((row) => calcAmount(row));
   }
+
+  watch(
+    () => [props.periodId, props.contractRecord, props.projectRecord],
+    () => load(),
+    { immediate: true }
+  );
+
+  // 合同金额变化 → 重算所有行金额
+  watch(
+    () => contract.value.contractAmount,
+    () => rows.value.forEach((row) => calcAmount(row))
+  );
 
   defineExpose({
     getData() {
       return unref(rows);
     },
     setData: setRows,
+    getSubmissionState() {
+      return {
+        loading: loading.value,
+        loaded: loaded.value,
+        loadFailed: loadFailed.value,
+        saving: false,
+        dirty: false,
+      };
+    },
   });
 </script>
 

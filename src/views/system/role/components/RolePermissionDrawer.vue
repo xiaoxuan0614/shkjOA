@@ -1,19 +1,19 @@
 <template>
-  <BasicDrawer v-bind="$attrs" @register="registerDrawer" width="650px" destroyOnClose showFooter>
+  <BasicDrawer v-bind="$attrs" @register="registerDrawer" width="720px" destroyOnClose showFooter>
     <template #title>
       角色权限配置
       <a-dropdown>
         <a-button class="more-icon">
           更多操作
-          <Icon icon="ant-design:down-outlined" size="14px" style="position: relative;top: 1px;right: 5px"></Icon>
+          <Icon icon="ant-design:down-outlined" size="14px" class="more-icon-arrow" />
         </a-button>
         <template #overlay>
           <a-menu @click="treeMenuClick">
-            <a-menu-item key="checkAll">选择全部</a-menu-item>
-            <a-menu-item key="cancelCheck">取消选择</a-menu-item>
+            <a-menu-item key="checkAll">选择当前端全部权限</a-menu-item>
+            <a-menu-item key="cancelCheck">取消当前端选择</a-menu-item>
             <div class="line"></div>
-            <a-menu-item key="openAll">展开全部</a-menu-item>
-            <a-menu-item key="closeAll">折叠全部</a-menu-item>
+            <a-menu-item key="openAll">展开当前端全部节点</a-menu-item>
+            <a-menu-item key="closeAll">折叠当前端全部节点</a-menu-item>
             <div class="line"></div>
             <a-menu-item key="relation">层级关联</a-menu-item>
             <a-menu-item key="standAlone">层级独立</a-menu-item>
@@ -21,243 +21,301 @@
         </template>
       </a-dropdown>
     </template>
-    <BasicTree
-      ref="treeRef"
-      checkable
-      :treeData="treeData"
-      :checkedKeys="checkedKeys"
-      :expandedKeys="expandedKeys"
-      :selectedKeys="selectedKeys"
-      :clickRowToExpand="false"
-      :checkStrictly="true"
-      title="所拥有的的权限"
-      @check="onCheck"
-      @select="onTreeNodeSelect"
-    >
-      <template #title="{ slotTitle, ruleFlag }">
-        {{ slotTitle }}
-        <Icon v-if="ruleFlag" icon="ant-design:align-left-outlined" style="margin-left: 5px; color: red"></Icon>
-      </template>
-    </BasicTree>
-    <!--右下角按钮-->
+
+    <a-tabs v-model:activeKey="activeClient" class="permission-tabs">
+      <a-tab-pane v-for="client in clientTabs" :key="client.key">
+        <template #tab>{{ client.label }}（{{ permissionState[client.key].checkedKeys.length }}）</template>
+
+        <a-alert
+          v-if="permissionState[client.key].error"
+          type="error"
+          show-icon
+          :message="`${client.label}加载失败`"
+          :description="permissionState[client.key].error"
+        />
+        <BasicTree
+          v-else
+          checkable
+          :treeData="permissionState[client.key].treeData"
+          :checkedKeys="permissionState[client.key].checkedKeys"
+          :expandedKeys="permissionState[client.key].expandedKeys"
+          :selectedKeys="permissionState[client.key].selectedKeys"
+          :clickRowToExpand="false"
+          :checkStrictly="checkStrictly"
+          :title="`${client.label}所拥有的权限`"
+          @check="(keys, event) => onCheck(client.key, keys, event)"
+        >
+          <template #title="node">
+            <span class="permission-node">
+              <span class="permission-node__label">{{ node.slotTitle }}</span>
+              <a-button
+                v-if="node.ruleFlag"
+                type="link"
+                size="small"
+                class="data-rule-button"
+                :aria-label="`配置${node.slotTitle}的数据规则`"
+                @click.stop="openNodeDataRule(client.key, node.key)"
+              >
+                配置数据规则
+              </a-button>
+            </span>
+          </template>
+        </BasicTree>
+      </a-tab-pane>
+    </a-tabs>
+
     <template #footer>
-      <!-- <PopConfirmButton title="确定放弃编辑？" @confirm="closeDrawer" okText="确定" cancelText="取消"></PopConfirmButton> -->
       <a-button @click="closeDrawer">取消</a-button>
       <a-button @click="handleSubmit(false)" type="primary" :loading="loading" ghost style="margin-right: 0.8rem">仅保存</a-button>
       <a-button @click="handleSubmit(true)" type="primary" :loading="loading">保存并关闭</a-button>
     </template>
-    <RoleDataRuleDrawer @register="registerDrawer1" />
+    <RoleDataRuleDrawer @register="registerDataRuleDrawer" />
   </BasicDrawer>
 </template>
+
 <script lang="ts" setup>
-  import { ref, computed, unref, onMounted } from 'vue';
+  import { reactive, ref, unref } from 'vue';
   import { BasicDrawer, useDrawer, useDrawerInner } from '/@/components/Drawer';
   import { BasicTree, TreeItem } from '/@/components/Tree';
-  import { PopConfirmButton } from '/@/components/Button';
-  import RoleDataRuleDrawer from './RoleDataRuleDrawer.vue';
-  import { queryTreeListForRole, queryRolePermission, saveRolePermission } from '../role.api';
-  import { useI18n } from "/@/hooks/web/useI18n";
+  import { Icon } from '/@/components/Icon';
+  import { useI18n } from '/@/hooks/web/useI18n';
+  import { useMessage } from '/@/hooks/web/useMessage';
   import { ROLE_AUTH_CONFIG_KEY } from '/@/enums/cacheEnum';
-  const emit = defineEmits(['register']);
-  //树的信息
-  const treeData = ref<TreeItem[]>([]);
-  //树的全部节点信息
-  const allTreeKeys = ref([]);
-  //树的选择节点信息
-  const checkedKeys = ref<any>([]);
-  const defaultCheckedKeys = ref([]);
-  //树的选中的节点信息
-  const selectedKeys = ref([]);
-  const roleId = ref('');
-  //树的实例
-  const treeRef = ref(null);
-  const loading = ref(false);
+  import RoleDataRuleDrawer from './RoleDataRuleDrawer.vue';
+  import {
+    queryAppTreeList,
+    queryRoleAppPermission,
+    queryRolePermission,
+    queryTreeListForRole,
+    saveRoleAppPermission,
+    saveRolePermission,
+  } from '../role.api';
 
-  //展开折叠的key
-  const expandedKeys = ref<any>([]);
-  //父子节点选中状态是否关联 true不关联，false关联
-  const checkStrictly = ref<boolean>(false);
-  const [registerDrawer1, { openDrawer: openDataRuleDrawer }] = useDrawer();
+  type ClientKey = 'PC' | 'APP';
+
+  interface ClientPermissionState {
+    treeData: TreeItem[];
+    allTreeKeys: string[];
+    checkedKeys: string[];
+    defaultCheckedKeys: string[];
+    expandedKeys: string[];
+    selectedKeys: string[];
+    loaded: boolean;
+    dirty: boolean;
+    error: string;
+  }
+
+  defineEmits(['register']);
+  const { t } = useI18n();
+  const { createMessage } = useMessage();
+  const clientTabs: Array<{ key: ClientKey; label: string }> = [
+    { key: 'PC', label: 'PC端权限' },
+    { key: 'APP', label: '移动端权限' },
+  ];
+
+  const createClientState = (): ClientPermissionState => ({
+    treeData: [],
+    allTreeKeys: [],
+    checkedKeys: [],
+    defaultCheckedKeys: [],
+    expandedKeys: [],
+    selectedKeys: [],
+    loaded: false,
+    dirty: false,
+    error: '',
+  });
+
+  const permissionState = reactive<Record<ClientKey, ClientPermissionState>>({
+    PC: createClientState(),
+    APP: createClientState(),
+  });
+  const activeClient = ref<ClientKey>('PC');
+  const roleId = ref('');
+  const loading = ref(false);
+  const checkStrictly = ref(false);
+  const [registerDataRuleDrawer, { openDrawer: openDataRuleDrawer }] = useDrawer();
+
   const [registerDrawer, { setDrawerProps, closeDrawer }] = useDrawerInner(async (data) => {
-    await reset();
+    reset();
     setDrawerProps({ confirmLoading: false, loading: true });
     roleId.value = data.roleId;
-    //初始化数据
-    const roleResult = await queryTreeListForRole();
-    // 代码逻辑说明: 【QQYUN-8355】角色权限配置的菜单翻译
-    treeData.value = translateTitle(roleResult.treeList);
-    allTreeKeys.value = roleResult.ids;
-    const localData = localStorage.getItem(ROLE_AUTH_CONFIG_KEY);
-    if (localData) {
-      const obj = JSON.parse(localData);
-      obj.level && treeMenuClick({ key: obj.level });
-      obj.expand && treeMenuClick({ key: obj.expand });
-    } else {
-      expandedKeys.value = roleResult.ids;
-    }
-    //初始化角色菜单数据
-    const permResult = await queryRolePermission({ roleId: unref(roleId) });
-    checkedKeys.value = permResult;
-    defaultCheckedKeys.value = permResult;
+
+    await Promise.all([loadClientPermission('PC'), loadClientPermission('APP')]);
+    applySavedTreePreference();
     setDrawerProps({ loading: false });
   });
-  /**
-  * 2024-02-28
-  * liaozhiyang
-  * 翻译菜单名称
-   */
-  function translateTitle(data) {
-    if (data?.length) {
-      data.forEach((item) => {
-        if (item.slotTitle) {
-          const { t } = useI18n();
-          if (item.slotTitle.includes("t('") && t) {
-            item.slotTitle = new Function('t', `return ${item.slotTitle}`)(t);
-          }
-        }
-        if (item.children?.length) {
-          translateTitle(item.children);
-        }
-      });
+
+  async function loadClientPermission(client: ClientKey) {
+    const state = permissionState[client];
+    try {
+      const [treeResult, checkedResult] = await Promise.all([
+        client === 'PC' ? queryTreeListForRole() : queryAppTreeList(),
+        client === 'PC'
+          ? queryRolePermission({ roleId: unref(roleId) })
+          : queryRoleAppPermission({ roleId: unref(roleId) }),
+      ]);
+      const sourceTree = client === 'PC' ? treeResult?.treeList || [] : treeResult || [];
+      state.treeData = normalizeTree(sourceTree);
+      state.allTreeKeys = client === 'PC' && treeResult?.ids?.length ? treeResult.ids : collectTreeKeys(state.treeData);
+      state.checkedKeys = Array.isArray(checkedResult) ? checkedResult : [];
+      state.defaultCheckedKeys = [...state.checkedKeys];
+      state.expandedKeys = [...state.allTreeKeys];
+      state.loaded = true;
+      state.error = '';
+    } catch (error: any) {
+      state.loaded = false;
+      state.error = error?.message || error?.msg || '请检查权限接口或网络连接后重试。';
     }
-    return data;
   }
-  /**
-   * 点击选中
-   * 2024-04-26
-   * liaozhiyang
-   */
-  function onCheck(o, e) {
-    // checkStrictly: true=>层级独立，false=>层级关联.
-    if (checkStrictly.value) {
-      checkedKeys.value = o.checked ? o.checked : o;
-    } else {
-      const keys = getNodeAllKey(e.node, 'children', 'key');
-      if (e.checked) {
-        // 反复操作下可能会有重复的keys，得用new Set去重下
-        checkedKeys.value = [...new Set([...checkedKeys.value, ...keys])];
-      } else {
-        const result = removeMatchingItems(checkedKeys.value, keys);
-        checkedKeys.value = result;
+
+  function normalizeTree(data: any[]): TreeItem[] {
+    return (data || []).map((item) => {
+      const rawTitle = item.slotTitle || item.title || item.name || '未命名权限';
+      const slotTitle = translateTitle(rawTitle);
+      return {
+        ...item,
+        key: String(item.key || item.id),
+        value: String(item.value || item.key || item.id),
+        title: slotTitle,
+        slotTitle,
+        scopedSlots: { ...(item.scopedSlots || {}), title: 'title' },
+        children: normalizeTree(item.children || []),
+      };
+    });
+  }
+
+  function translateTitle(title: string) {
+    if (title.includes("t('") && t) {
+      try {
+        return new Function('t', `return ${title}`)(t);
+      } catch (error) {
+        console.warn('角色权限菜单国际化处理失败:', error);
       }
     }
+    return title;
   }
-  /**
-   * 2024-04-26
-   * liaozhiyang
-   * 删除相匹配数组的项
-   */
-  function removeMatchingItems(arr1, arr2) {
-    // 使用哈希表记录 arr2 中的元素
-    const hashTable = {};
-    for (const item of arr2) {
-      hashTable[item] = true;
+
+  function collectTreeKeys(treeData: TreeItem[]): string[] {
+    return treeData.flatMap((item: any) => [String(item.key), ...collectTreeKeys(item.children || [])]);
+  }
+
+  function onCheck(client: ClientKey, keys, event) {
+    const state = permissionState[client];
+    if (checkStrictly.value) {
+      state.checkedKeys = keys?.checked ? keys.checked : keys;
+    } else {
+      const nodeKeys = getNodeAllKey(event.node, 'children', 'key');
+      state.checkedKeys = event.checked
+        ? [...new Set([...state.checkedKeys, ...nodeKeys])]
+        : removeMatchingItems(state.checkedKeys, nodeKeys);
     }
-    // 使用 filter 方法遍历第一个数组，过滤出不在哈希表中存在的项
-    return arr1.filter((item) => !hashTable[item]);
+    state.dirty = true;
   }
-  /**
-   * 2024-04-26
-   * liaozhiyang
-   * 获取当前节点及以下所有子孙级的key
-   */
-  function getNodeAllKey(node: any, children: any, key: string) {
-    const result: any = [];
-    result.push(node[key]);
-    const recursion = (data) => {
-      data.forEach((item: any) => {
-        result.push(item[key]);
-        if (item[children]?.length) {
-          recursion(item[children]);
-        }
+
+  function removeMatchingItems(source: string[], targets: string[]) {
+    const targetSet = new Set(targets);
+    return source.filter((item) => !targetSet.has(item));
+  }
+
+  function getNodeAllKey(node: any, childrenField: string, keyField: string) {
+    const result: string[] = [String(node[keyField])];
+    const recursion = (data: any[]) => {
+      data.forEach((item) => {
+        result.push(String(item[keyField]));
+        if (item[childrenField]?.length) recursion(item[childrenField]);
       });
     };
-    node[children]?.length && recursion(node[children]);
+    if (node[childrenField]?.length) recursion(node[childrenField]);
     return result;
   }
 
-  /**
-   * 选中节点，打开数据权限抽屉
-   */
-  function onTreeNodeSelect(key) {
-    if (key && key.length > 0) {
-      selectedKeys.value = key;
-    }
-    openDataRuleDrawer(true, { functionId: unref(selectedKeys)[0], roleId: unref(roleId) });
-  }
-  /**
-   * 数据重置
-   */
-  function reset() {
-    treeData.value = [];
-    allTreeKeys.value = [];
-    checkedKeys.value = [];
-    defaultCheckedKeys.value = [];
-    selectedKeys.value = [];
-    roleId.value = '';
-  }
-  /**
-   * 获取tree实例
-   */
-  function getTree() {
-    const tree = unref(treeRef);
-    if (!tree) {
-      throw new Error('tree is null!');
-    }
-    return tree;
-  }
-  /**
-   * 提交
-   */
-  async function handleSubmit(exit) {
-    let params = {
+  function openNodeDataRule(client: ClientKey, nodeKey: string | number) {
+    const functionId = String(nodeKey || '');
+    if (!functionId) return;
+    const state = permissionState[client];
+    state.selectedKeys = [functionId];
+    openDataRuleDrawer(true, {
+      functionId,
       roleId: unref(roleId),
-      permissionIds: unref(getTree().getCheckedKeys()).join(','),
-      lastpermissionIds: unref(defaultCheckedKeys).join(','),
-    };
-    // 代码逻辑说明: issues/352 VUE角色授权重复保存
-    if(loading.value===false){
-      await doSave(params)
-    }else{
-      console.log('请等待上次执行完毕!');
-    }
-    if(exit){
-      // 如果关闭
-      closeDrawer();
-    }else{
-      // 没有关闭需要重新获取选中数据
-      const permResult = await queryRolePermission({ roleId: unref(roleId) });
-      defaultCheckedKeys.value = permResult;
-    }
+      clientType: client,
+    });
   }
 
-  // VUE角色授权重复保存 #352
-  async function doSave(params) {
+  function reset() {
+    activeClient.value = 'PC';
+    roleId.value = '';
+    checkStrictly.value = false;
+    (Object.keys(permissionState) as ClientKey[]).forEach((client) => {
+      Object.assign(permissionState[client], createClientState());
+    });
+  }
+
+  async function handleSubmit(exit: boolean) {
+    if (loading.value) return;
+    const dirtyClients = (Object.keys(permissionState) as ClientKey[]).filter(
+      (client) => permissionState[client].loaded && permissionState[client].dirty,
+    );
+    if (!dirtyClients.length) {
+      createMessage.info('权限未发生变化');
+      if (exit) closeDrawer();
+      return;
+    }
+
     loading.value = true;
     try {
-      await saveRolePermission(params);
-    } catch (e) {
+      const results = await Promise.allSettled(dirtyClients.map((client) => saveClientPermission(client)));
+      const failedClients = dirtyClients.filter((_, index) => results[index].status === 'rejected');
+      if (failedClients.length) {
+        createMessage.error(`${failedClients.map(getClientLabel).join('、')}保存失败，请检查后重试`);
+        return;
+      }
+      createMessage.success('角色权限保存成功');
+      if (exit) closeDrawer();
+    } finally {
       loading.value = false;
     }
-    setTimeout(()=>{
-      loading.value = false;
-    }, 500)
   }
 
-  /**
-   * 树菜单选择
-   * @param key
-   */
+  async function saveClientPermission(client: ClientKey) {
+    const state = permissionState[client];
+    const params = {
+      roleId: unref(roleId),
+      permissionIds: state.checkedKeys.join(','),
+      lastpermissionIds: state.defaultCheckedKeys.join(','),
+    };
+    if (client === 'PC') {
+      await saveRolePermission(params);
+    } else {
+      await saveRoleAppPermission(params);
+    }
+    const checkedResult =
+      client === 'PC'
+        ? await queryRolePermission({ roleId: unref(roleId) })
+        : await queryRoleAppPermission({ roleId: unref(roleId) });
+    state.checkedKeys = Array.isArray(checkedResult) ? checkedResult : [];
+    state.defaultCheckedKeys = [...state.checkedKeys];
+    state.dirty = false;
+  }
+
+  function getClientLabel(client: ClientKey) {
+    return client === 'PC' ? 'PC端权限' : '移动端权限';
+  }
+
   function treeMenuClick({ key }) {
+    const state = permissionState[activeClient.value];
+    if (!state.loaded) return;
+
     if (key === 'checkAll') {
-      checkedKeys.value = allTreeKeys.value;
+      state.checkedKeys = [...state.allTreeKeys];
+      state.dirty = true;
     } else if (key === 'cancelCheck') {
-      checkedKeys.value = [];
+      state.checkedKeys = [];
+      state.dirty = true;
     } else if (key === 'openAll') {
-      expandedKeys.value = allTreeKeys.value;
+      state.expandedKeys = [...state.allTreeKeys];
       saveLocalOperation('expand', 'openAll');
     } else if (key === 'closeAll') {
-      expandedKeys.value = [];
+      state.expandedKeys = [];
       saveLocalOperation('expand', 'closeAll');
     } else if (key === 'relation') {
       checkStrictly.value = false;
@@ -267,39 +325,78 @@
       saveLocalOperation('level', 'standAlone');
     }
   }
-  /**
-   * 2024-05-31
-   * liaozhiyang
-   * 【TV360X-590】角色授权弹窗操作缓存
-   * */
-  const saveLocalOperation = (key, value) => {
+
+  function applySavedTreePreference() {
     const localData = localStorage.getItem(ROLE_AUTH_CONFIG_KEY);
-    const obj = localData ? JSON.parse(localData) : {};
-    obj[key] = value;
-    localStorage.setItem(ROLE_AUTH_CONFIG_KEY, JSON.stringify(obj))
-  };
+    if (!localData) return;
+    try {
+      const config = JSON.parse(localData);
+      checkStrictly.value = config.level === 'standAlone';
+      if (config.expand === 'closeAll') {
+        permissionState.PC.expandedKeys = [];
+        permissionState.APP.expandedKeys = [];
+      }
+    } catch (error) {
+      console.warn('读取角色授权操作偏好失败:', error);
+    }
+  }
+
+  function saveLocalOperation(key: string, value: string) {
+    const localData = localStorage.getItem(ROLE_AUTH_CONFIG_KEY);
+    const config = localData ? JSON.parse(localData) : {};
+    config[key] = value;
+    localStorage.setItem(ROLE_AUTH_CONFIG_KEY, JSON.stringify(config));
+  }
 </script>
 
 <style lang="less" scoped>
-  /** 固定操作按钮 */
-  .jeecg-basic-tree {
-    position: absolute;
-    width: 618px;
+  .permission-tabs {
+    min-height: 480px;
   }
-  // 代码逻辑说明: 抽屉弹窗标题图标下拉样式------------
-  .line {
-    height: 1px;
+
+  .jeecg-basic-tree {
     width: 100%;
+  }
+
+  .line {
+    width: 100%;
+    height: 1px;
     border-bottom: 1px solid #f0f0f0;
   }
+
   .more-icon {
-/*    font-size: 20px !important;
-    color: black;
-    display: inline-flex;*/
     float: right;
     margin-right: 2px;
     cursor: pointer;
   }
+
+  .more-icon-arrow {
+    position: relative;
+    top: 1px;
+    right: 5px;
+  }
+
+  .permission-node {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .permission-node__label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .data-rule-button {
+    flex-shrink: 0;
+    height: 24px;
+    margin-left: auto;
+    padding: 0 4px;
+  }
+
   :deep(.jeecg-tree-header) {
     border-bottom: none;
   }

@@ -89,9 +89,7 @@ const materialRoute = {
       name: 'MaterialPick', // 子路由name，全局唯一
       component: 'material/pick/index', // 页面组件路径，对应 src/views/material/pick/index.vue(领料申请)
       meta: {
-        hideMenu: true, // 不显示在侧边栏，由「出入库管理」页按钮进入
         title: '领料申请', // 浏览器标签标题
-        currentActiveMenu: '/material/record', // 高亮「出入库管理」
         icon: 'bx:bx-log-out', // 子菜单图标
       },
     },
@@ -100,9 +98,7 @@ const materialRoute = {
       name: 'MaterialReturn', // 子路由name，全局唯一
       component: 'material/return/index', // 页面组件路径，对应 src/views/material/return/index.vue(还料申请)
       meta: {
-        hideMenu: true, // 不显示在侧边栏，由「出入库管理」页按钮进入
         title: '还料申请', // 浏览器标签标题
-        currentActiveMenu: '/material/record', // 高亮「出入库管理」
         icon: 'bx:bx-log-in', // 子菜单图标
       },
     },
@@ -252,29 +248,6 @@ const resourceRoute = {
   ],
 };
 
-/// ========== 站内待办(邀约) ==========
-const todoRoute = {
-  path: '/todo',
-  name: 'Todo',
-  component: 'LAYOUT',
-  redirect: '/todo/list',
-  meta: {
-    title: '站内待办',
-    icon: 'bx:bx-bell',
-  },
-  children: [
-    {
-      path: 'list',
-      name: 'TodoList',
-      component: 'todo/index',
-      meta: {
-        title: '邀约待办',
-        icon: 'bx:bx-bell',
-      },
-    },
-  ],
-};
-
 /// ========== 已实现模块的 mock 菜单(计划方案管理/实施管理/回款管理) ==========
 function buildBusinessRoutes() {
   // 计划方案管理: 列表 + 方案详情(hidden)
@@ -306,7 +279,7 @@ function buildBusinessRoutes() {
       },
     ],
   };
-  // 实施管理: 工序列表 + 查看日志 + 日志详情(hidden)
+  // 实施管理: 项目分期列表 + 项目工序日志 + 日志详情(hidden)
   const implementRoute = {
     path: '/implement',
     name: 'Implement',
@@ -370,6 +343,8 @@ function buildPlaceholderRoutes() {
       redirect: '/operation/list',
       child: 'operation/list',
       childName: 'OperationList',
+      childTitle: '运维值班表',
+      childComponent: 'operation/duty-roster/index',
     },
   ];
   return defs.map((d) => ({
@@ -382,8 +357,8 @@ function buildPlaceholderRoutes() {
       {
         path: 'list',
         name: d.childName,
-        component: 'placeholder/index',
-        meta: { title: d.title },
+        component: d.childComponent || 'placeholder/index',
+        meta: { title: d.childTitle || d.title },
       },
     ],
   }));
@@ -597,7 +572,6 @@ export default [
             materialRoute,
             projectRoute,
             resourceRoute,
-            todoRoute,
             ...buildBusinessRoutes(),
             ...buildPlaceholderRoutes(),
             authRoute,
@@ -635,15 +609,19 @@ export default [
           'mtl:goods:deleteBatch',
           'mtl:goods:io',
           // 项目管理(project)生命周期流转按钮权限(角色顺序权限)
+          'project:add',
           'project:plan',
           'project:implement',
           'project:internalAccept',
           'project:accept',
+          'project:acceptance:submit',
+          'project:rework:apply',
+          'project:rework:approve',
           'project:warranty',
           // 合同签订(提交) / 审批；合同撤回与重提按原提交人身份控制
           'project:contract',
-          'project:contract:audit',
-          // 计划提交 / 计划审批(待立项)
+          'project:contract:approve',
+          // 计划提交 / 计划审批(待审批)
           'project:plan:audit',
           // 报价管理按钮权限；解锁权限只授予指定负责人/管理员
           'plan:quotation:add',

@@ -39,7 +39,7 @@
 </template>
 
 <script lang="ts" name="quotation-management-list" setup>
-  import { onMounted, ref } from 'vue';
+  import { onMounted, ref, watch } from 'vue';
   import { useRouter } from 'vue-router';
   import { BasicTable, TableAction } from '/@/components/Table';
   import type { ActionItem } from '/@/components/Table';
@@ -51,8 +51,10 @@
   import {
     getMaterialCandidateItemList,
     getQuotationPeriods,
-    QUOTATION_STATUS_DRAFT,
     QUOTATION_STATUS_SUBMITTED,
+    QUOTATION_STATUS_APPROVED,
+    QUOTATION_STATUS_REJECTED,
+    isQuotationEditable,
     quotationList,
     updateMaterialCandidateStatus,
     voidMaterialCandidate,
@@ -77,8 +79,17 @@
   const addModalOpen = ref(false);
   const selectedPeriodId = ref<string>();
   const candidateName = ref('');
-  const periodOptions = ref<{ label: string; value: string }[]>([]);
+  const periodOptions = ref<{ label: string; value: string; projectName: string }[]>([]);
   const periodLoading = ref(false);
+
+  // 仅更新空名称或上次自动生成的名称，保留用户手动填写的内容。
+  watch(selectedPeriodId, (periodId, previousPeriodId) => {
+    const previousProjectName = periodOptions.value.find((item) => item.value === previousPeriodId)?.projectName;
+    const previousDefaultName = previousProjectName ? `${previousProjectName}报价单` : '';
+    if (candidateName.value.trim() && candidateName.value !== previousDefaultName) return;
+    const projectName = periodOptions.value.find((item) => item.value === periodId)?.projectName;
+    candidateName.value = projectName ? `${projectName}报价单` : '';
+  });
 
   onMounted(async () => {
     statusMeta.value = await loadQuotationStatusMap();
@@ -118,6 +129,7 @@
       const periods = await getQuotationPeriods();
       periodOptions.value = periods.map((item: any) => ({
         value: String(item.periodId),
+        projectName: String(item.projectName || '').trim(),
         label: `${item.projectName || '未命名主项目'} / ${item.periodName || '未命名分期'}（${item.periodId}）`,
       }));
     } catch (error: any) {
@@ -146,7 +158,7 @@
 
   function handleEdit(record: Recordable) {
     if (!assertPermission(PERMISSIONS.edit)) return;
-    if (record.status !== QUOTATION_STATUS_DRAFT) return createMessage.warning('当前状态不可修改，请先恢复为草稿');
+    if (!isQuotationEditable(record.status)) return createMessage.warning('当前状态不可修改');
     router.push({ path: '/plan/material-draft/editor', query: { mode: 'edit', periodId: record.periodId, candidateId: record.id } });
   }
 
@@ -169,43 +181,28 @@
   }
 
   async function handleLock(record: Recordable) {
-    if (!assertPermission(PERMISSIONS.lock) || record.status !== QUOTATION_STATUS_DRAFT || operatingId.value) return;
+    if (!assertPermission(PERMISSIONS.edit) || !isQuotationEditable(record.status) || operatingId.value) return;
     operatingId.value = String(record.id);
     try {
       const result: any = await getMaterialCandidateItemList({ candidateId: record.id, pageNo: 1, pageSize: 1 });
       const rows = result?.records || result || [];
-      if (!rows.length) throw new Error('请先添加报价物料后再锁定');
+      if (!rows.length) throw new Error('请先添加报价物料后再提交审批');
       await updateMaterialCandidateStatus(record, QUOTATION_STATUS_SUBMITTED, false);
-      createMessage.success('报价已锁定');
+      createMessage.success('报价已提交，等待审批');
       await reload();
     } catch (error: any) {
-      createMessage.error(error?.message || '锁定失败，请重试');
-    } finally {
-      operatingId.value = '';
-    }
-  }
-
-  async function handleUnlock(record: Recordable) {
-    const unlockable = record.status === QUOTATION_STATUS_SUBMITTED;
-    if (!assertPermission(PERMISSIONS.unlock) || !unlockable || operatingId.value) return;
-    operatingId.value = String(record.id);
-    try {
-      await updateMaterialCandidateStatus(record, QUOTATION_STATUS_DRAFT, false);
-      createMessage.success('报价已解锁，可以继续修改');
-      await reload();
-    } catch (error: any) {
-      createMessage.error(error?.message || '解锁失败，请重试');
+      createMessage.error(error?.message || '提交失败，请重试');
     } finally {
       operatingId.value = '';
     }
   }
 
   async function handleDelete(record: Recordable) {
-    if (!assertPermission(PERMISSIONS.delete) || record.status !== QUOTATION_STATUS_DRAFT || operatingId.value) return;
+    if (!assertPermission(PERMISSIONS.delete) || !isQuotationEditable(record.status) || operatingId.value) return;
     operatingId.value = String(record.id);
     try {
       await voidMaterialCandidate(record, false);
-      createMessage.success('报价已删除');
+      createMessage.success('报价已作废');
       await reload();
     } catch (error: any) {
       createMessage.error(error?.message || '删除失败，请重试');
@@ -215,8 +212,7 @@
   }
 
   function getTableAction(record: Recordable): ActionItem[] {
-    const locked = record.status !== QUOTATION_STATUS_DRAFT;
-    const unlockable = record.status === QUOTATION_STATUS_SUBMITTED;
+    const locked = !isQuotationEditable(record.status);
     return [
       {
         label: '查看详情',
@@ -236,38 +232,49 @@
         onClick: handleEdit.bind(null, record),
       },
       {
-        label: '锁定',
-        auth: PERMISSIONS.lock,
+        label: '提交审批',
+        auth: PERMISSIONS.edit,
         ifShow: !locked,
         loading: operatingId.value === String(record.id),
         disabled: !!operatingId.value,
         popConfirm: {
-          title: '锁定后不可修改或删除，确定锁定该报价吗？',
+          title: '提交后等待领导审批，确定提交报价吗？',
           confirm: handleLock.bind(null, record),
         },
       },
-      {
-        label: '解锁',
-        auth: PERMISSIONS.unlock,
-        ifShow: locked && unlockable,
-        loading: operatingId.value === String(record.id),
+      ...[QUOTATION_STATUS_APPROVED, QUOTATION_STATUS_REJECTED].map((status) => ({
+        label: status === QUOTATION_STATUS_APPROVED ? '通过' : '驳回',
+        auth: PERMISSIONS.lock,
+        ifShow: record.status === QUOTATION_STATUS_SUBMITTED,
         disabled: !!operatingId.value,
         popConfirm: {
-          title: '解锁后报价可继续修改，确定解锁吗？',
-          confirm: handleUnlock.bind(null, record),
+          title: status === QUOTATION_STATUS_APPROVED ? '通过后报价将锁定，确认通过？' : '确认驳回此报价？',
+          confirm: () => handleReview(record, status),
         },
-      },
+      })),
       {
-        label: '删除',
+        label: '作废',
         color: 'error',
         auth: PERMISSIONS.delete,
         ifShow: !locked,
         disabled: !!operatingId.value,
         popConfirm: {
-          title: '删除后报价及物料明细不可恢复，确定删除吗？',
+          title: '作废后将从报价列表移除，原记录仍保留，确定作废吗？',
           confirm: handleDelete.bind(null, record),
         },
       },
     ];
+  }
+
+  async function handleReview(record: Recordable, status: string) {
+    if (!assertPermission(PERMISSIONS.lock) || record.status !== QUOTATION_STATUS_SUBMITTED || operatingId.value) return;
+    operatingId.value = String(record.id);
+    try {
+      await updateMaterialCandidateStatus(record, status, false);
+      createMessage.success(status === QUOTATION_STATUS_APPROVED ? '报价已通过并锁定' : '报价已驳回');
+      await reload();
+    } finally {
+      operatingId.value = '';
+    }
   }
 </script>

@@ -2,7 +2,7 @@
   <div class="project-plan-material">
     <div v-if="editable" class="project-plan-material__toolbar">
       <a-button preIcon="ant-design:import-outlined" @click="openImportModal">导入清单</a-button>
-      <span>可上传 Excel，或导入当前分期已锁定的报价单；导入后点击“保存本页”才会提交。</span>
+      <span>首次自动带入合同已采用报价，可追加物料、调整数量；保存本页后生效。</span>
     </div>
     <a-alert
       v-if="hasContractDraft"
@@ -12,7 +12,9 @@
       message="已载入本分期的计划用料清单"
       description="筹备阶段仍可继续增加、调整或移除物料。"
     />
-    <MaterialPlanTable ref="tableRef" :period-id="periodId" :editable="editable" @loaded="handleLoaded" />
+    <a-spin :spinning="importing" tip="正在带入物料，请稍候">
+      <MaterialPlanTable ref="tableRef" :period-id="periodId" :editable="editable" @loaded="handleLoaded" />
+    </a-spin>
 
     <a-modal
       v-model:open="importModalOpen"
@@ -20,15 +22,10 @@
       ok-text="导入"
       cancel-text="取消"
       :confirm-loading="importing"
-      :ok-button-props="{ disabled: importMode === 'file' ? !uploadFile : !selectedCandidateId }"
+      :ok-button-props="{ disabled: !uploadFile }"
       @ok="handleImport"
     >
-      <a-radio-group v-model:value="importMode" button-style="solid">
-        <a-radio-button value="file">上传文件</a-radio-button>
-        <a-radio-button value="quotation">选择已锁定报价单</a-radio-button>
-      </a-radio-group>
-
-      <div v-if="importMode === 'file'" class="project-plan-material__import-content">
+      <div class="project-plan-material__import-content">
         <a-upload-dragger accept=".xlsx" :before-upload="handleBeforeUpload" :file-list="uploadFileList" :max-count="1" @remove="handleRemoveFile">
           <p class="ant-upload-drag-icon"><Icon icon="ant-design:file-excel-outlined" /></p>
           <p class="ant-upload-text">点击或拖拽 Excel 文件到此处</p>
@@ -36,31 +33,18 @@
         </a-upload-dragger>
       </div>
 
-      <div v-else class="project-plan-material__import-content">
-        <a-select
-          v-model:value="selectedCandidateId"
-          show-search
-          allow-clear
-          option-filter-prop="label"
-          :options="candidateOptions"
-          :loading="candidateLoading"
-          placeholder="请选择当前分期已锁定的报价单"
-          style="width: 100%"
-        />
-        <a-empty v-if="!candidateLoading && !candidateOptions.length" description="当前分期暂无已锁定报价单" />
-      </div>
       <a-alert type="info" show-icon message="导入规则" description="清单中已有的同一物料会更新数量、单位和备注，其他物料会追加。" />
     </a-modal>
   </div>
 </template>
 
 <script lang="ts" setup>
-  import { ref } from 'vue';
+  import { ref, watch, nextTick } from 'vue';
   import { Icon } from '/@/components/Icon';
   import { useMessage } from '/@/hooks/web/useMessage';
   import { loadMaterialMap } from '/@/views/material/material.util';
   import MaterialPlanTable from '/@/views/plan/components/MaterialPlanTable.vue';
-  import { getMaterialCandidateItemList, getMaterialCandidateList, QUOTATION_STATUS_SUBMITTED } from '/@/views/plan/Plan.api';
+  import { getAllMaterialCandidates, getAllMaterialCandidateItems, QUOTATION_STATUS_ADOPTED } from '/@/views/plan/Plan.api';
   import { parseMaterialPlanExcel } from '/@/views/plan/materialExcel';
 
   const props = defineProps<{
@@ -73,47 +57,52 @@
   const tableRef = ref();
   const hasContractDraft = ref(false);
   const importModalOpen = ref(false);
-  const importMode = ref<'file' | 'quotation'>('file');
   const uploadFile = ref<File>();
   const uploadFileList = ref<any[]>([]);
-  const selectedCandidateId = ref<string>();
-  const candidateOptions = ref<{ label: string; value: string }[]>([]);
-  const candidateLoading = ref(false);
   const importing = ref(false);
+  let initializationAttempted = false;
+  const initializationFailed = ref(false);
 
-  function handleLoaded(count: number) {
+  async function handleLoaded(count: number) {
     hasContractDraft.value = count > 0;
     if (!importing.value) emit('persisted-change', count > 0);
+    await nextTick();
+    if (!initializationAttempted && !count && props.editable && props.periodId) void initializeFromAdoptedQuotation();
   }
 
-  async function openImportModal() {
-    if (!props.editable) return;
-    importMode.value = 'file';
+  async function initializeFromAdoptedQuotation() {
+    initializationAttempted = true;
+    importing.value = true;
+    initializationFailed.value = false;
+    const periodId = props.periodId!;
+    try {
+      const candidates = await getAllMaterialCandidates(periodId);
+      if (periodId !== props.periodId) return;
+      const adopted = candidates.filter((item) => String(item.status) === QUOTATION_STATUS_ADOPTED);
+      if (adopted.length > 1) throw new Error('当前分期存在多张已采用报价，无法自动带入');
+      if (!adopted.length) return;
+      const items = await getAllMaterialCandidateItems(String(adopted[0].id));
+      if (periodId !== props.periodId) return;
+      if (!items.length) throw new Error('已采用报价没有物料明细，请核对报价');
+      // 仅初始化空计划；候选明细 ID 不属于计划明细，禁止沿用。
+      if (tableRef.value?.getRowCount()) return;
+      await tableRef.value?.importRows(
+        items.map((item) => ({ materialId: item.materialId, unitId: item.unitId, unit: item.unit, plannedQty: item.quantity, remark: item.remark }))
+      );
+      emit('persisted-change', false);
+    } catch (error: any) {
+      initializationFailed.value = true;
+      createMessage.error(error?.message || '报价物料自动带入失败，请刷新重试');
+    } finally {
+      importing.value = false;
+    }
+  }
+
+  function openImportModal() {
+    if (!props.editable || importing.value || initializationFailed.value) return;
     uploadFile.value = undefined;
     uploadFileList.value = [];
-    selectedCandidateId.value = undefined;
     importModalOpen.value = true;
-    await loadLockedCandidates();
-  }
-
-  async function loadLockedCandidates() {
-    if (!props.periodId) {
-      candidateOptions.value = [];
-      return;
-    }
-    candidateLoading.value = true;
-    try {
-      const result: any = await getMaterialCandidateList({ periodId: props.periodId, pageNo: 1, pageSize: 1000 });
-      const records = result?.records || result || [];
-      candidateOptions.value = records
-        .filter((item: any) => String(item.status) === QUOTATION_STATUS_SUBMITTED)
-        .map((item: any) => ({ label: item.candidateName || `报价单 ${item.id}`, value: String(item.id) }));
-    } catch (error: any) {
-      candidateOptions.value = [];
-      createMessage.error(error?.message || '已锁定报价单加载失败');
-    } finally {
-      candidateLoading.value = false;
-    }
   }
 
   function handleBeforeUpload(file: any) {
@@ -151,31 +140,12 @@
     return rows.filter(Boolean);
   }
 
-  async function resolveQuotationMaterials(candidateId: string) {
-    const result: any = await getMaterialCandidateItemList({ candidateId, pageNo: 1, pageSize: 1000 });
-    const rows = result?.records || result || [];
-    if (!rows.length) throw new Error('所选报价单没有物料明细');
-    return rows.map((item: any) => ({
-      materialId: item.materialId,
-      materialCode: item.materialCode,
-      materialCategory: item.materialCategory,
-      materialName: item.materialName,
-      brand: item.brand,
-      model: item.model,
-      plannedQty: item.quantity,
-      unit: item.unit,
-      remark: item.remark,
-    }));
-  }
-
   async function handleImport() {
+    if (!props.editable) return createMessage.warning('当前计划已锁定，无法再导入物料');
     if (importing.value) return;
     importing.value = true;
     try {
-      const records =
-        importMode.value === 'file'
-          ? await resolveExcelMaterials(uploadFile.value as File)
-          : await resolveQuotationMaterials(selectedCandidateId.value as string);
+      const records = await resolveExcelMaterials(uploadFile.value as File);
       const result = await tableRef.value?.importRows?.(records);
       importModalOpen.value = false;
       createMessage.success(`导入完成：新增 ${result?.added || 0} 条，更新 ${result?.updated || 0} 条；请保存本页`);
@@ -186,9 +156,38 @@
     }
   }
 
+  watch(
+    () => props.periodId,
+    () => {
+      initializationAttempted = false;
+      initializationFailed.value = false;
+    }
+  );
+
+  function getSubmissionState() {
+    const tableState = tableRef.value?.getSubmissionState?.() || {
+      loading: false,
+      loaded: false,
+      loadFailed: false,
+      saving: false,
+      dirty: false,
+      hasData: false,
+    };
+    return {
+      ...tableState,
+      loadFailed: tableState.loadFailed || initializationFailed.value,
+      loading: Boolean(tableState.loading || importing.value),
+      saving: Boolean(tableState.saving || importing.value),
+    };
+  }
+
   defineExpose({
-    getData: () => tableRef.value?.getData?.() || [],
+    getData: () => {
+      if (importing.value || initializationFailed.value) throw new Error('报价物料尚未成功带入，请刷新重试');
+      return tableRef.value?.getData?.() || [];
+    },
     reload: () => tableRef.value?.reload?.(),
+    getSubmissionState,
   });
 </script>
 

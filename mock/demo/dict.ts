@@ -7,6 +7,27 @@ import { MockMethod } from 'vite-plugin-mock';
  * 返回格式: [{ value, text, color? }]
  */
 const dictStore: Record<string, { value: string; text: string; color?: string }[]> = {
+  // 通用审批状态：计划方案、合同、项目用料、项目延期、出入库申请及明细
+  approval_status: [
+    { value: '-1', text: '待提交', color: 'default' },
+    { value: '0', text: '驳回', color: 'error' },
+    { value: '1', text: '审核通过', color: 'success' },
+    { value: '2', text: '待审批', color: 'gold' },
+    { value: '3', text: '已撤回', color: 'default' },
+  ],
+  // 系统待办类型
+  todo_type: [
+    { value: 'PROJECT_MEMBER_INVITATION', text: '项目成员邀请', color: '#13c2c2' },
+    { value: 'PROJECT_PLAN_APPROVAL', text: '项目计划方案审批', color: '#1677ff' },
+    { value: 'PROJECT_CONTRACT_APPROVAL', text: '项目合同审批', color: '#722ed1' },
+    { value: 'PROJECT_MATERIAL_APPLY_APPROVAL', text: '项目用料申请审批', color: '#fa8c16' },
+    { value: 'PROJECT_DELAY_APPROVAL', text: '项目延期审批', color: '#faad14' },
+    { value: 'PROJECT_REWORK_APPROVAL', text: '项目返工审批', color: '#fa541c' },
+    { value: 'PROJECT_INTERNAL_ACCEPTANCE', text: '项目内部验收', color: '#08979c' },
+    { value: 'PROJECT_EXTERNAL_ACCEPTANCE', text: '项目外部验收', color: '#531dab' },
+    { value: 'STOCK_OUT_APPROVAL', text: '出库申请审批', color: '#2f54eb' },
+    { value: 'STOCK_OUT_EXECUTE', text: '出库执行待办，等待库管出库', color: '#52c41a' },
+  ],
   // 合同类型
   contract_type: [
     { value: '项目合同', text: '项目合同' },
@@ -40,10 +61,12 @@ const dictStore: Record<string, { value: string; text: string; color?: string }[
   ],
   // 项目用料候选清单状态
   project_material_candidate_status: [
-    { value: '0', text: '草稿', color: 'orange' },
-    { value: '1', text: '已提交', color: 'processing' },
-    { value: '2', text: '已采用', color: 'success' },
-    { value: '3', text: '已作废', color: 'default' },
+    { value: '-1', text: '草稿', color: 'orange' },
+    { value: '0', text: '驳回', color: 'error' },
+    { value: '1', text: '通过', color: 'success' },
+    { value: '2', text: '待处理（已提交）', color: 'processing' },
+    { value: '3', text: '已采用', color: 'success' },
+    { value: '4', text: '已作废', color: 'default' },
   ],
   // 参与人员角色：页面严格展示该字典配置的全部角色。
   member_role: [
@@ -93,12 +116,12 @@ const dictStore: Record<string, { value: string; text: string; color?: string }[
   project_period_status: [
     { value: 'NOT_STARTED', text: '未开始', color: 'default' },
     { value: 'PREPARING', text: '筹备中', color: 'gold' },
-    { value: 'PENDING_APPROVAL', text: '待立项', color: 'processing' },
+    { value: 'PENDING_APPROVAL', text: '待审批', color: 'processing' },
     { value: 'IMPLEMENTING', text: '实施中', color: 'blue' },
     { value: 'DEBUG_COMPLETED', text: '调试完成', color: 'cyan' },
     { value: 'IMPLEMENT_COMPLETED', text: '实施完成', color: 'blue' },
     { value: 'INTERNAL_ACCEPTING', text: '内部验收中', color: 'geekblue' },
-    { value: 'ACCEPTING', text: '客户验收中', color: 'orange' },
+    { value: 'ACCEPTING', text: '验收中', color: 'orange' },
     { value: 'WARRANTY', text: '质保中', color: 'purple' },
     { value: 'COMPLETED', text: '完结', color: 'success' },
     { value: 'CLOSED', text: '关闭', color: 'error' },

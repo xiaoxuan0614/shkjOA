@@ -29,8 +29,8 @@ export const contractList = (params) => defHttp.get({ url: Api.list, params });
  * 合同详情；最新接口仅接受项目分期 ID。
  * @param params { periodId }
  */
-export const contractDetail = async (params) => {
-  const result: any = await defHttp.get({ url: Api.detail, params });
+export const contractDetail = async (params, quiet = false) => {
+  const result: any = await defHttp.get({ url: Api.detail, params }, quiet ? { successMessageMode: 'none', errorMessageMode: 'none' } : undefined);
   if (!result?.contract) return result;
   // 兼容原有消费方的合同扁平结构，同时保留组合接口返回的文件与回款计划。
   return {
@@ -73,15 +73,18 @@ function submitContractWithPaymentRecords(url: string, data: Recordable, attachm
 
 /**
  * 合同状态变更（审批、撤回、重新提审）。
- * @param params { periodId, status, approvalReason? } status: 0驳回 / 1通过 / 2待审核 / 3已撤回 / 其他待提交
+ * @param params { periodId, status, approvalReason? } status: -1待提交 / 0驳回 / 1审核通过 / 2待审批 / 3已撤回
  */
 export const changeContractStatus = (params) => defHttp.post({ url: Api.status, params }, { successMessageMode: 'success' });
 
 /**
  * 项目回款计划列表；periodId 必传。
  */
-export const paybackList = async (params) => {
-  const result: any = await defHttp.get({ url: Api.paybackList, params });
+export const paybackList = async (params, quiet = false) => {
+  const result: any = await defHttp.get(
+    { url: Api.paybackList, params },
+    quiet ? { successMessageMode: 'none', errorMessageMode: 'none' } : undefined
+  );
   const normalize = (record: Recordable) => ({
     ...record,
     node: record.paymentNode ?? record.node,

@@ -27,7 +27,9 @@
           </template>
         </template>
       </a-table>
-      <div class="purchase-modal__total">采购总价：<b>{{ totalAmount.toFixed(2) }}</b></div>
+      <div class="purchase-modal__total"
+        >采购总价：<b>{{ totalAmount.toFixed(2) }}</b></div
+      >
     </div>
 
     <!-- 选物料抽屉 -->
@@ -46,6 +48,7 @@
   import { addOrder, editOrder, getSuppliers, searchProjectPeriod, queryOrderById } from './Purchase.api';
   import MaterialSelectDrawer from '../apply/components/MaterialSelectDrawer.vue';
   import { ensureSupplierOptions, ensurePeriodOptions } from '../material.options';
+  import { validateEditableRows } from '/@/components/EditableTable';
 
   const { createMessage } = useMessage();
   const emit = defineEmits(['register', 'success']);
@@ -132,16 +135,14 @@
   const detailList = ref<any[]>([]);
   let detailKeySeed = 0;
 
-  const totalAmount = computed(() =>
-    detailList.value.reduce((sum, d) => sum + Number(d.quantity || 0) * Number(d.unitPrice || 0), 0)
-  );
+  const totalAmount = computed(() => detailList.value.reduce((sum, d) => sum + Number(d.quantity || 0) * Number(d.unitPrice || 0), 0));
 
   function calcAmount(record: any): string {
     return (Number(record.quantity || 0) * Number(record.unitPrice || 0)).toFixed(2);
   }
 
   function handleAddMaterial() {
-    openDrawer(true);
+    openDrawer(true, { excludeMaterialIds: detailList.value.map((item) => item.id) });
   }
 
   function handleDrawerSuccess(selected: any[]) {
@@ -243,9 +244,18 @@
       createMessage.warning('请添加采购物料');
       return;
     }
-    const invalid = detailList.value.find((d) => !d.quantity || d.unitPrice == null || !d.unit);
-    if (invalid) {
-      createMessage.warning('请填写完整的采购数量/单价/单位');
+    const issues = validateEditableRows(detailList.value, {
+      selectorField: 'id',
+      selectorLabel: '物料',
+      optionLabel: (value) => detailList.value.find((item) => String(item.id) === String(value))?.materialName || String(value),
+      rules: [
+        { field: 'quantity', label: '采购数量', required: true, validate: (value) => Number(value) > 0 || '采购数量必须大于 0' },
+        { field: 'unitPrice', label: '单价', required: true, validate: (value) => Number(value) >= 0 || '单价不能小于 0' },
+        { field: 'unit', label: '单位', required: true },
+      ],
+    });
+    if (issues.length) {
+      createMessage.warning(issues[0].message);
       return;
     }
     const payload = {

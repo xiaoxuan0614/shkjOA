@@ -118,17 +118,38 @@ export function resolveUserName(id?: string | number, fallback?: string): string
  * 用法：组件内 await loadMaterialMap() 后，模板 `materialMap[record.materialId]?.materialName` 兜底。
  */
 let materialMapCache: Record<string, any> | null = null;
-export async function loadMaterialMap(): Promise<Record<string, any>> {
-  if (materialMapCache) return materialMapCache;
-  try {
-    const { defHttp } = await import('/@/utils/http/axios');
-    const res: any = await defHttp.get({ url: '/stock/material/list', params: { pageNo: 1, pageSize: 10000 } });
-    const recs = res?.records || (Array.isArray(res) ? res : []);
-    materialMapCache = Object.fromEntries((recs || []).map((m: any) => [m.id, m]));
-  } catch (e) {
-    materialMapCache = {};
-  }
-  return materialMapCache;
+let materialMapRequest: Promise<Record<string, any>> | null = null;
+
+export async function loadMaterialMap(options: { force?: boolean } = {}): Promise<Record<string, any>> {
+  if (materialMapCache && !options.force) return materialMapCache;
+  if (materialMapRequest) return materialMapRequest;
+  materialMapRequest = (async () => {
+    try {
+      const { defHttp } = await import('/@/utils/http/axios');
+      const res: any = await defHttp.get({ url: '/stock/material/list', params: { pageNo: 1, pageSize: 10000 } });
+      const recs = res?.records || (Array.isArray(res) ? res : []);
+      const nextMap = Object.fromEntries(
+        (recs || [])
+          .filter((material: any) => material?.id != null)
+          .map((material: any) => [String(material.id), material])
+      );
+      materialMapCache = nextMap;
+      return nextMap;
+    } catch (e) {
+      // 刷新失败时沿用上一次成功数据；首次失败保持空映射，但不把失败永久缓存。
+      return materialMapCache || {};
+    } finally {
+      materialMapRequest = null;
+    }
+  })();
+  return materialMapRequest;
+}
+
+/**
+ * 物料新增、编辑、删除后清理主数据映射，避免其它页面继续显示旧编码。
+ */
+export function invalidateMaterialMap() {
+  materialMapCache = null;
 }
 
 /**
@@ -144,9 +165,9 @@ export function resolveMaterial(id?: string | number): any | null {
  * 需先 await loadMaterialMap()（本函数直接读模块级缓存，无额外请求）。
  * @param records 台账等列表记录(会就地挂 materialCode/materialName)
  */
-export function enrichMaterialInfo(records?: any[]): any[] {
+export function enrichMaterialInfo(records?: any[], materialMap: Record<string, any> | null = materialMapCache): any[] {
   (records || []).forEach((r: any) => {
-    const m = r?.materialId != null ? materialMapCache?.[String(r.materialId)] : null;
+    const m = r?.materialId != null ? materialMap?.[String(r.materialId)] : null;
     r.materialCode = m?.materialCode || r.materialCode || '';
     r.materialName = m?.materialName || r.materialName || '';
   });

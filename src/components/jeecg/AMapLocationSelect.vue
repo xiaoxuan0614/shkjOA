@@ -1,7 +1,7 @@
 <template>
   <div class="amap-location-select" :class="{ 'amap-location-select--inline': inline }">
     <!-- 只读输入框: 显示当前已确认地址 -->
-    <a-input :value="innerValue" :placeholder="placeholder" :disabled="disabled" readonly @click="handleFieldClick">
+    <a-input :value="innerValue" :placeholder="placeholder" :disabled="disabled" readonly @click="handleFieldClick" @keydown.enter.prevent="handleFieldClick">
       <template #prefix>
         <svg class="amap-location-select__pin" width="14" height="18" viewBox="0 0 40 52" xmlns="http://www.w3.org/2000/svg">
           <path
@@ -14,7 +14,7 @@
         </svg>
       </template>
       <template #suffix>
-        <span class="amap-location-select__hint">{{ inline ? (locked ? '点击「修改定位」再调整' : '拖动地图微调') : '地图选点' }}</span>
+        <span class="amap-location-select__hint">{{ inline ? (locked ? '点击「修改定位」再调整' : '拖动地图微调') : '选择位置' }}</span>
       </template>
     </a-input>
 
@@ -58,11 +58,13 @@
       :cancelText="'取消'"
       :okButtonProps="{ disabled: disabled || !lastPoi }"
       @ok="handleConfirm"
+      @visible-change="(visible) => (modalVisible = visible)"
     >
       <div class="amap-location-select__map">
         <!-- a-form-item-rest: 阻断外层 Form.Item 收集弹窗内搜索组件，避免 id 冲突/双字段告警 -->
         <a-form-item-rest>
           <AMapLocationMap
+            v-if="modalVisible"
             :lng="modalLng"
             :lat="modalLat"
             :address="modalAddress"
@@ -158,6 +160,11 @@
       if (!locked.value) return;
       const nextAddress = value ?? '';
       mapAddress.value = nextAddress;
+      if (!nextAddress) {
+        savedPoi.value = null;
+        draftPoi = null;
+        return;
+      }
       if (savedPoi.value) {
         savedPoi.value = { ...savedPoi.value, name: nextAddress, address: nextAddress };
         draftPoi = savedPoi.value;
@@ -216,6 +223,8 @@
 
   // ===== 弹窗模式 =====
   const modalTitle = ref('地图选点');
+  // 仅在弹窗打开时挂载地图，关闭即卸载，避免隐藏地图继续请求瓦片。
+  const modalVisible = ref(false);
   const modalLng = ref<number | null>(null);
   const modalLat = ref<number | null>(null);
   const modalAddress = ref('');
@@ -225,11 +234,11 @@
 
   function handleFieldClick() {
     if (props.disabled || props.inline) return;
-    modalLng.value = props.lng ?? null;
-    modalLat.value = props.lat ?? null;
-    modalAddress.value = props.value ?? '';
-    lastPoi.value =
-      props.lng != null && props.lat != null ? { name: props.value ?? '', address: props.value ?? '', lng: props.lng, lat: props.lat } : null;
+    // 父表单可能只保存经纬度字段而不立即回传组件 props，重开使用已确认快照。
+    modalLng.value = savedPoi.value?.lng ?? null;
+    modalLat.value = savedPoi.value?.lat ?? null;
+    modalAddress.value = innerValue.value;
+    lastPoi.value = savedPoi.value ? { ...savedPoi.value } : null;
     openModal(true);
   }
 
@@ -251,6 +260,7 @@
     if (props.disabled || !lastPoi.value || lastPoi.value.lng == null || lastPoi.value.lat == null) return;
     const addr = lastPoi.value.address || lastPoi.value.name || '';
     innerValue.value = addr;
+    savedPoi.value = { ...lastPoi.value };
     emit('update:value', addr);
     emit('change', addr);
     emit('select', lastPoi.value);

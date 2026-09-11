@@ -2,6 +2,7 @@ import { computed, ref } from 'vue';
 import { projectDetail } from '../Project.api';
 import { contractDetail } from '/@/views/payment/Payment.api';
 import { invitationList, respondInvitation } from './Invite.api';
+import { refreshTodos } from '/@/views/todo/useTodoCenter';
 
 export interface ProjectInvitation extends Recordable {
   id: string;
@@ -23,6 +24,20 @@ function unwrapPage(payload: any) {
     records: Array.isArray(page) ? page : page?.records || [],
     total: Number(page?.total ?? (Array.isArray(page) ? page.length : page?.records?.length) ?? 0),
   };
+}
+
+function dedupeInvitations(records: Recordable[]) {
+  const seen = new Set<string>();
+  return records.filter((record) => {
+    const periodId = String(record.periodId || record.projectPeriodId || '');
+    const userId = String(record.userId || record.memberId || '');
+    const key = periodId ? `${periodId}:${userId}` : String(record.id || '');
+    if (!key || !seen.has(key)) {
+      if (key) seen.add(key);
+      return true;
+    }
+    return false;
+  });
 }
 
 async function loadInvitationContext(periodId: string) {
@@ -60,15 +75,16 @@ async function refreshInvitations(force = false) {
     loading.value = true;
     try {
       const page = unwrapPage(await invitationList({ pageNo: 1, pageSize: 100 }));
+      const records = dedupeInvitations(page.records);
       const contextByPeriod = new Map<string, Promise<Recordable>>();
       invitations.value = await Promise.all(
-        page.records.map((record) => {
+        records.map((record) => {
           const periodId = String(record.periodId || '');
           if (!contextByPeriod.has(periodId)) contextByPeriod.set(periodId, loadInvitationContext(periodId));
           return enrichInvitation(record, contextByPeriod.get(periodId)!);
         })
       );
-      total.value = page.total;
+      total.value = Math.max(records.length, page.total - (page.records.length - records.length));
     } finally {
       loading.value = false;
       pendingRequest = null;
@@ -81,6 +97,7 @@ async function handleInvitation(memberId: string, inviteStatus: '0' | '1') {
   await respondInvitation({ memberId, inviteStatus });
   invitations.value = invitations.value.filter((item) => String(item.id) !== String(memberId));
   total.value = Math.max(0, total.value - 1);
+  await refreshTodos(true).catch(() => undefined);
 }
 
 export function useProjectInvitations() {

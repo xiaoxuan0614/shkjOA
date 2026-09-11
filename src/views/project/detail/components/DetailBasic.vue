@@ -7,13 +7,13 @@
       <a-descriptions-item label="项目编号">{{ project.projectNo || '—' }}</a-descriptions-item>
       <a-descriptions-item label="分期名称">{{ project.periodName || '—' }}</a-descriptions-item>
       <a-descriptions-item label="主项目名称">{{ project.projectName || '—' }}</a-descriptions-item>
-      <a-descriptions-item label="项目类型">{{ project.projectType || '—' }}</a-descriptions-item>
+      <a-descriptions-item label="项目类型">{{ projectTypeText || project.projectType || '—' }}</a-descriptions-item>
       <a-descriptions-item label="甲方名称">{{ project.customerName || '—' }}</a-descriptions-item>
       <a-descriptions-item label="甲方联系人">{{ project.contactPerson || '—' }}</a-descriptions-item>
       <a-descriptions-item label="甲方联系电话">{{ project.contactPhone || '—' }}</a-descriptions-item>
       <a-descriptions-item label="项目对接人">{{ project.projectLiaisonUserName || '—' }}</a-descriptions-item>
-      <a-descriptions-item label="业务属性">{{ project.businessAttribute || '—' }}</a-descriptions-item>
-      <a-descriptions-item label="涉及产品">{{ project.involvedProducts || '—' }}</a-descriptions-item>
+      <a-descriptions-item label="业务属性">{{ businessAttributeText || project.businessAttribute || '—' }}</a-descriptions-item>
+      <a-descriptions-item label="涉及产品">{{ involvedProductsText || project.involvedProducts || '—' }}</a-descriptions-item>
       <a-descriptions-item label="进度(%)">{{ project.totalProgress ?? '—' }}</a-descriptions-item>
       <a-descriptions-item label="甲方信息">{{ project.customerInfo || '—' }}</a-descriptions-item>
       <a-descriptions-item label="项目地址" :span="2">{{ project.projectAddress || '—' }}</a-descriptions-item>
@@ -40,6 +40,9 @@
   defineProps<{
     project: Recordable;
     editable?: boolean;
+    projectTypeText?: string;
+    businessAttributeText?: string;
+    involvedProductsText?: string;
   }>();
   defineEmits<{ (e: 'edit'): void }>();
 

@@ -7,9 +7,9 @@
           <template #tableTitle>
             <a-button type="primary" preIcon="ant-design:plus-outlined" @click="handlePick">领料申请</a-button>
             <a-button type="primary" preIcon="ant-design:reload-outlined" @click="handleReturn">还料申请</a-button>
-            <a-button v-if="selectedKeys.length" preIcon="ant-design:check-circle-outlined" @click="handleBatchApprove">批量审批</a-button>
-            <a-button v-if="selectedKeys.length" @click="handleBatchOut">批量出库</a-button>
-            <a-button v-if="selectedKeys.length" @click="handleBatchIn">批量入库</a-button>
+            <a-button v-if="selectedRows.some(canApprove)" preIcon="ant-design:check-circle-outlined" @click="handleBatchApprove">批量审批</a-button>
+            <a-button v-if="selectedKeys.length && hasExecutePermission()" @click="handleBatchOut">批量出库</a-button>
+            <a-button v-if="selectedKeys.length && hasExecutePermission()" @click="handleBatchIn">批量入库</a-button>
             <a-button danger @click="handleBatchDelete">批量删除</a-button>
           </template>
           <template #action="{ record }">
@@ -22,8 +22,11 @@
             <template v-else-if="column.dataIndex === 'applyType'">
               <a-tag :color="dictColor(typeMap, record.applyType)">{{ dictText(typeMap, record.applyType) }}</a-tag>
             </template>
+            <template v-else-if="column.dataIndex === 'usageType'">
+              {{ record.bizType === 'PICK' ? getMaterialUsageTypeText(record.usageType) : '—' }}
+            </template>
             <template v-else-if="column.dataIndex === 'status'">
-              <a-tag :color="dictColor(statusMap, getStatusText(record))">{{ dictText(statusMap, getStatusText(record)) }}</a-tag>
+              <a-tag :color="getListApprovalStatusMeta(record).color">{{ getListApprovalStatusMeta(record).text }}</a-tag>
             </template>
             <template v-else-if="column.dataIndex === 'executeStatus'">
               <a-tag :color="dictColor(execMap, record.executeStatus)">{{ dictText(execMap, record.executeStatus) }}</a-tag>
@@ -65,6 +68,7 @@
 
 <script lang="ts" name="mtl-record" setup>
   import { ref, onMounted } from 'vue';
+  import { useStockAccess, isProjectOutbound } from './stockAccess';
   import { useRouter } from 'vue-router';
   import { BasicTable, TableAction } from '/@/components/Table';
   import { useModal } from '/@/components/Modal';
@@ -80,7 +84,22 @@
   import StockExecuteModal from './components/StockExecuteModal.vue';
   import IoRecordDetailModal from './components/IoRecordDetailModal.vue';
   import ApplyDetailDrawer from '../components/ApplyDetailDrawer.vue';
+  import { getMaterialUsageTypeText } from '../material.constants';
+  import {
+    getApprovalStatusMeta,
+    APPROVAL_APPROVED,
+    APPROVAL_PENDING,
+    APPROVAL_PENDING_SUBMIT,
+    APPROVAL_REJECTED,
+    APPROVAL_WITHDRAWN,
+  } from '/@/utils/approvalStatus';
 
+  function getListApprovalStatusMeta(record: Recordable) {
+    if (isProjectOutbound(record) && String(record.status) === APPROVAL_APPROVED) return { color: 'blue', text: '自动通过' };
+    return getApprovalStatusMeta(record.status);
+  }
+
+  const { canApprove, canExecute, hasExecutePermission } = useStockAccess();
   const router = useRouter();
   const { createMessage, createConfirm } = useMessage();
   const activeKey = ref('apply');
@@ -89,18 +108,16 @@
   const currentUser = getCurrentUser();
 
   // 后端数据字典（后台「系统管理→数据字典」配置，改后重新登录生效）
-  // 状态码：PENDING 待审批 / PARTIAL_APPROVED 部分通过 / APPROVED 已通过 / REJECTED 已驳回 / WITHDRAWN 已撤回 / CANCELED 已取消
+  // 审批状态统一数值码；执行状态仍遵循 stock_execute_status 自身协议。
   type DictMap = Record<string, { text: string; color: string }>;
   const bizMap = ref<DictMap>({});
   const typeMap = ref<DictMap>({});
-  const statusMap = ref<DictMap>({});
   const execMap = ref<DictMap>({});
   // 台账来源(apply 申请 / manual 手动 / stocktake 盘存)
   const sourceMap = ref<DictMap>({});
   onMounted(async () => {
     bizMap.value = await loadDictMap('stock_apply_biz_type');
     typeMap.value = await loadDictMap('stock_apply_type');
-    statusMap.value = await loadDictMap('stock_apply_status');
     execMap.value = await loadDictMap('stock_execute_status');
     sourceMap.value = await loadDictMap('stock_io_source_type');
   });
@@ -122,8 +139,7 @@
       actionColumn: { width: 240, fixed: 'right' },
     },
   });
-  const [registerApplyTable, { reload: reloadApply, setLoading: setApplyLoading }, { rowSelection, selectedRowKeys, selectedRows }] =
-    applyCtx;
+  const [registerApplyTable, { reload: reloadApply, setLoading: setApplyLoading }, { rowSelection, selectedRowKeys, selectedRows }] = applyCtx;
 
   // 出入库台账表
   const { tableContext: recordCtx } = useListPage({
@@ -140,23 +156,19 @@
   // 台账物料富化：台账只回 materialId，按物料主表缓存补 物料编码/名称(listRecordWithMaterial 用)
   let materialMapLoaded = false;
   async function ensureMaterialMap() {
-    if (materialMapLoaded) return;
+    const materialMap = await loadMaterialMap({ force: !materialMapLoaded });
     materialMapLoaded = true;
-    try {
-      await loadMaterialMap();
-    } catch (e) {
-      // 失败不阻塞列表，物料编码/名称留空
-    }
+    return materialMap;
   }
 
   /**
    * 台账列表包装：按 materialId 富化 物料编码/物料名称
    */
   async function listRecordWithMaterial(params: any) {
-    await ensureMaterialMap();
+    const materialMap = await ensureMaterialMap();
     const res: any = await listRecord(params);
     const records = res?.records || (Array.isArray(res) ? res : []);
-    enrichMaterialInfo(records);
+    enrichMaterialInfo(records, materialMap);
     return res;
   }
 
@@ -175,12 +187,12 @@
 
   /** 领料申请：跳转领料申请页 */
   function handlePick() {
-    router.push('/material/pick');
+    router.push({ path: '/material/pick', query: { from: '/material/record' } });
   }
 
   /** 还料申请：跳转还料申请页 */
   function handleReturn() {
-    router.push('/material/return');
+    router.push({ path: '/material/return', query: { from: '/material/record' } });
   }
 
   /** 查看申请明细(抽屉：申请头 + 物料明细 + 审批记录两个分页列表) */
@@ -200,12 +212,13 @@
 
   /** 审批：打开弹窗(整单 通过/驳回) */
   function handleApprove(record: Recordable) {
+    if (!canApprove(record)) return createMessage.warning('当前申请无需审批或您无权审批');
     openModal(true, { record });
   }
 
   /** 批量审批：勾选多条申请，整单批量 通过/驳回 */
   function handleBatchApprove() {
-    openBatchApproveModal(true, { rows: selectedRows.value });
+    openBatchApproveModal(true, { rows: selectedRows.value.filter(canApprove) });
   }
 
   /** 是否当前登录人自己的申请(按 applyUserId，回退按申请人姓名) */
@@ -224,7 +237,7 @@
     });
   }
 
-  /** 删除：自己的 待审批/已撤回/已驳回/已取消 申请 */
+  /** 删除：自己的待提交/已撤回申请。 */
   function handleDeleteApply(record: Recordable) {
     createConfirm({
       iconType: 'warning',
@@ -234,13 +247,13 @@
     });
   }
 
-  /** 批量删除：仅删除自己的 待审批/已撤回 申请，其余跳过 */
+  /** 批量删除：仅删除自己的待提交/已撤回申请，其余跳过。 */
   function handleBatchDelete() {
     const rows = (selectedRows.value || []).filter(
-      (r: any) => isMyApply(r) && ['PENDING', 'WITHDRAWN'].includes(r.status)
+      (r: any) => isMyApply(r) && [APPROVAL_PENDING_SUBMIT, APPROVAL_WITHDRAWN].includes(String(r.status))
     );
     if (!rows.length) {
-      createMessage.warning('请勾选自己「待审批/已撤回」的申请');
+      createMessage.warning('请勾选自己「待提交/已撤回」的申请');
       return;
     }
     const skipped = (selectedRows.value || []).length - rows.length;
@@ -252,14 +265,15 @@
     });
   }
 
-  /** 修改：已撤回/已驳回的申请跳回对应申请页编辑(applyId)并重新提交 */
+  /** 修改：待提交/已撤回/已驳回的申请跳回对应申请页编辑(applyId)并重新提交。 */
   function handleEditApply(record: Recordable) {
     const base = record.bizType === 'RETURN' ? '/material/return' : '/material/pick';
-    router.push(`${base}?applyId=${record.id}`);
+    router.push({ path: base, query: { applyId: record.id, from: '/material/record' } });
   }
 
   /** 出库/入库：打开出入库执行弹窗(明细维度：勾选部分/改数量/留痕/还料三层数量) */
   function openExecute(record: Recordable) {
+    if (!canExecute(record)) return createMessage.warning('当前申请不可执行或您没有出入库权限');
     openStockExecuteModal(true, { record });
   }
 
@@ -274,10 +288,11 @@
   }
 
   /**
-   * 批量出库/入库：选中记录逐条查明细分页接口(queryItems)，只处理「已通过/部分通过」的对应方向申请；
+   * 批量出库/入库：选中记录逐条查明细分页接口(queryItems)，只处理「审核通过」的对应方向申请；
    * 每张申请一次 executeApply(已通过明细 → 剩余可执行数=申请−已执行 executedQty)；跳过已执行完的
    */
   async function handleBatchIo(ioType: 'IN' | 'OUT') {
+    if (!hasExecutePermission()) return createMessage.warning('仅库管可操作出入库');
     const rows = selectedRows.value;
     if (!rows?.length) {
       createMessage.warning('请先勾选申请');
@@ -289,16 +304,16 @@
       let count = 0;
       let skip = 0;
       for (const row of rows) {
-        // 已通过 / 部分通过 的对应方向申请(状态码=后端英文码)
-        if (!['APPROVED', 'PARTIAL_APPROVED'].includes(row.status) || row.applyType !== expectType) {
+        // 仅审核通过的对应方向申请可执行出入库。
+        if (!canExecute(row) || row.applyType !== expectType) {
           skip++;
           continue;
         }
-        // 明细分页接口(executedQty 已执行数直接返回，不再聚台账)；只执行已通过明细(status=APPROVED)
+        // 明细分页接口(executedQty 已执行数直接返回，不再聚台账)；只执行审核通过明细(status=1)
         const res: any = await queryItems({ applyId: row.id, pageNo: 1, pageSize: 500 });
         const records = res?.records || res || [];
         const items = records
-          .filter((it: any) => it.status === 'APPROVED')
+          .filter((it: any) => String(it.status) === APPROVAL_APPROVED)
           .map((it: any) => {
             const applied = Number(it.applyQty ?? it.unitQty ?? 0);
             const executed = Number(it.executedQty ?? 0);
@@ -317,44 +332,35 @@
     }
   }
 
-  /** 行操作(明细 + 库管动作 + 申请人动作)；状态码=后端英文码 PENDING/APPROVED/REJECTED/CANCELED */
+  /** 行操作(明细 + 库管动作 + 申请人动作)；审批状态统一使用 -1/0/1/2/3。 */
   function getApplyActions(record) {
     const actions = [{ label: '明细', onClick: handleDetail.bind(null, record) }];
     const isMine = isMyApply(record);
+    const approvalStatus = String(record.status ?? '');
 
-    if (record.status === 'PENDING') {
+    if (approvalStatus === APPROVAL_PENDING) {
       // 仅待审批显示审批按钮
-      actions.push({ label: '审批', onClick: handleApprove.bind(null, record) });
+      if (canApprove(record)) actions.push({ label: '审批', onClick: handleApprove.bind(null, record) });
       // 申请人：库管未出库前可撤回
       if (isMine) actions.push({ label: '撤回', onClick: handleWithdraw.bind(null, record) });
-    } else if (['PARTIAL_APPROVED', 'APPROVED'].includes(record.status)) {
-      // 已通过/部分通过：出库/入库按钮展示条件一致，均按执行状态区分(仅「待执行/部分执行」显示，执行完不再显示)
-      if (isExecutable(record)) {
+    } else if (approvalStatus === APPROVAL_APPROVED) {
+      // 审核通过：出库/入库按钮按执行状态区分(仅「待执行/部分执行」显示，执行完不再显示)
+      if (canExecute(record)) {
         // 领料=PICK 出库；还料=RETURN / 采购=PURCHASE 入库(回退 applyType)
         const isOut = record.bizType === 'PICK' || record.applyType === 'OUT';
         actions.push({ label: isOut ? '出库' : '入库', onClick: openExecute.bind(null, record) });
       }
     }
 
-    // 申请人：已撤回/待审批/已驳回 可修改申请单后重新提交
-    if (isMine && ['WITHDRAWN', 'REJECTED'].includes(record.status)) {
+    // 申请人：待提交/已驳回/已撤回可修改申请单后重新提交。
+    if (isMine && [APPROVAL_PENDING_SUBMIT, APPROVAL_REJECTED, APPROVAL_WITHDRAWN].includes(approvalStatus)) {
       actions.push({ label: '修改', onClick: handleEditApply.bind(null, record) });
     }
-    // 申请人：待审批/已撤回 可删除（已驳回不可删）
-    if (isMine && ['PENDING', 'WITHDRAWN'].includes(record.status)) {
+    // 申请人：待提交/已撤回可删除（待审批应先撤回，已驳回不可删）。
+    if (isMine && [APPROVAL_PENDING_SUBMIT, APPROVAL_WITHDRAWN].includes(approvalStatus)) {
       actions.push({ label: '删除', onClick: handleDeleteApply.bind(null, record) });
     }
     return actions;
-  }
-
-  /** 出库/入库按钮是否展示：按执行状态区分，仅「待执行(PENDING)/部分执行(PARTIAL_EXECUTED)」显示（执行完不再显示） */
-  function isExecutable(record) {
-    return ['PENDING', 'PARTIAL_EXECUTED'].includes(record.executeStatus);
-  }
-
-  /** 状态展示 */
-  function getStatusText(record) {
-    return record.status || '—';
   }
 
   /** 成功回调：刷新申请列表；台账仅在其 tab 激活时刷新(未激活的 tab 表格未挂载，调用会报错) */

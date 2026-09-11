@@ -1,5 +1,5 @@
 <template>
-  <BasicModal v-bind="$attrs" @register="register" title="库管审批" :width="880" @ok="handleSubmit" :okText="'提交审批'">
+  <BasicModal v-bind="$attrs" @register="register" title="申请审批" :width="880" @ok="handleSubmit" :okText="'提交审批'">
     <!-- 申请信息(只读) -->
     <a-descriptions :column="3" size="small" bordered class="approve-desc">
       <a-descriptions-item label="申请单号">{{ record.applyNo || '—' }}</a-descriptions-item>
@@ -31,9 +31,11 @@
   import { ref, computed } from 'vue';
   import { BasicModal, useModalInner } from '/@/components/Modal';
   import { useMessage } from '/@/hooks/web/useMessage';
-  import { queryItems, approveApply, rejectApply } from '../StockApply.api';
-  import { loadDictMap, getCurrentUser } from '../../material.util';
+  import { queryById, queryItems, approveApply, rejectApply } from '../StockApply.api';
+  import { loadDictMap } from '../../material.util';
 
+  import { useStockAccess } from '../stockAccess';
+  const { canApprove } = useStockAccess();
   const { createMessage } = useMessage();
   const emit = defineEmits(['register', 'success']);
 
@@ -68,6 +70,8 @@
     if (!id) return;
     setModalProps({ loading: true });
     try {
+      record.value = await queryById({ id });
+      if (!canApprove(record.value)) throw new Error('当前申请无需审批或您无权审批');
       // 明细走分页接口 /stock/apply/items(只读展示申请了什么物料)
       const itemRes: any = await queryItems({ applyId: id, pageNo: 1, pageSize: 500 });
       const items = itemRes?.records || itemRes || [];
@@ -90,9 +94,10 @@
 
   /**
    * 提交审批：整单审批（无逐条概念）。整单通过 → approve，整单驳回 → reject（驳回必填原因）。
-   * 全局规定：审批传当前操作人id(approvalUserId)
+   * 审批人由后端按登录身份确定。
    */
   async function handleSubmit() {
+    if (!canApprove(record.value)) return createMessage.warning('当前申请无需审批或您无权审批');
     if (loadError.value || !rows.value.length) {
       createMessage.warning('无明细可审批');
       return;
@@ -103,7 +108,6 @@
     }
     const params = {
       applyId: record.value.id,
-      approvalUserId: getCurrentUser().applyUserId,
       approvalResult: result.value,
       approvalComment: comment.value,
     };

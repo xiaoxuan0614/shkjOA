@@ -2,8 +2,8 @@ import type { AppRouteModule } from '/@/router/types';
 import { LAYOUT } from '/@/router/constant';
 
 /**
- * 设计稿侧边栏中的其余一级菜单(占位)
- * 文件管理 / 数据报表 / 运维管理
+ * 设计稿侧边栏中的其余一级菜单
+ * 文件管理 / 数据报表仍为占位，运维管理已接入值班表
  * 说明: 计划方案管理/实施管理/回款管理 已在独立路由文件实现(plan.ts/implement.ts/payment.ts), 此处仅保留暂无设计稿的占位
  */
 
@@ -52,8 +52,8 @@ const operation: AppRouteModule = {
     {
       path: 'list',
       name: 'OperationList',
-      component: () => import('/@/views/placeholder/index.vue'),
-      meta: { title: '运维管理' },
+      component: () => import('/@/views/operation/duty-roster/index.vue'),
+      meta: { title: '运维值班表' },
     },
   ],
 };

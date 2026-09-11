@@ -52,7 +52,6 @@ const material: AppRouteModule = {
       component: () => import('/@/views/material/pick/index.vue'),
       meta: {
         title: '领料申请',
-        hideMenu: true,
       },
     },
     {
@@ -61,7 +60,6 @@ const material: AppRouteModule = {
       component: () => import('/@/views/material/return/index.vue'),
       meta: {
         title: '还料申请',
-        hideMenu: true,
       },
     },
     {

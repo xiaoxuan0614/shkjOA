@@ -3,9 +3,9 @@ import { defHttp } from '/@/utils/http/axios';
 /**
  * 出入库申请 - 接口定义
  * ⚠️ 与正式后端接口契约对齐(apifox /stock/apply)
+ *   申请及明细 status 统一为 -1待提交 / 0驳回 / 1审核通过 / 2待审批 / 3已撤回
  *   申请列表 /stock/apply/list
- *   审批通过 /stock/apply/approve   入参 StockApplyApproval(approvalResult=AGREE)
- *   驳回     /stock/apply/reject    入参 StockApplyApproval(approvalResult=REJECT)
+ *   整单审批 /stock/apply/approve   入参 StockApplyApprovalRequest(approvalResult=AGREE|REJECT)
  *   撤回/取消 /stock/apply/cancel    入参 query id
  *   删除      /stock/apply/delete   入参 query id
  *   执行出入库 /stock/apply/execute  入参 StockApplyExecuteRequest(applyId+itemIds+items)
@@ -19,7 +19,6 @@ enum Api {
   queryItems = '/stock/apply/items',
   queryApprovals = '/stock/apply/approvals',
   approve = '/stock/apply/approve',
-  reject = '/stock/apply/reject',
   cancel = '/stock/apply/cancel',
   deleteOne = '/stock/apply/delete',
   deleteBatch = '/stock/apply/deleteBatch',
@@ -43,7 +42,7 @@ export const queryById = (params) => defHttp.get({ url: Api.queryById, params })
  * 出入库申请-明细分页列表
  * @param params { applyId, pageNo?, pageSize? }
  *   StockApplyItem: id, materialId, materialCategory, materialName, brand, model, unit, unitId,
- *   unitName, unitQty, baseQty, applyQty, unitPrice, amount, remark, status,
+ *   unitName, unitQty, baseQty, applyQty, unitPrice, amount, remark, status(统一五态审批码),
  *   approvedQty, approvedBaseQty, executedQty, executeStatus, executeUserId, executeUserName, executeTime
  *   MyBatis-Plus 分页返回 { records, total, size, current, pages }
  */
@@ -61,37 +60,33 @@ export const queryApprovals = (params) => defHttp.get({ url: Api.queryApprovals,
 /**
  * 审批通过（整单审批：整单通过）
  * @param params StockApplyApproval:
- *   { applyId, approvalUserId, approvalResult:'AGREE', approvalComment? }
- *   approvalUserId 当前操作人id（全局规定：审批必须传，= getCurrentUser().applyUserId）
- *   approvalResult AGREE 整单通过（整单驳回走 rejectApply，REJECT）
+ *   { applyId, approvalResult:'AGREE', approvalComment? }
+ *   审批人由后端登录身份确定，不传 approvalUserId
+ *   approvalResult AGREE 整单通过
  *   approvalComment 审批备注
  */
-export const approveApply = (params) =>
-  defHttp.post({ url: Api.approve, params }, { successMessageMode: 'success' });
+export const approveApply = (params) => defHttp.post({ url: Api.approve, params }, { successMessageMode: 'success' });
 
 /**
- * 驳回（整单审批：整单驳回，approvalComment 必填）
+ * 驳回（整单审批：整单驳回，approvalComment 必填；与通过共用统一审批接口）
  * @param params StockApplyApproval:
- *   { applyId, approvalUserId, approvalResult:'REJECT', approvalComment }
- *   approvalUserId 当前操作人id（全局规定：审批必须传，= getCurrentUser().applyUserId）
+ *   { applyId, approvalResult:'REJECT', approvalComment }
+ *   审批人由后端登录身份确定，不传 approvalUserId
  *   approvalComment 驳回原因（必填）
  */
-export const rejectApply = (params) =>
-  defHttp.post({ url: Api.reject, params }, { successMessageMode: 'success' });
+export const rejectApply = (params) => defHttp.post({ url: Api.approve, params }, { successMessageMode: 'success' });
 
 /**
  * 撤回/取消申请(query 传 id；撤回后状态置「已撤回」)
  * @param id 申请ID
  */
-export const cancelApply = (id) =>
-  defHttp.post({ url: Api.cancel, params: { id } }, { joinParamsToUrl: true, successMessageMode: 'success' });
+export const cancelApply = (id) => defHttp.post({ url: Api.cancel, params: { id } }, { joinParamsToUrl: true, successMessageMode: 'success' });
 
 /**
  * 删除申请(query 传 id)
  * @param id 申请ID
  */
-export const deleteApply = (id) =>
-  defHttp.delete({ url: Api.deleteOne, params: { id } }, { joinParamsToUrl: true, successMessageMode: 'success' });
+export const deleteApply = (id) => defHttp.delete({ url: Api.deleteOne, params: { id } }, { joinParamsToUrl: true, successMessageMode: 'success' });
 
 /**
  * 批量删除申请
@@ -105,9 +100,9 @@ export const deleteBatchApply = (ids) =>
  * @param params StockApplyExecuteRequest:
  *   { applyId, itemIds?, items? }
  *   itemIds  待执行明细ID；为空时执行全部待执行明细
- *   items    分批执行明细[{ itemId, executeQty }]；为空时按 itemIds 或全部待执行明细执行
+ *   items    分批执行明细[{ itemId, executeQty, remark?, dispositionType?, dispositionRemark? }]
  *            executeQty=本次执行数量(按所选单位)；为空时执行剩余数量
+ *            项目还料必须传 dispositionType=RESTOCK|SCRAP|LOST；SCRAP/LOST 还必须传 dispositionRemark
  * ⚠️ 无 approvalUserId：执行人由后端从登录 token 取
  */
-export const executeApply = (params) =>
-  defHttp.post({ url: Api.execute, params }, { successMessageMode: 'success' });
+export const executeApply = (params) => defHttp.post({ url: Api.execute, params }, { successMessageMode: 'success' });

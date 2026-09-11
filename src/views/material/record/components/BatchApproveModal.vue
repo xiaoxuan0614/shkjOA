@@ -4,7 +4,7 @@
     <a-table :columns="columns" :data-source="rows" :row-key="(r) => r.id" :pagination="false" size="small" bordered>
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'status'">
-          <a-tag :color="statusMap[record.status]?.color || 'processing'">{{ record.statusText }}</a-tag>
+          <a-tag :color="getApprovalStatusMeta(record.status).color">{{ getApprovalStatusMeta(record.status).text }}</a-tag>
         </template>
         <template v-else-if="column.key === 'result'">
           <a-radio-group v-model:value="record.result" size="small" :disabled="!record.enabled">
@@ -25,8 +25,11 @@
   import { BasicModal, useModalInner } from '/@/components/Modal';
   import { useMessage } from '/@/hooks/web/useMessage';
   import { queryItems, approveApply, rejectApply } from '../StockApply.api';
-  import { loadDictMap, getCurrentUser } from '../../material.util';
+  import { loadDictMap } from '../../material.util';
+  import { getApprovalStatusMeta } from '/@/utils/approvalStatus';
 
+  import { useStockAccess } from '../stockAccess';
+  const { canApprove } = useStockAccess();
   const { createMessage } = useMessage();
   const emit = defineEmits(['register', 'success']);
 
@@ -43,22 +46,20 @@
     { title: '备注', key: 'comment', width: 170 },
   ];
 
-  // 状态/业务类型字典(英文码→中文/颜色)
-  const statusMap = ref<Record<string, { text: string; color: string }>>({});
+  // 业务类型仍按业务字典回显；审批状态使用全局五态映射。
   const bizMap = ref<Record<string, { text: string; color: string }>>({});
-  loadDictMap('stock_apply_status').then((m) => (statusMap.value = m));
   loadDictMap('stock_apply_biz_type').then((m) => (bizMap.value = m));
 
   const [register, { closeModal }] = useModalInner(async (data) => {
     const list: any[] = (data?.rows || []).filter((r: any) => r && r.id);
     rows.value = list.map((r: any) => ({
+      ...r,
       id: r.id,
       applyNo: r.applyNo || '—',
       bizText: bizMap.value[r.bizType]?.text || r.bizType || '—',
       applyUserName: r.applyUserName || '—',
       status: r.status,
-      statusText: statusMap.value[r.status]?.text || r.status || '—',
-      enabled: r.status === 'PENDING', // 仅待审批可批
+      enabled: canApprove(r), // 仅待审批可批
       result: 'AGREE',
       comment: '',
       itemCount: 0,
@@ -83,7 +84,7 @@
 
   /** 提交：逐单调 approve/reject(整单，不带 items)，汇总结果 */
   async function handleSubmit() {
-    const items = rows.value.filter((r) => r.enabled);
+    const items = rows.value.filter((r) => r.enabled && canApprove(r));
     if (!items.length) {
       createMessage.warning('勾选记录中没有「待审批」状态的申请');
       return;
@@ -96,8 +97,8 @@
     }
     let done = 0;
     for (const r of items) {
-      // 全局规定：审批必须传当前操作人id(approvalUserId)
-      const params = { applyId: r.id, approvalUserId: getCurrentUser().applyUserId, approvalResult: r.result, approvalComment: r.comment };
+      // 审批人由后端按登录身份确定
+      const params = { applyId: r.id, approvalResult: r.result, approvalComment: r.comment };
       if (r.result === 'AGREE') await approveApply(params);
       else await rejectApply(params);
       done++;

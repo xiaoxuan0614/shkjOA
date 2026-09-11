@@ -26,6 +26,7 @@ export function createFakeUserList() {
       id: '1',
       username: 'admin',
       realname: '管理员',
+      phone: '13800000001',
       departName: '工程部',
       avatar: 'https://q1.qlogo.cn/g?b=qq&nk=190848757&s=640',
       desc: 'manager',
@@ -45,6 +46,7 @@ export function createFakeUserList() {
       username: 'jeecg',
       password: '123456',
       realname: '测试用户',
+      phone: '13800000002',
       departName: '工程部',
       avatar: 'https://q1.qlogo.cn/g?b=qq&nk=339449197&s=640',
       desc: 'tester',
@@ -118,7 +120,7 @@ export default [
     method: 'get',
     response: ({ query }) => {
       const { pageNo = 1, pageSize = 1000, realname, keyword } = query;
-      let data = createFakeUserList().map((u) => ({ id: u.id, username: u.username, realname: u.realname }));
+      let data = createFakeUserList().map((u) => ({ id: u.id, username: u.username, realname: u.realname, phone: u.phone }));
       if (realname) data = data.filter((u) => (u.realname || '').indexOf(realname) !== -1);
       if (keyword) data = data.filter((u) => (u.realname || '').indexOf(keyword) !== -1);
       const offset = (Number(pageNo) - 1) * Number(pageSize);
@@ -159,6 +161,9 @@ export default [
         'project:implement',
         'project:internalAccept',
         'project:accept',
+        'project:acceptance:submit',
+        'project:rework:apply',
+        'project:rework:approve',
         'project:warranty',
       ]);
     },

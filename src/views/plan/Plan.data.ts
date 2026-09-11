@@ -11,7 +11,6 @@ import { loadDictOptions, loadProjectStatusOptions, loadProjectTypeOptions } fro
  * 项目/分期列表列(projectPeriodList)
  */
 export const columns: BasicColumn[] = [
-  { title: '项目编号', align: 'center', dataIndex: 'projectNo' },
   { title: '主项目名称', align: 'center', dataIndex: 'projectName' },
   { title: '分期名称', align: 'center', dataIndex: 'periodName' },
   { title: '项目类型', align: 'center', dataIndex: 'projectType' },
@@ -61,7 +60,6 @@ export const quotationColumns: BasicColumn[] = [
   { title: '主项目名称', align: 'center', dataIndex: 'projectName' },
   { title: '分期项目名称', align: 'center', dataIndex: 'periodName' },
   { title: '报价单名称', align: 'center', dataIndex: 'candidateName' },
-  { title: '分期项目ID', align: 'center', dataIndex: 'periodId', width: 190 },
   { title: '最后更新人', align: 'center', dataIndex: 'lastUpdatedBy', width: 130 },
   { title: '状态', align: 'center', dataIndex: 'status', width: 100 },
 ];

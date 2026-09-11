@@ -8,6 +8,7 @@ export interface UserOption {
   label: string;
   value: string;
   username?: string;
+  phone?: string;
 }
 
 let userOptionsCache: UserOption[] | null = null;
@@ -52,9 +53,15 @@ export async function loadUserOptions(force = false): Promise<UserOption[]> {
       const value = user.id ?? user.userId;
       const label = user.realname ?? user.realName ?? user.nickname ?? user.username ?? user.name;
       const username = user.username ?? user.userName ?? user.account;
+      const phone = user.phone ?? user.mobile ?? user.mobilePhone;
       return value == null || label == null
         ? null
-        : { label: String(label), value: String(value), ...(username == null ? {} : { username: String(username) }) };
+        : {
+            label: String(label),
+            value: String(value),
+            ...(username == null ? {} : { username: String(username) }),
+            ...(phone == null ? {} : { phone: String(phone) }),
+          };
     })
     .filter((option): option is UserOption => {
       if (!option || seen.has(option.value)) return false;

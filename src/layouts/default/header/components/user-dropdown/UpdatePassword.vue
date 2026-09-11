@@ -1,5 +1,12 @@
 <template>
-  <BasicModal v-bind="$attrs" @register="registerModal" :title="title" @ok="handleSubmit" width="500px" :bodyStyle="{ padding: '20px 40px 20px 20px'}">
+  <BasicModal
+    v-bind="$attrs"
+    @register="registerModal"
+    :title="title"
+    @ok="handleSubmit"
+    width="500px"
+    :bodyStyle="{ padding: '20px 40px 20px 20px' }"
+  >
     <BasicForm @register="registerForm" />
   </BasicModal>
 </template>
@@ -13,6 +20,7 @@
   import { useMessage } from '/@/hooks/web/useMessage';
   import { useLocaleStore } from '/@/store/modules/locale';
   import { useI18n } from '/@/hooks/web/useI18n';
+  import { createPasswordLengthRule } from '/@/utils/password';
   const localeStore = useLocaleStore();
   const { t } = useI18n();
   // 声明Emits
@@ -43,10 +51,7 @@
             required: true,
             message: t('layout.changePassword.pleaseEnterNewPassword'),
           },
-          {
-            pattern: /^(?=.*[a-zA-Z])(?=.*\d)(?=.*[~!@#$%^&*()_+`\-={}:";'<>?,./]).{8,}$/,
-            message: '密码由 8 位及以上数字、大小写字母和特殊符号组成！',
-          },  
+          createPasswordLengthRule(),
         ],
       },
       {

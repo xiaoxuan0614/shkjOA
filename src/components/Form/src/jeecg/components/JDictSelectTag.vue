@@ -56,19 +56,19 @@
   </template>
 </template>
 <script lang="ts">
-  import { defineComponent, PropType, ref, reactive, watchEffect, computed, unref, watch, onMounted, nextTick } from 'vue';
+  import { defineComponent, ref, watchEffect, computed, unref, watch, nextTick } from 'vue';
   import { Form } from 'ant-design-vue';
   import { propTypes } from '/@/utils/propTypes';
   import { useAttrs } from '/@/hooks/core/useAttrs';
   import { initDictOptions } from '/@/utils/dict';
-  import { get, omit } from 'lodash-es';
+  import { omit } from 'lodash-es';
   import { CompTypeEnum } from '/@/enums/CompTypeEnum';
   import { LoadingOutlined } from '@ant-design/icons-vue';
 
   export default defineComponent({
     name: 'JDictSelectTag',
-    inheritAttrs: false,
     components: { LoadingOutlined },
+    inheritAttrs: false,
     props: {
       value: propTypes.oneOfType([propTypes.string, propTypes.number, propTypes.array]),
       dictCode: propTypes.string,
@@ -80,8 +80,8 @@
         type: Function,
         default: (node) => node?.parentNode,
       },
-      // 是否显示【请选择】选项
-      showChooseOption: propTypes.bool.def(true),
+      // “请选择”只作为输入框占位提示，默认不再混入真实选项；特殊场景仍可显式开启
+      showChooseOption: propTypes.bool.def(false),
       // 下拉项-online使用
       options: {
         type: Array,
@@ -92,8 +92,8 @@
       // 搜索时是否只搜索label
       onlySearchByLabel: propTypes.bool.def(false),
     },
-    emits: ['options-change', 'change','update:value'],
-    setup(props, { emit, refs }) {
+    emits: ['options-change', 'change', 'update:value'],
+    setup(props, { emit }) {
       const dictOptions = ref<any[]>([]);
       const attrs = useAttrs();
       const formItemContext = Form.useInjectFormItemContext();
@@ -173,9 +173,9 @@
 
       function handleChange(e) {
         const { mode } = unref<Recordable>(getBindValue);
-        let changeValue:any;
+        let changeValue: any;
         // 兼容多选模式
-        
+
         //采用一个值，不然的话state值变换触发多个change
         if (mode === 'multiple') {
           changeValue = e?.target?.value ?? e;

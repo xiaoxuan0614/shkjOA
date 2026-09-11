@@ -3,7 +3,7 @@ import { LAYOUT } from '/@/router/constant';
 
 /**
  * 实施管理模块路由
- * 工序列表 + 查看日志 + 日志详情
+ * 项目分期列表 + 项目工序日志 + 日志详情
  */
 const implement: AppRouteModule = {
   path: '/implement',

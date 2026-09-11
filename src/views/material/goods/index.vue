@@ -4,9 +4,7 @@
     <BasicTable @register="registerTable" :rowSelection="rowSelection">
       <!-- 表格标题栏 -->
       <template #tableTitle>
-        <a-button type="primary" v-auth="'mtl:goods:add'" @click="handleAdd" preIcon="ant-design:plus-outlined">
-          新增
-        </a-button>
+        <a-button type="primary" v-auth="'mtl:goods:add'" @click="handleAdd" preIcon="ant-design:plus-outlined"> 新增 </a-button>
         <a-button preIcon="ant-design:import-outlined" @click="openImportModal(true, {})">导入</a-button>
         <a-dropdown>
           <template #overlay>
@@ -17,7 +15,8 @@
               </a-menu-item>
             </a-menu>
           </template>
-          <a-button v-auth="'mtl:goods:deleteBatch'">批量操作
+          <a-button v-auth="'mtl:goods:deleteBatch'"
+            >批量操作
             <Icon icon="mdi:chevron-down"></Icon>
           </a-button>
         </a-dropdown>
@@ -30,7 +29,10 @@
 
       <!-- 字段回显插槽：库存数量(不拼单位) -->
       <template #bodyCell="{ column, record }">
-        <template v-if="column.dataIndex === 'stockQty'">
+        <template v-if="column.dataIndex === 'brand'">
+          {{ brandMap[String(record.brand ?? '')]?.text || record.brand || '—' }}
+        </template>
+        <template v-else-if="column.dataIndex === 'stockQty'">
           {{ record.stockQty }}
         </template>
       </template>
@@ -44,7 +46,7 @@
 </template>
 
 <script lang="ts" name="mtl-goods" setup>
-  import { reactive } from 'vue';
+  import { onMounted, reactive, ref } from 'vue';
   import { BasicTable, TableAction } from '/@/components/Table';
   import { useModal } from '/@/components/Modal';
   import { useListPage } from '/@/hooks/system/useListPage';
@@ -53,10 +55,16 @@
   import JImportModal from '/@/components/Form/src/jeecg/components/JImportModal.vue';
   import { columns, searchFormSchema } from './Goods.data';
   import { list, deleteOne, batchDelete, queryById, importExcel, importTemplate } from './Goods.api';
+  import { invalidateMaterialMap, loadDictMap } from '../material.util';
 
   const { createMessage } = useMessage();
 
   const queryParam = reactive<any>({});
+  const brandMap = ref<Record<string, { text: string; color: string }>>({});
+
+  onMounted(async () => {
+    brandMap.value = await loadDictMap('material_brand');
+  });
 
   // 注册新增/编辑物料弹窗
   const [registerModal, { openModal }] = useModal();
@@ -143,6 +151,7 @@
    * 成功回调：清空选中并刷新列表
    */
   function handleSuccess() {
+    invalidateMaterialMap();
     selectedRowKeys.value = [];
     reload();
   }

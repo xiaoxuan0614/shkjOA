@@ -1,37 +1,39 @@
 <template>
-  <BasicModal
-    v-bind="$attrs"
-    @register="register"
-    destroyOnClose
-    :title="title"
-    :width="800"
-    @ok="handleSubmit"
-  >
+  <BasicModal v-bind="$attrs" @register="register" destroyOnClose :title="title" :width="800" @ok="handleSubmit">
     <BasicForm @register="registerForm" />
 
     <!-- 单位信息(子表格)：绑定多个单位，第一个单位即基准单位(固定不可移动/删除)，副单位可上移/下移调整顺序 -->
     <div class="unit-section">
       <div class="unit-section__title">
         <span>单位信息</span>
-        <a-button type="link" size="small" :disabled="readOnly" @click="addUnit">+ 添加单位</a-button>
+        <a-button
+          type="link"
+          size="small"
+          :disabled="readOnly || !canAddUnit"
+          :title="canAddUnit ? '添加单位' : '所有可用单位均已添加'"
+          @click="addUnit"
+          >+ 添加单位</a-button
+        >
       </div>
-      <a-table
-        :columns="unitColumns"
-        :data-source="unitList"
-        :pagination="false"
-        :row-key="(r: any) => r.uid"
-        size="small"
-        bordered
-      >
+      <a-table :columns="unitColumns" :data-source="unitList" :pagination="false" :row-key="(r: any) => r.uid" size="small" bordered>
+        <template #headerCell="{ column }">
+          <span>
+            {{ column.title }}
+            <span v-if="column.required" class="unit-section__required" aria-hidden="true">*</span>
+          </span>
+        </template>
         <template #bodyCell="{ column, record, index }">
-          <!-- 单位：下拉选择(后续可在字典里维护，换 JSelectDict 即可)；其他行已选中的单位在本行禁用，禁止重复 -->
+          <!-- 单位：其他行已选中的名称不再显示，当前行自身选项继续保留。 -->
           <template v-if="column.key === 'unitName'">
-            <a-select
-              v-model:value="record.unitName"
-              :options="unitSelectOptions(record)"
+            <UniqueRowSelect
+              v-model="record.unitName"
+              :rows="unitList"
+              :row="record"
+              :options="unitOptionList"
+              field="unitName"
+              row-key="uid"
               :disabled="readOnly"
               placeholder="请选择单位"
-              style="width: 100%"
             />
           </template>
           <!-- 换算系数：与基准单位的换算关系(1当前单位 = conversionQty基准单位)；第一行即基准单位，固定为 1 且不可改 -->
@@ -48,25 +50,13 @@
           </template>
           <!-- 操作：上移/下移调整顺序(第一行即基准单位，禁止移动/删除)，删除 -->
           <template v-else-if="column.key === 'action'">
-            <a-button
-              type="link"
-              size="small"
-              :disabled="readOnly || index <= 1"
-              @click="moveUnit(index, -1)"
-            >上移</a-button>
-            <a-button
-              type="link"
-              size="small"
-              :disabled="readOnly || index === 0 || index === unitList.length - 1"
-              @click="moveUnit(index, 1)"
-            >下移</a-button>
-            <a-button
-              type="link"
-              size="small"
-              danger
-              :disabled="readOnly || index === 0 || unitList.length <= 1"
-              @click="removeUnit(index)"
-            >删除</a-button>
+            <a-button type="link" size="small" :disabled="readOnly || index <= 1" @click="moveUnit(index, -1)">上移</a-button>
+            <a-button type="link" size="small" :disabled="readOnly || index === 0 || index === unitList.length - 1" @click="moveUnit(index, 1)"
+              >下移</a-button
+            >
+            <a-button type="link" size="small" danger :disabled="readOnly || index === 0 || unitList.length <= 1" @click="removeUnit(index)"
+              >删除</a-button
+            >
           </template>
         </template>
       </a-table>
@@ -85,6 +75,7 @@
   import { formSchema } from '../Goods.data';
   import { saveOrUpdate } from '../Goods.api';
   import { loadUnitOptions } from '../../material.util';
+  import { UniqueRowSelect, useUniqueRowOptions, validateEditableRows } from '/@/components/EditableTable';
 
   const { createMessage } = useMessage();
   const emit = defineEmits(['register', 'success']);
@@ -107,8 +98,8 @@
   // 单位子表列定义(第一行即基准单位，固定不可移动/删除，不再单选)
   const unitColumns = [
     { title: '序号', key: 'seq', width: 60, align: 'center', customRender: ({ index }: any) => index + 1 },
-    { title: '单位', key: 'unitName', width: 150 },
-    { title: '换算系数', key: 'conversionQty', width: 170 },
+    { title: '单位', key: 'unitName', width: 150, required: true },
+    { title: '换算系数', key: 'conversionQty', width: 170, required: true },
     { title: '操作', key: 'action', width: 170, align: 'center' },
   ];
 
@@ -119,6 +110,7 @@
     baseColProps: { span: 12 },
     schemas: formSchema,
   });
+  const { canAdd: canAddUnit } = useUniqueRowOptions(unitList, unitOptionList, { field: 'unitName', rowKey: 'uid' });
 
   const [register, { setModalProps, closeModal }] = useModalInner(async (data) => {
     await resetFields();
@@ -159,6 +151,10 @@
 
   /** 添加单位行 */
   function addUnit() {
+    if (!canAddUnit.value) {
+      createMessage.info('所有可用单位均已添加');
+      return;
+    }
     unitList.value.push({
       uid: ++uidSeq,
       materialId: undefined,
@@ -166,18 +162,6 @@
       conversionQty: undefined,
       isBaseUnit: false,
     });
-  }
-
-  /**
-   * 单位下拉选项：走数据字典 inv_unit（已在本表其他行选中的单位在本行禁用，禁止重复选择同一单位）
-   */
-  function unitSelectOptions(record: any) {
-    const taken = new Set(
-      unitList.value
-        .filter((u) => u.uid !== record.uid && u.unitName)
-        .map((u) => u.unitName)
-    );
-    return unitOptionList.value.map((o) => ({ ...o, disabled: taken.has(o.value) }));
   }
 
   /** 删除单位行(至少保留一行；基准单位第一行固定不可删除) */
@@ -198,7 +182,7 @@
    * 单位子表校验(保存强制校验，关键逻辑)：
    * 1. 至少添加一行单位
    * 2. 每行必须选择单位名称
-   * 3. 单位查重：同一单位只能出现一次（下拉里已选单位也会禁用）
+   * 3. 单位查重：同一单位只能出现一次（其他行已选单位不会再出现在下拉中）
    * 4. 第一行即基准单位(换算系数固定 1)；其余副单位换算系数必须大于 0
    */
   function validateUnits(): boolean {
@@ -206,29 +190,27 @@
       createMessage.warning('请至少添加一个单位！');
       return false;
     }
-    const seenUnits = new Set<string>(); // 单位查重：同一个单位只能出现一次
-    for (let i = 0; i < unitList.value.length; i++) {
-      const u = unitList.value[i];
-      if (!u.unitName) {
-        createMessage.warning('请完善每个单位的单位名称！');
-        return false;
-      }
-      if (seenUnits.has(u.unitName)) {
-        createMessage.warning(`单位「${u.unitName}」重复，请勿选择相同单位！`);
-        return false;
-      }
-      seenUnits.add(u.unitName);
-      if (i === 0) {
-        u.isBaseUnit = true;
-        u.conversionQty = 1; // 第一行即基准单位，换算系数固定为 1
-      } else {
-        u.isBaseUnit = false;
-        if (!u.conversionQty || u.conversionQty <= 0) {
-          createMessage.warning(`单位「${u.unitName}」请填写大于 0 的换算系数！`);
-          return false;
-        }
-      }
+    const issues = validateEditableRows(unitList.value, {
+      selectorField: 'unitName',
+      selectorLabel: '单位',
+      optionLabel: (value) => unitOptionList.value.find((item) => String(item.value) === String(value))?.label || String(value),
+      rules: [
+        {
+          field: 'conversionQty',
+          label: '换算系数',
+          required: true,
+          validate: (value, _row, index) => index === 0 || Number(value) > 0 || '换算系数必须大于 0',
+        },
+      ],
+    });
+    if (issues.length) {
+      createMessage.warning(issues[0].message);
+      return false;
     }
+    unitList.value.forEach((unit, index) => {
+      unit.isBaseUnit = index === 0;
+      if (index === 0) unit.conversionQty = 1;
+    });
     return true;
   }
 
@@ -288,6 +270,11 @@
       color: #999;
       font-size: 12px;
       margin-top: 8px;
+    }
+
+    &__required {
+      margin-left: 4px;
+      color: @error-color;
     }
   }
 

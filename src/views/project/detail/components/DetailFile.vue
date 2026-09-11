@@ -1,11 +1,12 @@
 <template>
   <div class="detail-file">
-    <div v-if="editable && files.length === 0" class="detail-file__toolbar">
-      <a-upload :accept="DOCUMENT_UPLOAD_ACCEPT" :show-upload-list="false" :before-upload="handleFileChange">
-        <a-button type="primary" preIcon="ant-design:cloud-upload-outlined">新增文件</a-button>
+    <div class="detail-file__toolbar">
+      <a-upload :accept="DOCUMENT_UPLOAD_ACCEPT" :show-upload-list="false" :before-upload="handleFileChange" :disabled="uploading">
+        <a-button type="primary" preIcon="ant-design:cloud-upload-outlined" :loading="uploading">上传文件</a-button>
       </a-upload>
+      <span class="detail-file__upload-hint">支持 PDF、Word、Excel、PPT 文件</span>
     </div>
-    <a-table :columns="columns" :data-source="files" :pagination="false" size="middle" bordered>
+    <a-table :loading="loading" :columns="columns" :data-source="files" :pagination="false" size="middle" bordered>
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'action'">
           <a-button size="small" preIcon="ant-design:eye-outlined" @click="handleView(record)">预览</a-button>
@@ -21,7 +22,7 @@
 <script lang="ts" setup>
   import { ref, watch } from 'vue';
   import { useMessage } from '/@/hooks/web/useMessage';
-  import { getFiles, addFile, deleteFile } from '../ProjectDetail.api';
+  import { addProjectFiles, deleteFile, getFiles } from '../ProjectDetail.api';
   import { DOCUMENT_UPLOAD_ACCEPT, isAllowedDocumentFile, uploadProjectDocument } from '/@/utils/documentUpload';
   import { previewFileInModal } from '/@/utils/filePreview';
 
@@ -32,6 +33,8 @@
 
   const { createMessage } = useMessage();
   const files = ref<any[]>([]);
+  const loading = ref(false);
+  const uploading = ref(false);
 
   // 后端 project_file 字段
   const columns = [
@@ -43,9 +46,23 @@
   ];
 
   async function load() {
-    const res: any = await getFiles({ periodId: props.projectId, pageNo: 1, pageSize: 100 });
-    const list = res?.records || res || [];
-    files.value = list || [];
+    if (!props.projectId) {
+      files.value = [];
+      return false;
+    }
+    loading.value = true;
+    try {
+      const res: any = await getFiles({ periodId: props.projectId, pageNo: 1, pageSize: 100 });
+      const list = res?.records || res || [];
+      files.value = list || [];
+      return true;
+    } catch {
+      files.value = [];
+      createMessage.warning('项目文件加载失败，请刷新页面后重试');
+      return false;
+    } finally {
+      loading.value = false;
+    }
   }
 
   /** 选择文件 → 上传 → 校验响应后把 message 路径写入项目文件记录。 */
@@ -55,15 +72,28 @@
       createMessage.warning('仅支持 PDF、Word、Excel、PPT 文件');
       return false;
     }
+    if (uploading.value) return false;
+    uploading.value = true;
     try {
       const { path } = await uploadProjectDocument(file, props.projectId);
-      await addFile({ periodId: props.projectId, fileName: file.name, fileId: path, fileType: '' });
-      createMessage.success(`文件「${file.name}」上传成功`);
-      load();
+      await addProjectFiles({
+        periodId: props.projectId,
+        records: [{ fileName: file.name, fileId: path, fileType: fileExtension(file.name) }],
+      });
+      const refreshed = await load();
+      if (refreshed) createMessage.success(`文件「${file.name}」上传成功，文件列表已刷新`);
+      else createMessage.warning(`文件「${file.name}」上传成功，但列表刷新失败，请刷新页面重试`);
     } catch (error: any) {
       createMessage.warning(error?.message || '上传失败，请重试');
+    } finally {
+      uploading.value = false;
     }
     return false;
+  }
+
+  function fileExtension(fileName: string) {
+    const extension = fileName.split('.').pop();
+    return extension && extension !== fileName ? extension.toUpperCase() : '';
   }
 
   function handleView(record: any) {
@@ -86,7 +116,16 @@
 <style lang="less" scoped>
   .detail-file {
     &__toolbar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
       margin-bottom: 12px;
+    }
+
+    &__upload-hint {
+      color: @text-color-secondary;
+      font-size: 13px;
     }
   }
 </style>

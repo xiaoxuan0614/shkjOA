@@ -1,9 +1,12 @@
 <template>
   <div class="pick-apply">
-    <!-- 面包屑：出入库管理 → 领料申请（点「出入库管理」返回） -->
+    <!-- 通用菜单入口默认归属物料管理；从出入库管理跳入时保留返回入口。 -->
     <div class="pick-apply__breadcrumb">
       <a-breadcrumb>
-        <a-breadcrumb-item><a @click="handleCancel">出入库管理</a></a-breadcrumb-item>
+        <a-breadcrumb-item>
+          <a v-if="returnToRecord" @click="handleCancel">出入库管理</a>
+          <span v-else>物料管理</span>
+        </a-breadcrumb-item>
         <a-breadcrumb-item>{{ editMode ? '编辑领料申请' : '领料申请' }}</a-breadcrumb-item>
       </a-breadcrumb>
     </div>
@@ -21,22 +24,57 @@
     <div class="pick-apply__card">
       <div class="pick-apply__card-title">
         <span>物料明细</span>
-        <a-button type="primary" preIcon="ant-design:plus-outlined" @click="handleAddMaterial">添加物料</a-button>
+        <a-button type="primary" preIcon="ant-design:plus-outlined" :disabled="isProjectMode && !selectedPeriodId" @click="handleAddMaterial">
+          {{ isReworkMode ? '补充本轮可申请物料' : isProjectMode ? '添加可申请物料' : '添加物料' }}
+        </a-button>
       </div>
+      <a-alert
+        v-if="isReworkMode"
+        type="info"
+        show-icon
+        class="pick-apply__rework-tip"
+        message="返工领料只使用本轮额外领料额度"
+        description="列表不会混入原计划用料；当前可申请数量由本返工单的额外领料计划扣除已占用和已出库数量后计算。"
+      />
       <a-table :columns="detailColumns" :data-source="detailList" :row-key="(r) => r._key" :pagination="false" size="middle" bordered>
         <template #bodyCell="{ column, record }">
-          <template v-if="column.key === 'stockQty'">
+          <template v-if="column.key === 'material'">
+            <div class="pick-apply__material-identity">
+              <span class="pick-apply__material-name">{{ record.materialName || '未命名物料' }}</span>
+              <span class="pick-apply__material-code">{{ record.materialCode || '暂无编码' }}</span>
+            </div>
+          </template>
+          <template v-else-if="column.key === 'brand'">
+            {{ formatBrand(record.brand) }}
+          </template>
+          <template v-else-if="column.key === 'stockQty'">
             <!-- 库存：接口 currentStockQty + baseUnitName（如 1个） -->
             {{ formatStock(record) }}
           </template>
           <template v-else-if="column.key === 'unitQty'">
-            <a-input-number v-model:value="record.unitQty" :min="1" placeholder="申请数量" style="width: 100%" />
+            <a-input-number
+              v-model:value="record.unitQty"
+              :min="0.01"
+              :max="isProjectMode ? record.availableApplyQty : undefined"
+              :precision="2"
+              placeholder="申请数量"
+              style="width: 100%"
+            />
+          </template>
+          <template v-else-if="column.key === 'availableApplyQty'">
+            <span class="pick-apply__available"> {{ record.availableApplyQty }}{{ record.baseUnitName || record.unitName || '' }} </span>
           </template>
           <template v-else-if="column.key === 'unitName'">
-            <a-select v-model:value="record.unitName" :options="record.unitOptions || []" placeholder="选择单位" style="width: 100%" />
+            <a-select
+              v-model:value="record.unitName"
+              :options="record.unitOptions || []"
+              :disabled="isProjectMode"
+              placeholder="选择单位"
+              style="width: 100%"
+            />
           </template>
           <template v-else-if="column.key === 'action'">
-            <a-button type="link" danger size="small" @click="handleRemoveDetail(record._key)">移除</a-button>
+            <a-button type="link" danger size="small" @click="handleRemoveDetail(record._key)">删除</a-button>
           </template>
         </template>
       </a-table>
@@ -51,23 +89,37 @@
     </div>
 
     <!-- 选物料抽屉 -->
-    <MaterialSelectDrawer @register="registerDrawer" @success="handleDrawerSuccess" />
+    <MaterialSelectDrawer
+      :source-mode="isProjectMode ? 'project' : 'all'"
+      :labor-only="usageType === MATERIAL_USAGE_TYPE.LABOR_PROTECTION"
+      :period-id="selectedPeriodId"
+      @register="registerDrawer"
+      @success="handleDrawerSuccess"
+    />
   </div>
 </template>
 
 <script lang="ts" setup>
-  import { ref, onMounted } from 'vue';
+  import { computed, ref, onMounted } from 'vue';
   import { useRouter, useRoute } from 'vue-router';
-  import { useDebounceFn } from '@vueuse/core';
   import { BasicForm, useForm } from '/@/components/Form/index';
   import { useDrawer } from '/@/components/Drawer';
   import { useMessage } from '/@/hooks/web/useMessage';
   import { pickFormSchema } from './Pick.data';
-  import { submitPickApply, updatePickApply, searchProjectPeriod, getApplyById } from './Pick.api';
+  import {
+    submitPickApply,
+    updatePickApply,
+    getParticipatedProjects,
+    getProjectMaterialAccountPage,
+    getProjectPeriodDetail,
+    getReworkMaterials,
+    getApplyById,
+  } from './Pick.api';
   import { queryItems } from '../record/StockApply.api';
-  import { getCurrentUser } from '../material.util';
-  import { ensurePeriodRecords, mapPeriodNoOptions } from '../material.options';
+  import { getCurrentUser, loadDictMap, loadMaterialMap } from '../material.util';
+  import { MATERIAL_USAGE_TYPE } from '../material.constants';
   import MaterialSelectDrawer from '../apply/components/MaterialSelectDrawer.vue';
+  import { validateEditableRows } from '/@/components/EditableTable';
 
   const router = useRouter();
   const route = useRoute();
@@ -87,20 +139,43 @@
   // 编辑模式(撤回/驳回后重新编辑：/material/pick?applyId=xxx)
   const editMode = !!route.query.applyId;
   const applyId = (route.query.applyId as string) || '';
+  const reworkId = ref(String(route.query.reworkId || ''));
+  const returnPath = computed(() => {
+    const from = Array.isArray(route.query.from) ? route.query.from[0] : route.query.from;
+    return typeof from === 'string' && from.startsWith('/') && !from.startsWith('//') ? from : '/dashboard/analysis';
+  });
+  const returnToRecord = computed(() => returnPath.value === '/material/record');
 
   const submitLoading = ref(false);
+  const usageType = ref<string>(MATERIAL_USAGE_TYPE.PROJECT);
+  const selectedPeriodId = ref('');
+  const isProjectMode = computed(() => usageType.value === MATERIAL_USAGE_TYPE.PROJECT);
+  const isReworkMode = computed(() => Boolean(reworkId.value));
+  const brandMap = ref<Record<string, { text: string; color: string }>>({});
+  const projectMaterialPeriodStatus = [
+    'IMPLEMENTING',
+    'DEBUGGING',
+    'DEBUG_COMPLETED',
+    'IMPLEMENT_COMPLETED',
+    'PENDING_ACCEPT',
+    'INTERNAL_ACCEPTING',
+    'ACCEPTING',
+    'REWORKING',
+  ].join(',');
 
   // 明细表格列
-  const detailColumns = [
-    { title: '物料名称', dataIndex: 'materialName', key: 'materialName', width: 160 },
+  const detailColumns = computed(() => [
+    { title: '物料', key: 'material', width: 240 },
     { title: '类别', dataIndex: 'materialCategory', key: 'materialCategory', width: 110 },
     { title: '品牌', dataIndex: 'brand', key: 'brand', width: 120 },
     { title: '型号', dataIndex: 'model', key: 'model', width: 140 },
-    { title: '库存', dataIndex: 'stockQty', key: 'stockQty', width: 90 },
+    ...(isProjectMode.value
+      ? [{ title: '当前可申请数量', dataIndex: 'availableApplyQty', key: 'availableApplyQty', width: 150 }]
+      : [{ title: '库存', dataIndex: 'stockQty', key: 'stockQty', width: 100 }]),
     { title: '*申请数量', key: 'unitQty', width: 140 },
     { title: '*单位', key: 'unitName', width: 120 },
     { title: '操作', key: 'action', width: 90, align: 'center', fixed: 'right' },
-  ];
+  ]);
 
   const detailList = ref<any[]>([]);
   let detailKeySeed = 0;
@@ -113,59 +188,190 @@
     return `${qty}${unit || ''}`;
   }
 
+  function formatBrand(value: unknown) {
+    const rawValue = String(value ?? '');
+    return brandMap.value[rawValue]?.text || rawValue || '—';
+  }
+
   /** 使用人/部门默认当前操作人 */
   function initUserInfo() {
     const cur = getCurrentUser();
     setFieldsValue({ applyUserName: cur.applyUserName, deptName: cur.deptName });
   }
 
-  // 项目下拉选项(远程模糊搜索 /project/period/searchByName，防抖 300ms)
+  // 当前用户参与项目由接口一次返回；搜索在本地完成，避免暴露全量项目。
   const projectOptions = ref<any[]>([]);
-  /** 加载项目分期下拉：优先取预载的第 1 页(10 条)映射，避免「打开没数据/每次才请求」 */
+  const participatedProjectPool = ref<any[]>([]);
+
+  function mapProjectOption(item: any) {
+    return {
+      label: `${item.projectName || '未命名项目'} / ${item.periodName || '未命名分期'}`,
+      value: String(item.periodId || ''),
+      periodId: String(item.periodId || ''),
+      periodName: item.periodName || '',
+      projectName: item.projectName || '',
+      projectId: String(item.projectId || ''),
+      projectNo: item.projectNo || '',
+      periodNo: item.periodNo || '',
+    };
+  }
+
   async function loadProjectOptions() {
-    projectOptions.value = mapPeriodNoOptions(await ensurePeriodRecords());
+    const data: any = await getParticipatedProjects({ periodStatus: projectMaterialPeriodStatus });
+    const records = data?.records || data || [];
+    const uniqueRecords = new Map<string, any>();
+    records.forEach((item: any) => {
+      const key = String(item.periodId || '');
+      if (key && !uniqueRecords.has(key)) uniqueRecords.set(key, item);
+    });
+    participatedProjectPool.value = Array.from(uniqueRecords.values());
+    projectOptions.value = participatedProjectPool.value.map(mapProjectOption);
+    return projectOptions.value;
   }
 
-  const onProjectSearch = useDebounceFn(async (keyword: string) => {
-    if (!keyword) {
-      // 空关键词回到预载的分期首页
-      projectOptions.value = mapPeriodNoOptions(await ensurePeriodRecords());
-      return;
+  /** change 同时处理选择和清空，防止沿用原分期物料。 */
+  function onProjectChange(periodId?: string) {
+    const nextPeriodId = String(periodId || '');
+    if (selectedPeriodId.value !== nextPeriodId && detailList.value.length) {
+      detailList.value = [];
+      createMessage.info('项目已变更，原物料明细已清空');
     }
-    const data: any = await searchProjectPeriod({ keyword, pageNo: 1, pageSize: 20 });
-    projectOptions.value = mapPeriodNoOptions(data?.records || data || []);
-  }, 300);
-
-  /** 选择分期项目 → 带出分期编号/名称 */
-  function onProjectSelect(periodNo: string, option: any) {
-    setFieldsValue({ projectNo: periodNo, projectName: option?.projectName || '' });
+    selectedPeriodId.value = nextPeriodId;
   }
 
-  /** 表单挂载后再注入远程搜索 + 默认当前操作人 + 编辑模式回填 */
+  async function onUsageTypeChange(value: string) {
+    if (isReworkMode.value) return;
+    if (usageType.value !== value && detailList.value.length) {
+      detailList.value = [];
+      createMessage.info('领料类型已变更，原物料明细已清空');
+    }
+    usageType.value = value;
+    setFieldsValue({ repairOrderNo: undefined });
+    if (value !== MATERIAL_USAGE_TYPE.PROJECT) {
+      selectedPeriodId.value = '';
+      setFieldsValue({ periodId: undefined });
+    } else if (!projectOptions.value.length) {
+      await loadProjectOptions();
+    }
+  }
+
+  /** 表单挂载后再注入项目选项 + 默认当前操作人 + 编辑模式回填 */
   onMounted(async () => {
     initUserInfo();
-    // 分期项目下拉预载(第 1 页 10 条)，页面渲染即请求，打开下拉即有数据
-    await loadProjectOptions();
-    updateSchema([
-      {
-        field: 'projectNo',
-        componentProps: { options: projectOptions, onSearch: onProjectSearch, onSelect: onProjectSelect },
-      },
-    ]);
-    if (editMode) {
-      await loadApplyForEdit();
+    try {
+      brandMap.value = await loadDictMap('material_brand');
+      // 返工领料由 reworkId 锁定项目和额外领料额度；普通新增才加载全部参与项目。
+      if (isReworkMode.value && !editMode) await initializeReworkContext();
+      else if (!editMode) await loadProjectOptions();
+      syncProjectFields();
+      if (editMode) {
+        await loadApplyForEdit();
+        syncProjectFields();
+      } else if (isReworkMode.value) {
+        await addAvailableReworkMaterials();
+      }
+    } catch (error: any) {
+      createMessage.error(error?.message || '领料申请初始化失败，请返回后重试');
     }
   });
+
+  function syncProjectFields() {
+    updateSchema([
+      {
+        field: 'usageType',
+        componentProps: { onChange: onUsageTypeChange, disabled: isReworkMode.value },
+      },
+      {
+        field: 'periodId',
+        componentProps: {
+          options: projectOptions,
+          onChange: onProjectChange,
+          disabled: isReworkMode.value,
+        },
+      },
+    ]);
+  }
+
+  async function initializeReworkContext() {
+    const routePeriodId = String(route.query.periodId || '');
+    if (!routePeriodId) throw new Error('缺少项目分期 ID，无法发起返工领料');
+    selectedPeriodId.value = routePeriodId;
+    usageType.value = MATERIAL_USAGE_TYPE.PROJECT;
+    const detail: any = await getProjectPeriodDetail({ periodId: routePeriodId });
+    const option = mapProjectOption({ ...detail, periodId: routePeriodId });
+    projectOptions.value = [option];
+    participatedProjectPool.value = [{ ...detail, periodId: routePeriodId }];
+    setFieldsValue({
+      usageType: MATERIAL_USAGE_TYPE.PROJECT,
+      periodId: option.value,
+    });
+  }
+
+  async function getAvailableReworkMaterials() {
+    if (!reworkId.value) return [];
+    const [result, materialMap]: any[] = await Promise.all([getReworkMaterials({ reworkId: reworkId.value }), loadMaterialMap()]);
+    const records = Array.isArray(result) ? result : [];
+    return records
+      .filter((item: any) => item.materialId && Number(item.availableApplyQty) > 0)
+      .map((item: any) => {
+        const material = materialMap[String(item.materialId)] || {};
+        const baseUnit = material.unitList?.find((unit: any) => unit.isBaseUnit) || material.unitList?.[0] || {};
+        const unitName = material.baseUnitName || material.unit || baseUnit.unitName || '';
+        return {
+          ...material,
+          ...item,
+          id: item.materialId,
+          baseUnitName: unitName,
+          unit: unitName,
+          unitList: material.unitList || (unitName ? [{ unitName }] : []),
+          availableApplyQty: Math.max(Number(item.availableApplyQty) || 0, 0),
+        };
+      });
+  }
+
+  async function addAvailableReworkMaterials() {
+    try {
+      const candidates = await getAvailableReworkMaterials();
+      const missing = candidates.filter((item: any) => !detailList.value.some((detail) => String(detail.id) === String(item.id)));
+      if (!missing.length) {
+        createMessage.info(detailList.value.length ? '本轮可申请物料已全部加入' : '本轮暂无可申请的额外领料物料');
+        return;
+      }
+      handleDrawerSuccess(missing);
+    } catch (error: any) {
+      createMessage.error(error?.message || '返工额外领料物料加载失败，请重试');
+    }
+  }
 
   /** 编辑模式：queryById 回填申请头 + 明细 */
   async function loadApplyForEdit() {
     try {
       const res: any = await getApplyById({ id: applyId });
       if (!res) return;
+      reworkId.value = String(res.reworkId || reworkId.value || '');
+      const resolvedUsageType = res.usageType || (res.periodId || res.projectNo ? MATERIAL_USAGE_TYPE.PROJECT : MATERIAL_USAGE_TYPE.MAINTENANCE);
+      usageType.value = resolvedUsageType;
+      if (resolvedUsageType === MATERIAL_USAGE_TYPE.PROJECT) {
+        selectedPeriodId.value = String(res.periodId || '');
+        if (!isReworkMode.value) await loadProjectOptions();
+        if (!selectedPeriodId.value && res.projectNo) {
+          const matches = projectOptions.value.filter((item) => item.periodNo === res.projectNo || item.projectNo === res.projectNo);
+          if (matches.length === 1) selectedPeriodId.value = matches[0].periodId;
+        }
+        if (selectedPeriodId.value && !projectOptions.value.some((item) => item.value === selectedPeriodId.value)) {
+          const detail: any = await getProjectPeriodDetail({ periodId: selectedPeriodId.value });
+          projectOptions.value.push({
+            ...mapProjectOption({ ...detail, periodId: selectedPeriodId.value }),
+            disabled: !isReworkMode.value,
+          });
+          if (!isReworkMode.value) createMessage.warning('原项目已不在可领料范围，请重新选择参与项目');
+        }
+      }
       setFieldsValue({
-        projectNo: res.projectNo,
-        projectName: res.projectName,
+        usageType: resolvedUsageType,
+        periodId: selectedPeriodId.value || undefined,
         useDate: res.useDate,
+        repairOrderNo: res.repairOrderNo,
         remark: res.remark,
         applyUserName: res.applyUserName,
         deptName: res.deptName,
@@ -173,27 +379,67 @@
       // 明细走 /stock/apply/items 分页接口（queryById.itemList 已废弃）
       const itemRes: any = await queryItems({ applyId, pageNo: 1, pageSize: 500 });
       const items = itemRes?.records || itemRes || [];
-      detailList.value = items.map((it: any) => ({
-        _key: ++detailKeySeed,
-        id: it.materialId,
-        materialName: it.materialName,
-        materialCategory: it.materialCategory,
-        brand: it.brand,
-        model: it.model,
-        currentStockQty: it.currentStockQty ?? it.stockQty, // 库存(接口 currentStockQty)
-        baseUnitName: it.baseUnitName ?? it.unitName, // 基准单位名
-        unitQty: it.unitQty ?? it.applyQty ?? 1,
-        unitName: it.unitName,
-        unitOptions: [{ label: it.unitName, value: it.unitName }],
-      }));
+      const materialAccountMap = new Map<string, any>();
+      if (resolvedUsageType === MATERIAL_USAGE_TYPE.PROJECT && selectedPeriodId.value) {
+        const accounts = isReworkMode.value ? await getAvailableReworkMaterials() : await loadAllProjectMaterialAccounts(selectedPeriodId.value);
+        accounts.forEach((account: any) => materialAccountMap.set(String(account.materialId), account));
+      }
+      detailList.value = items.map((it: any) => {
+        const account = materialAccountMap.get(String(it.materialId)) || {};
+        const unitName = account.baseUnitName || it.baseUnitName || it.unitName || '';
+        const projectItem = resolvedUsageType === MATERIAL_USAGE_TYPE.PROJECT;
+        return {
+          _key: ++detailKeySeed,
+          id: it.materialId,
+          materialCode: account.materialCode || it.materialCode || '',
+          materialName: account.materialName || it.materialName,
+          materialCategory: account.materialCategory || it.materialCategory,
+          brand: account.brand || it.brand,
+          model: account.model || it.model,
+          currentStockQty: it.currentStockQty ?? it.stockQty,
+          baseUnitName: unitName,
+          unitQty: projectItem ? (it.baseQty ?? it.unitQty ?? it.applyQty ?? 1) : (it.unitQty ?? it.applyQty ?? 1),
+          unitName: projectItem ? unitName : it.unitName || unitName,
+          unitOptions: unitName ? [{ label: unitName, value: unitName }] : [],
+          availableApplyQty: Math.max(Number(account.availableApplyQty ?? it.availableApplyQty) || 0, 0),
+        };
+      });
     } catch (e) {
       createMessage.error('申请加载失败');
     }
   }
 
+  async function loadAllProjectMaterialAccounts(periodId: string) {
+    const records: any[] = [];
+    const pageSize = 200;
+    for (let pageNo = 1; pageNo <= 1000; pageNo += 1) {
+      const result: any = await getProjectMaterialAccountPage({ periodId, pageNo, pageSize });
+      const pageRecords = Array.isArray(result) ? result : result?.records || [];
+      records.push(...pageRecords.filter((item: any) => item.materialId));
+      const total = Number(result?.total);
+      if (
+        Array.isArray(result) ||
+        pageRecords.length === 0 ||
+        (Number.isFinite(total) && pageNo * pageSize >= total) ||
+        pageRecords.length < pageSize
+      ) {
+        return records;
+      }
+    }
+    throw new Error('项目物料数量过多，未能在安全页数内完成回填');
+  }
+
   /** 添加物料：打开抽屉 */
   function handleAddMaterial() {
-    openDrawer(true);
+    if (isProjectMode.value && !selectedPeriodId.value) {
+      createMessage.warning('请先选择分期项目');
+      return;
+    }
+    if (isReworkMode.value) {
+      void addAvailableReworkMaterials();
+      return;
+    }
+    openDrawer(true, { excludeMaterialIds: detailList.value.map((item) => item.id) });
   }
 
   /** 抽屉确定：物料回填明细行(单位取物料 unitList) */
@@ -210,14 +456,16 @@
       detailList.value.push({
         _key: ++detailKeySeed,
         id: m.id,
+        materialCode: m.materialCode,
         materialName: m.materialName,
         materialCategory: m.materialCategory,
         brand: m.brand,
         model: m.model,
         currentStockQty: m.currentStockQty ?? m.stockQty, // 库存(接口 currentStockQty)
         baseUnitName: m.baseUnitName ?? m.unit, // 基准单位名
-        unitQty: 1,
-        unitName: m.unit, // 默认基准单位
+        availableApplyQty: isProjectMode.value ? Math.max(Number(m.availableApplyQty) || 0, 0) : undefined,
+        unitQty: isProjectMode.value ? Math.min(1, Math.max(Number(m.availableApplyQty) || 0, 0)) : 1,
+        unitName: m.unit || m.baseUnitName, // 项目用料固定计划单位，其余默认基准单位
         unitOptions: (m.unitList || []).map((u: any) => ({ label: u.unitName, value: u.unitName })),
       });
     });
@@ -235,27 +483,54 @@
       createMessage.warning('请添加物料明细');
       return null;
     }
-    const invalid = detailList.value.find((d) => !d.unitQty || !d.unitName);
-    if (invalid) {
-      createMessage.warning('请填写完整的申请数量和单位');
+    const issues = validateEditableRows(detailList.value, {
+      selectorField: 'id',
+      selectorLabel: '物料',
+      optionLabel: (value) => detailList.value.find((item) => String(item.id) === String(value))?.materialName || String(value),
+      rules: [
+        { field: 'unitQty', label: '申请数量', required: true, validate: (value) => Number(value) > 0 || '申请数量必须大于 0' },
+        { field: 'unitName', label: '单位', required: true },
+      ],
+    });
+    if (issues.length) {
+      createMessage.warning(issues[0].message);
       return null;
     }
+    if (isProjectMode.value) {
+      const overAvailable = detailList.value.find((d) => Number(d.unitQty) > Number(d.availableApplyQty || 0));
+      if (overAvailable) {
+        createMessage.warning(`「${overAvailable.materialName}」申请数量不能超过当前可申请数量 ${overAvailable.availableApplyQty}`);
+        return null;
+      }
+    }
     const cur = getCurrentUser();
-    return {
+    const submitData: any = {
       applyType: 'OUT', // 领料 = 出库
       bizType: 'PICK', // 领料业务类型(后端扩展字段)
+      usageType: usageType.value,
       applyUserId: cur.applyUserId,
-      ...values,
+      useDate: values.useDate,
+      ...(usageType.value === MATERIAL_USAGE_TYPE.MAINTENANCE ? { repairOrderNo: String(values.repairOrderNo || '').trim() } : {}),
+      remark: values.remark,
       itemList: detailList.value.map((d) => ({
         materialId: d.id,
-        materialName: d.materialName,
-        materialCategory: d.materialCategory,
-        brand: d.brand,
-        model: d.model,
         unitName: d.unitName,
         unitQty: d.unitQty,
       })),
     };
+    if (isProjectMode.value) {
+      if (!selectedPeriodId.value) {
+        createMessage.warning('请选择分期项目');
+        return null;
+      }
+      if (!isReworkMode.value && !participatedProjectPool.value.some((item) => String(item.periodId) === selectedPeriodId.value)) {
+        createMessage.warning('请选择当前可领料的参与项目');
+        return null;
+      }
+      submitData.periodId = selectedPeriodId.value;
+      if (isReworkMode.value) submitData.reworkId = reworkId.value;
+    }
+    return submitData;
   }
 
   /** 提交领料申请(新增 or 重新提交) */
@@ -265,13 +540,13 @@
     submitLoading.value = true;
     try {
       if (editMode) {
-        await updatePickApply({ ...data, id: applyId, status: 'PENDING', executeStatus: '待出库' });
+        await updatePickApply({ ...data, id: applyId });
         createMessage.success('重新提交成功');
       } else {
         await submitPickApply(data);
         createMessage.success('领料申请提交成功');
       }
-      router.push('/material/record');
+      router.push(returnPath.value);
     } finally {
       submitLoading.value = false;
     }
@@ -279,7 +554,7 @@
 
   /** 取消 */
   function handleCancel() {
-    router.push('/material/record');
+    router.push(returnPath.value);
   }
 </script>
 
@@ -313,6 +588,45 @@
       justify-content: center;
       gap: 12px;
       padding: 8px 0 24px;
+    }
+
+    &__rework-tip {
+      margin-bottom: 12px;
+    }
+
+    &__material-identity {
+      display: flex;
+      min-width: 0;
+      gap: 12px;
+      align-items: baseline;
+      justify-content: space-between;
+    }
+
+    &__material-name {
+      min-width: 0;
+      overflow: hidden;
+      color: #262626;
+      font-weight: 500;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: 1;
+    }
+
+    &__material-code {
+      max-width: 45%;
+      overflow: hidden;
+      color: #8c8c8c;
+      font-size: 12px;
+      text-align: right;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: none;
+    }
+
+    &__available {
+      color: #1677ff;
+      font-variant-numeric: tabular-nums;
+      font-weight: 600;
     }
   }
 </style>
