@@ -61,11 +61,6 @@
           {{ t('sys.login.mobileSignInFormTitle') }}
         </Button>
       </ACol>
-      <ACol :md="7" :xs="24">
-        <Button block @click="setLoginState(LoginStateEnum.REGISTER)">
-          {{ t('sys.login.registerButton') }}
-        </Button>
-      </ACol>
     </ARow>
   </Form>
 </template>
@@ -100,8 +95,8 @@
   const rememberMe = ref(false);
 
   const formData = reactive({
-    account: 'admin',
-    password: '123456',
+    account: '',
+    password: '',
     inputCode: '',
   });
   const randCodeData = reactive({

@@ -25,7 +25,7 @@
         <a-list-item-meta>
           <template #description>
             <div v-if="isFormComment(item)" style="background: #f7f7f7;color: #555;padding: 2px 5px;white-space:nowrap;overflow: hidden">
-              <div v-html="getHtml(item.msgContent)"></div>
+              <div v-html="sanitizeHtml(getHtml(item.msgContent))"></div>
             </div>
             <div>
               {{item.createTime}}
@@ -39,7 +39,7 @@
               </span>-->
 
               <span>{{ getMsgCategory(item) }}</span>
-              <span v-if="item.busType == 'bpm' || item.busType == 'bpm_cc' || item.busType == 'msg_node' || item.busType == 'bpm_msg_node'" class="bpm-cuiban-content" v-html="item.msgContent">
+              <span v-if="item.busType == 'bpm' || item.busType == 'bpm_cc' || item.busType == 'bpm_msg_node'" class="bpm-cuiban-content" v-html="sanitizeHtml(item.msgContent)">
               </span>
 <!--              <a-tooltip v-else>-->
 <!--                <template #title>-->
@@ -106,6 +106,7 @@
 </template>
 
 <script>
+  import { sanitizeHtml } from '/@/utils/security';
 
   import { FilterOutlined, CloseOutlined, BellFilled, ExclamationOutlined, MailOutlined,InteractionOutlined, AlertOutlined, GatewayOutlined } from '@ant-design/icons-vue';
   import { useSysMessage, useMessageHref } from './useSysMessage';
@@ -276,6 +277,7 @@
         showMessageDetail,
         isFormComment,
         getHtml,
+        sanitizeHtml,
         modalRegCache,
         currentModal,
         bindParams,

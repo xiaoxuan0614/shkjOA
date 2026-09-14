@@ -6,6 +6,7 @@
 </template>
 
 <script lang="ts" setup>
+  import { sanitizeHtml } from '/@/utils/security';
   import { computed, watch, ref } from 'vue';
   import showdown from 'showdown';
   import 'vditor/dist/index.css';
@@ -19,7 +20,7 @@
     value: { type: String },
     class: { type: String },
   });
-  const getHtmlData = computed(() => converter.makeHtml(props.value || ''));
+  const getHtmlData = computed(() => sanitizeHtml(converter.makeHtml(props.value || '')));
 
   // 代码逻辑说明: 【issues/918】MarkdownViewer加上暗黑主题
   const isDarkTheme = ref(false);

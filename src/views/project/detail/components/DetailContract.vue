@@ -29,27 +29,18 @@
           <a-descriptions-item label="销售负责人">{{ salesUserText }}</a-descriptions-item>
           <a-descriptions-item label="项目经理">{{ projectManagerText }}</a-descriptions-item>
           <a-descriptions-item label="合同附件" :span="3">
-            <a-button
-              v-if="contractFileId"
-              type="link"
-              size="small"
-              preIcon="ant-design:eye-outlined"
-              @click="previewFileInModal(contractFileId, contractFileName)"
-            >
-              预览：{{ contractFileName }}
-            </a-button>
-            <span v-else>—</span>
-          </a-descriptions-item>
-          <a-descriptions-item label="合同货物清单" :span="3">
-            <a-button
-              v-if="materialFileId"
-              type="link"
-              size="small"
-              preIcon="ant-design:eye-outlined"
-              @click="previewFileInModal(materialFileId, materialFileName)"
-            >
-              预览：{{ materialFileName }}
-            </a-button>
+            <a-space v-if="contractAttachments.length" direction="vertical" size="small">
+              <a-button
+                v-for="file in contractAttachments"
+                :key="file.id || file.fileId"
+                type="link"
+                size="small"
+                preIcon="ant-design:eye-outlined"
+                @click="previewFileInModal(file.fileId, file.fileName)"
+              >
+                预览：{{ file.fileName }}
+              </a-button>
+            </a-space>
             <span v-else>—</span>
           </a-descriptions-item>
           <a-descriptions-item v-if="contractStatusMeta.rejected" label="驳回原因" :span="3">
@@ -91,7 +82,7 @@
 
 <script lang="ts" setup>
   import { computed, ref, watch } from 'vue';
-  import { getContractDetail } from '../ProjectDetail.api';
+  import { getContractDetail, getFiles } from '../ProjectDetail.api';
   import { loadDictOptions } from '../../Project.data';
   import { loadUserOptions, type UserOption } from '/@/views/resource/userOptions';
   import { previewFileInModal } from '/@/utils/filePreview';
@@ -106,6 +97,7 @@
   const loadFailed = ref(false);
   const contract = ref<Recordable>({});
   const paymentRows = ref<Recordable[]>([]);
+  const contractAttachments = ref<Recordable[]>([]);
   const contractTypeMap = ref<Record<string, string>>({});
   const paymentNodeMap = ref<Record<string, string>>({});
   const userOptions = ref<UserOption[]>([]);
@@ -117,15 +109,6 @@
   const contractTypeText = computed(() => mapDictionaryValue(contract.value.contractType, contractTypeMap.value));
   const salesUserText = computed(() => resolveSalesUserText());
   const projectManagerText = computed(() => resolveUserText(contract.value.projectManagerUserName, contract.value.projectManagerUserId));
-
-  const contractFileId = computed(() => contract.value.contractFile?.fileId || contract.value.contractFileId || '');
-  const contractFileName = computed(
-    () => contract.value.contractFile?.fileName || contract.value.contractFileName || getFileName(contractFileId.value, '合同附件')
-  );
-  const materialFileId = computed(() => contract.value.materialFile?.fileId || contract.value.materialFileId || '');
-  const materialFileName = computed(
-    () => contract.value.materialFile?.fileName || contract.value.materialFileName || getFileName(materialFileId.value, '合同货物清单')
-  );
 
   const paymentColumns = [
     { title: '序号', key: 'index', width: 60 },
@@ -146,8 +129,9 @@
     loading.value = true;
     loadFailed.value = false;
     try {
-      const [contractResult, contractTypeResult, paymentNodeResult, userResult] = await Promise.allSettled([
+      const [contractResult, fileResult, contractTypeResult, paymentNodeResult, userResult] = await Promise.allSettled([
         getContractDetail({ periodId }),
+        getFiles({ periodId, pageNo: 1, pageSize: 100 }),
         loadDictOptions('contract_type'),
         loadDictOptions('payback_node'),
         loadUserOptions(true),
@@ -156,6 +140,18 @@
       if (contractResult.status === 'rejected') throw contractResult.reason;
       const detail = contractResult.value || {};
       contract.value = detail;
+      const filePage: any = fileResult.status === 'fulfilled' ? fileResult.value : {};
+      const files = (Array.isArray(filePage) ? filePage : filePage?.records || []).filter(
+        (item: Recordable) => String(item.fileType || '') === 'CONTRACT_ATTACHMENT' && item.fileId
+      );
+      contractAttachments.value = files.length
+        ? files
+        : [
+            { fileId: detail.contractFile?.fileId || detail.contractFileId, fileName: detail.contractFile?.fileName || detail.contractFileName },
+            { fileId: detail.materialFile?.fileId || detail.materialFileId, fileName: detail.materialFile?.fileName || detail.materialFileName },
+          ]
+            .filter((item) => item.fileId)
+            .map((item) => ({ ...item, fileName: item.fileName || getFileName(item.fileId, '合同附件') }));
       contractTypeMap.value = toOptionMap(contractTypeResult.status === 'fulfilled' ? contractTypeResult.value : []);
       paymentNodeMap.value = toOptionMap(paymentNodeResult.status === 'fulfilled' ? paymentNodeResult.value : []);
       userOptions.value = userResult.status === 'fulfilled' ? userResult.value : [];
@@ -170,6 +166,7 @@
       if (currentSequence !== loadSequence) return;
       contract.value = {};
       paymentRows.value = [];
+      contractAttachments.value = [];
       loadFailed.value = true;
     } finally {
       if (currentSequence === loadSequence) loading.value = false;

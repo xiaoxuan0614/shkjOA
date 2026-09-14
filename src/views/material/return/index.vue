@@ -17,6 +17,7 @@
         <span>{{ editMode ? '编辑还料申请' : '还料申请信息' }}</span>
         <a-button v-if="editMode" type="link" @click="handleCancel">返回列表</a-button>
       </div>
+      <a-alert type="info" show-icon message="当前还料接口仅支持项目；维修、劳保还料待接口支持后开放。" class="mb-4" />
       <BasicForm @register="registerForm" />
     </div>
 
@@ -39,13 +40,7 @@
       >
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'returnQty'">
-            <a-input-number
-              v-model:value="record.returnQty"
-              :min="0"
-              :max="record.shouldReturnQty"
-              placeholder="还料数量"
-              style="width: 100%"
-            />
+            <a-input-number v-model:value="record.returnQty" :min="0" :max="record.shouldReturnQty" placeholder="还料数量" style="width: 100%" />
           </template>
           <template v-else-if="column.key === 'differenceReason'">
             <a-input
@@ -78,7 +73,7 @@
   import { returnFormSchema } from './Return.data';
   import { getApplyById, getParticipatedProjects, getProjectMaterialAccount, submitReturnApply, updateReturnApply } from './Return.api';
   import { queryItems } from '../record/StockApply.api';
-  import { getCurrentUser } from '../material.util';
+  import { resolveCurrentMaterialUser, getCurrentUser } from '../material.util';
   import { MATERIAL_USAGE_TYPE } from '../material.constants';
 
   const router = useRouter();
@@ -124,8 +119,8 @@
   let detailKeySeed = 0;
 
   /** 还料人/部门默认当前操作人 */
-  function initUserInfo() {
-    const cur = getCurrentUser();
+  async function initUserInfo() {
+    const cur = await resolveCurrentMaterialUser().catch(() => ({ ...getCurrentUser(), deptName: getCurrentUser().deptName || '部门加载失败' }));
     setFieldsValue({ applyUserName: cur.applyUserName, deptName: cur.deptName });
   }
 
@@ -198,9 +193,7 @@
     const pageCount = Math.ceil(total / pageSize);
     if (pageCount <= 1) return firstRecords;
     const rest = await Promise.all(
-      Array.from({ length: pageCount - 1 }, (_, index) =>
-        getProjectMaterialAccount({ periodId, pageNo: index + 2, pageSize })
-      )
+      Array.from({ length: pageCount - 1 }, (_, index) => getProjectMaterialAccount({ periodId, pageNo: index + 2, pageSize }))
     );
     return firstRecords.concat(rest.flatMap((page: any) => page?.records || (Array.isArray(page) ? page : [])));
   }
@@ -262,7 +255,7 @@
 
   /** 表单挂载后再注入远程搜索 + 默认当前操作人 + 编辑模式回填 */
   onMounted(async () => {
-    initUserInfo();
+    await initUserInfo();
     await loadProjectOptions();
     updateSchema([
       {
@@ -306,7 +299,11 @@
         projectName: selectedOption ? getProjectDisplayName(selectedOption) : res.projectName,
         remark: res.remark,
         applyUserName: res.applyUserName, // 还料人
-        deptName: res.deptName,
+        deptName:
+          res.deptName ||
+          (String(res.applyUserId || '') === getCurrentUser().applyUserId
+            ? (await resolveCurrentMaterialUser().catch(() => getCurrentUser())).deptName
+            : '—'),
       });
       // 明细与当前项目总账并行读取；总账的 remainingReturnQty 作为当前系统应还数量。
       const [itemRes, accountRecords] = await Promise.all([

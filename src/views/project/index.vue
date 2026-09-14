@@ -87,7 +87,7 @@
   import { useDrawer } from '/@/components/Drawer';
   import { useListPage } from '/@/hooks/system/useListPage';
   import { columns, searchFormSchema, statusFlow, projectStatusMap, statusColorMap, loadProjectStatusMap, loadProjectTypeMap } from './Project.data';
-  import { projectList, projectDetail, deleteProject, changePeriodStatus, getMainProjectList } from './Project.api';
+  import { projectList, deleteProject, changePeriodStatus, getMainProjectList } from './Project.api';
   import { useMessage } from '/@/hooks/web/useMessage';
   import { getApprovalStatusMeta, isApprovalApproved } from '/@/utils/approvalStatus';
   import { loadUserOptions } from '/@/views/resource/userOptions';
@@ -98,6 +98,8 @@
   import MaterialSupplementDrawer from './components/MaterialSupplementDrawer.vue';
   import ProcessCompletionDrawer from './components/ProcessCompletionDrawer.vue';
   import { refreshTodos } from '/@/views/todo/useTodoCenter';
+  import { contractDetail } from '/@/views/payment/Payment.api';
+  import { findArrivalPayment, isArrivalStage } from './arrivalPayment';
 
   import { useAcceptanceAccess } from './useAcceptanceAccess';
 
@@ -105,6 +107,8 @@
   const router = useRouter();
   const { createMessage } = useMessage();
   const { hasPermission } = usePermission();
+  const PROJECT_CLOSE_PERMISSION = 'project:close';
+  const closingPeriodIds = new Set<string>();
 
   const [registerPlanAuditModal, { openModal: openPlanAuditModal }] = useModal();
   const [registerArrivalConfirmModal, { openModal: openArrivalConfirmModal }] = useModal();
@@ -147,28 +151,6 @@
     return liaisonNameMap.value[String(getProjectLiaisonUserId(record) ?? '')] || '—';
   }
 
-  async function enrichProjectLiaisons(records: Recordable[]) {
-    await loadLiaisonOptions();
-    return Promise.all(
-      (records || []).map(async (record) => {
-        if (getProjectLiaisonName(record) !== '—') return record;
-        const currentPeriodId = record.periodId || record.id;
-        if (!currentPeriodId) return record;
-        try {
-          const detail: any = await projectDetail({ periodId: currentPeriodId });
-          return {
-            ...record,
-            projectLiaisonUserId: detail?.projectLiaisonUserId ?? getProjectLiaisonUserId(record),
-            projectLiaisonUserName:
-              detail?.projectLiaisonUserName || detail?.projectLiaisonName || detail?.projectLeaderName || record.projectLiaisonUserName,
-          };
-        } catch {
-          return record;
-        }
-      })
-    );
-  }
-
   onMounted(async () => {
     const [loadedStatusMeta, loadedProjectTypeMeta] = await Promise.all([loadProjectStatusMap(), loadProjectTypeMap(), loadLiaisonOptions()]);
     statusMeta.value = loadedStatusMeta;
@@ -195,7 +177,30 @@
       beforeFetch: (params) => {
         return Object.assign(params, queryParam);
       },
-      afterFetch: enrichProjectLiaisons,
+      afterFetch: async (rows: Recordable[]) => {
+        const result = rows.map((row) => ({ ...row, _hasArrivalPayment: false }));
+        if (!hasPermission('project:arrival:confirm')) return result;
+        const pending = result.filter((row) => isArrivalStage(row) && (row.periodId || row.id));
+        // 列表尚无到货款标志，仅查当前页符合阶段的分期，最多三项并发。
+        const requests = new Map<string, Promise<boolean>>();
+        for (let offset = 0; offset < pending.length; offset += 3) {
+          await Promise.all(
+            pending.slice(offset, offset + 3).map(async (row) => {
+              const periodId = String(row.periodId || row.id);
+              if (!requests.has(periodId)) {
+                requests.set(
+                  periodId,
+                  contractDetail({ periodId }, true)
+                    .then((detail) => !!findArrivalPayment(detail?.records))
+                    .catch(() => false)
+                );
+              }
+              row._hasArrivalPayment = await requests.get(periodId)!;
+            })
+          );
+        }
+        return result;
+      },
     },
   });
 
@@ -257,14 +262,13 @@
     return ['IMPLEMENTING', 'DEBUGGING', 'DEBUG_COMPLETED'].includes(String(record.status || ''));
   }
 
-  const arrivalConfirmableStatuses = new Set(['PENDING_APPROVAL', 'IMPLEMENTING', 'DEBUGGING', 'DEBUG_COMPLETED']);
-
-  /** 从待计划审批到实施完成前允许确认一次到货；已到货或实施完成后隐藏。 */
+  /** 合同没有到货款不需要确认到货；尚未查明时不显示入口。 */
   function canConfirmArrival(record: Recordable) {
-    return Number(record.arrivalStatus) !== 1 && arrivalConfirmableStatuses.has(String(record.status || ''));
+    return record._hasArrivalPayment === true && isArrivalStage(record);
   }
 
   function handleConfirmArrival(record: Recordable) {
+    if (!canConfirmArrival(record) || !hasPermission('project:arrival:confirm')) return;
     openArrivalConfirmModal(true, { record, periodId: record.periodId || record.id });
   }
 
@@ -299,6 +303,29 @@
     await deleteProject({ periodId: record.periodId || record.id });
     createMessage.success(`删除分期「${record.periodName || record.projectName}」成功`);
     reload();
+  }
+
+  /** 关闭是例外终态；权限节点控制入口，提交前再次校验，避免仅依赖按钮显隐。 */
+  async function handleCloseProject(record: Recordable) {
+    if (!hasPermission(PROJECT_CLOSE_PERMISSION)) {
+      createMessage.warning('暂无关闭项目权限，请联系管理员授权');
+      return;
+    }
+    const periodId = String(record.periodId || record.id || '');
+    if (!periodId) {
+      createMessage.error('当前项目缺少分期 ID，无法关闭');
+      return;
+    }
+    if (['CLOSED', 'COMPLETED'].includes(String(record.status || '')) || closingPeriodIds.has(periodId)) return;
+    closingPeriodIds.add(periodId);
+    try {
+      await changePeriodStatus({ periodId, status: 'CLOSED' });
+      createMessage.success(`项目「${record.periodName || record.projectName || '未命名项目'}」已关闭`);
+      await reload();
+      refreshTodos(true).catch(() => undefined);
+    } finally {
+      closingPeriodIds.delete(periodId);
+    }
   }
 
   /**
@@ -418,9 +445,7 @@
     return actions;
   }
 
-  /**
-   * 下拉操作栏: 详情 + 删除
-   */
+  /** 下拉操作栏：详情、业务辅助操作、关闭与删除。 */
   function getDropDownAction(record: Recordable) {
     const actions: Recordable[] = [
       {
@@ -440,6 +465,18 @@
       actions.splice(1, 0, {
         label: '补料管理',
         onClick: handleMaterialSupplement.bind(null, record),
+      });
+    }
+    if (!['CLOSED', 'COMPLETED'].includes(String(record.status || ''))) {
+      actions.splice(actions.length - 1, 0, {
+        label: '关闭项目',
+        auth: PROJECT_CLOSE_PERMISSION,
+        color: 'error',
+        popConfirm: {
+          title: `确认关闭项目「${record.periodName || record.projectName || '未命名项目'}」？关闭后未完成的项目领料会同步终止，当前系统暂不支持重新开启。`,
+          confirm: handleCloseProject.bind(null, record),
+          placement: 'topLeft',
+        },
       });
     }
     return actions;

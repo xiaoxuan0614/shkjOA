@@ -83,7 +83,6 @@ export default async ({ command, mode }: ConfigEnv): Promise<UserConfig> => {
       // Listening on all local IPs
       host: true,
       // @ts-ignore
-      allowedHosts: true,
       https: false,
       port: VITE_PORT,
       // 固定开发端口：3101 被占用时直接报错提示，而不是自动 +1 变成 3102
@@ -192,4 +191,3 @@ export default async ({ command, mode }: ConfigEnv): Promise<UserConfig> => {
     },
   };
 };
-

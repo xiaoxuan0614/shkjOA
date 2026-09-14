@@ -18,16 +18,16 @@ export const pickFormSchema: FormSchema[] = [
       values.usageType === MATERIAL_USAGE_TYPE.MAINTENANCE ? [{ required: true, whitespace: true, message: '请输入维修单号' }] : [],
   },
   {
-    label: '领料类型',
+    label: '用料类型',
     field: 'usageType',
     component: 'Select',
     defaultValue: MATERIAL_USAGE_TYPE.PROJECT,
     componentProps: {
       options: materialUsageTypeOptions,
-      placeholder: '请选择领料类型',
+      placeholder: '请选择用料类型',
       allowClear: false,
     },
-    dynamicRules: () => [{ required: true, message: '请选择领料类型!' }],
+    dynamicRules: () => [{ required: true, message: '请选择用料类型!' }],
   },
   {
     label: '项目名称',

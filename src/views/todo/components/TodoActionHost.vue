@@ -22,7 +22,7 @@
   import DelayApprovalModal from '/@/views/project/components/DelayApprovalModal.vue';
   import { parseTodoActionParams, SystemTodo } from '../useTodoCenter';
 
-  const { canApprove, canExecute } = useStockAccess();
+  const { prepareApprovalAccess, canApprove, canExecute } = useStockAccess();
   const [registerStockApproveModal, { openModal: openStockApproveModal }] = useModal();
   const [registerStockExecuteModal, { openModal: openStockExecuteModal }] = useModal();
   const emit = defineEmits(['processed']);
@@ -62,6 +62,7 @@
       if (!params.applyId) return createMessage.error('出库待办缺少申请 ID');
       try {
         const record: any = await queryById({ id: params.applyId });
+        if (stockAction === 'STOCK_OUT_APPROVAL') await prepareApprovalAccess([record]);
         if (stockAction === 'STOCK_OUT_APPROVAL' && canApprove(record)) openStockApproveModal(true, { record });
         else if (stockAction === 'STOCK_OUT_EXECUTE' && canExecute(record)) openStockExecuteModal(true, { record });
         else createMessage.warning('当前申请状态已变化或您无权办理');

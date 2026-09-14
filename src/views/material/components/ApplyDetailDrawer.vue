@@ -17,7 +17,7 @@
           <a-tag :color="dictColor(execMap, detail.executeStatus)">{{ dictText(execMap, detail.executeStatus) }}</a-tag>
         </a-descriptions-item>
         <a-descriptions-item label="申请人">{{ detail.applyUserName || '—' }}</a-descriptions-item>
-        <a-descriptions-item v-if="detail.bizType === 'PICK' || detail.usageType" label="领料类型">{{
+        <a-descriptions-item v-if="detail.bizType === 'PICK' || detail.usageType" label="用料类型">{{
           getMaterialUsageTypeText(detail.usageType)
         }}</a-descriptions-item>
         <a-descriptions-item label="部门">{{ detail.deptName || '—' }}</a-descriptions-item>

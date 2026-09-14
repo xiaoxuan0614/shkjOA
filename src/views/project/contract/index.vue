@@ -30,25 +30,17 @@
             <span class="contract-page__reject-reason">{{ info.approvalReason || '未填写驳回原因' }}</span>
           </a-descriptions-item>
           <a-descriptions-item label="合同附件" :span="2">
-            <a-button
-              v-if="contractFileId"
-              size="small"
-              preIcon="ant-design:eye-outlined"
-              @click="previewFileInModal(contractFileId, contractFileName)"
-            >
-              预览：{{ contractFileName }}
-            </a-button>
-            <span v-else>—</span>
-          </a-descriptions-item>
-          <a-descriptions-item label="合同货物清单" :span="2">
-            <a-button
-              v-if="materialListFileId"
-              size="small"
-              preIcon="ant-design:eye-outlined"
-              @click="previewFileInModal(materialListFileId, materialFileName)"
-            >
-              预览：{{ materialFileName }}
-            </a-button>
+            <a-space v-if="contractAttachments.length" direction="vertical" size="small">
+              <a-button
+                v-for="file in contractAttachments"
+                :key="file.uid"
+                size="small"
+                preIcon="ant-design:eye-outlined"
+                @click="previewFileInModal(file.fileId, file.fileName)"
+              >
+                预览：{{ file.fileName }}
+              </a-button>
+            </a-space>
             <span v-else>—</span>
           </a-descriptions-item>
           <a-descriptions-item label="关联报价单" :span="2">
@@ -129,38 +121,35 @@
             </a-space>
           </template>
           <template #contractAttachment>
-            <a-upload
-              class="contract-page__attachment-upload"
-              :accept="DOCUMENT_UPLOAD_ACCEPT"
-              :before-upload="(file) => handleBeforeUpload(file, 'contract')"
-              :file-list="contractUploadFileList"
-              :max-count="1"
-              @change="(info) => handleUploadChange(info, 'contract')"
-              @preview="(file) => previewFileInModal(file, contractFileName || file.name)"
-              @remove="() => handleRemoveUpload('contract')"
-            >
-              <a-button v-if="!contractUploadFileList.length" :loading="submitting">
+            <div class="contract-page__attachment-upload">
+              <a-upload
+                :accept="DOCUMENT_UPLOAD_ACCEPT"
+                :before-upload="handleContractAttachmentUpload"
+                :show-upload-list="false"
+                :multiple="false"
+                :disabled="submitting || attachmentUploading || contractAttachments.length >= CONTRACT_ATTACHMENT_LIMIT"
+              >
+                <a-button
+                  :loading="attachmentUploading"
+                  :disabled="submitting || attachmentUploading || contractAttachments.length >= CONTRACT_ATTACHMENT_LIMIT"
+                >
                 <Icon icon="ant-design:cloud-upload-outlined" />
-                选择合同附件
-              </a-button>
-            </a-upload>
-          </template>
-          <template #materialAttachment>
-            <a-upload
-              class="contract-page__attachment-upload"
-              :accept="DOCUMENT_UPLOAD_ACCEPT"
-              :before-upload="(file) => handleBeforeUpload(file, 'material')"
-              :file-list="materialUploadFileList"
-              :max-count="1"
-              @change="(info) => handleUploadChange(info, 'material')"
-              @preview="(file) => previewFileInModal(file, materialFileName || file.name)"
-              @remove="() => handleRemoveUpload('material')"
-            >
-              <a-button v-if="!materialUploadFileList.length" :loading="submitting">
-                <Icon icon="ant-design:cloud-upload-outlined" />
-                选择合同货物清单
-              </a-button>
-            </a-upload>
+                  上传合同附件（{{ contractAttachments.length }}/{{ CONTRACT_ATTACHMENT_LIMIT }}）
+                </a-button>
+              </a-upload>
+              <div class="contract-page__attachment-hint">请逐个上传，至少 1 个、最多 3 个；上传成功后可立即预览。</div>
+              <div v-if="contractAttachments.length" class="contract-page__attachment-list">
+                <div v-for="file in contractAttachments" :key="file.uid" class="contract-page__attachment-item">
+                  <span class="contract-page__attachment-name" :title="file.fileName">{{ file.fileName }}</span>
+                  <a-space size="small">
+                    <a-button type="link" size="small" @click="previewFileInModal(file.fileId, file.fileName)">预览</a-button>
+                    <a-button type="link" danger size="small" :disabled="submitting || attachmentUploading" @click="removeContractAttachment(file.uid)">
+                      删除
+                    </a-button>
+                  </a-space>
+                </div>
+              </div>
+            </div>
           </template>
         </BasicForm>
 
@@ -359,8 +348,7 @@
   import { useMessage } from '/@/hooks/web/useMessage';
   import { usePermission } from '/@/hooks/web/usePermission';
   import { useUserStore } from '/@/store/modules/user';
-  import { DOCUMENT_UPLOAD_ACCEPT, isAllowedDocumentFile } from '/@/utils/documentUpload';
-  import { getFileAccessHttpUrl } from '/@/utils/common/compUtils';
+  import { DOCUMENT_UPLOAD_ACCEPT, isAllowedDocumentFile, uploadProjectDocument } from '/@/utils/documentUpload';
   import { previewFileInModal } from '/@/utils/filePreview';
   import {
     addContractWithPaymentRecords,
@@ -371,6 +359,7 @@
   import { changePeriodStatus, projectDetail } from '../Project.api';
   import { loadDictOptions } from '../Project.data';
   import PlanProjectInfo from '../plan/PlanProjectInfo.vue';
+  import { addProjectFiles, deleteFile, getFiles } from '../detail/ProjectDetail.api';
   import MaterialPlanTable from '/@/views/plan/components/MaterialPlanTable.vue';
   import {
     getAllMaterialCandidates,
@@ -414,10 +403,17 @@
   const info = ref<Recordable>({});
   const originalContract = ref<Recordable>({});
   const contractId = ref((route.query?.contractId as string) || '');
-  const contractFileId = ref('');
-  const contractFileName = ref('');
-  const materialListFileId = ref('');
-  const materialFileName = ref('');
+  const CONTRACT_ATTACHMENT_LIMIT = 3;
+  const CONTRACT_ATTACHMENT_FILE_TYPE = 'CONTRACT_ATTACHMENT';
+  type ContractAttachment = {
+    uid: string;
+    id?: string;
+    fileId: string;
+    fileName: string;
+  };
+  const contractAttachments = ref<ContractAttachment[]>([]);
+  const originalContractAttachments = ref<ContractAttachment[]>([]);
+  const attachmentUploading = ref(false);
   const materialCandidateId = ref<string>();
   const contractCandidates = ref<Recordable[]>([]);
   const candidatesLoading = ref(false);
@@ -531,12 +527,6 @@
       quotationSaving.value = false;
     }
   }
-  const contractUploadFileList = ref<any[]>([]);
-  const materialUploadFileList = ref<any[]>([]);
-  const pendingContractFile = ref<File>();
-  const pendingMaterialFile = ref<File>();
-  const contractReplacementRequired = ref(false);
-  const materialReplacementRequired = ref(false);
   const userOptions = ref<UserOption[]>([]);
   const userOptionsLoading = ref(false);
   const approvalResult = ref<'approve' | 'reject'>();
@@ -763,12 +753,7 @@
         field: 'contractAttachment',
         component: 'Input',
         slot: 'contractAttachment',
-      },
-      {
-        label: '合同货物清单',
-        field: 'materialAttachment',
-        component: 'Input',
-        slot: 'materialAttachment',
+        colProps: { span: 24 },
       },
       { label: '关联报价单', field: 'quotation', component: 'Input', slot: 'quotation', colProps: { span: 24 } },
       {
@@ -881,6 +866,8 @@
     paybackLoadFailed.value = false;
     contractId.value = '';
     info.value = {};
+    contractAttachments.value = [];
+    originalContractAttachments.value = [];
     paybackRows.value = [];
     paybackErrors.value = {};
     await setFieldsValue({
@@ -909,20 +896,7 @@
       approvalReason.value = '';
       projectManagerUserId.value = contract.projectManagerUserId || undefined;
       projectRecord.value = { ...contract, periodId: periodId.value, projectId: projectId.value };
-      contractFileId.value = contract.contractFileId || contractFile?.fileId || contract.contractFilePath || '';
-      contractFileName.value =
-        contractFile?.fileName ||
-        contract.contractFileName ||
-        (contractFileId.value ? contractFileId.value.split('/').pop() || contractFileId.value : '');
-      materialListFileId.value =
-        contract.materialFileId || materialFile?.fileId || contract.materialListFileId || contract.materialListFilePath || '';
-      materialFileName.value =
-        materialFile?.fileName ||
-        contract.materialFileName ||
-        contract.materialListFileName ||
-        (materialListFileId.value ? materialListFileId.value.split('/').pop() || materialListFileId.value : '');
-      syncUploadFileList('contract');
-      syncUploadFileList('material');
+      await loadContractAttachments({ contract, contractFile, materialFile });
       setPaybackRows(records || []);
     } catch (error: any) {
       contractLoadFailed.value = true;
@@ -959,68 +933,102 @@
     recalculateAllPaybackAmounts(info.value.contractAmount);
   }
 
-  type ContractUploadKind = 'contract' | 'material';
-
-  function getUploadState(kind: ContractUploadKind) {
-    return kind === 'contract'
-      ? {
-          fileId: contractFileId,
-          fileName: contractFileName,
-          fileList: contractUploadFileList,
-          pendingFile: pendingContractFile,
-          replacementRequired: contractReplacementRequired,
-        }
-      : {
-          fileId: materialListFileId,
-          fileName: materialFileName,
-          fileList: materialUploadFileList,
-          pendingFile: pendingMaterialFile,
-          replacementRequired: materialReplacementRequired,
-        };
+  function attachmentFromRecord(record: Recordable, index: number): ContractAttachment | undefined {
+    const fileId = String(record?.fileId || record?.url || '').trim();
+    if (!fileId) return undefined;
+    return {
+      uid: String(record?.id || `contract-attachment-${index}-${fileId}`),
+      ...(record?.id ? { id: String(record.id) } : {}),
+      fileId,
+      fileName: String(record?.fileName || fileId.split('/').pop() || `合同附件${index + 1}`),
+    };
   }
 
-  function syncUploadFileList(kind: ContractUploadKind) {
-    const { fileId, fileName, fileList, pendingFile, replacementRequired } = getUploadState(kind);
-    pendingFile.value = undefined;
-    replacementRequired.value = false;
-    fileList.value = fileId.value
-      ? [
-          {
-            uid: `${kind}-${contractId.value || periodId.value}`,
-            name: fileName.value || fileId.value.split('/').pop() || '已上传文件',
-            status: 'done',
-            url: getFileAccessHttpUrl(fileId.value),
-          },
-        ]
-      : [];
+  /** 新附件从项目文件表读取；没有新类型记录时兼容原合同的两个历史文件位。 */
+  async function loadContractAttachments(detail: { contract?: Recordable; contractFile?: Recordable; materialFile?: Recordable }) {
+    const result: any = await getFiles({ periodId: periodId.value, pageNo: 1, pageSize: 100 });
+    const records = Array.isArray(result) ? result : result?.records || [];
+    const unified = records
+      .filter((record: Recordable) => String(record.fileType || '') === CONTRACT_ATTACHMENT_FILE_TYPE)
+      .map(attachmentFromRecord)
+      .filter(Boolean) as ContractAttachment[];
+
+    const contract = detail.contract || {};
+    const legacyRecords = [
+      {
+        fileId: contract.contractFileId || detail.contractFile?.fileId || contract.contractFilePath,
+        fileName: detail.contractFile?.fileName || contract.contractFileName,
+      },
+      {
+        fileId: contract.materialFileId || detail.materialFile?.fileId || contract.materialListFileId || contract.materialListFilePath,
+        fileName: detail.materialFile?.fileName || contract.materialFileName || contract.materialListFileName,
+      },
+    ]
+      .map(attachmentFromRecord)
+      .filter(Boolean) as ContractAttachment[];
+
+    const next = unified.length ? unified : legacyRecords;
+    contractAttachments.value = next.map((item) => ({ ...item }));
+    originalContractAttachments.value = next.map((item) => ({ ...item }));
   }
 
-  function handleBeforeUpload(file: File, kind: ContractUploadKind) {
+  async function handleContractAttachmentUpload(file: File) {
     if (!isAllowedDocumentFile(file)) {
       createMessage.warning('仅支持 PDF、Word、Excel、PPT 文件');
       return Upload.LIST_IGNORE;
     }
-    const state = getUploadState(kind);
-    state.pendingFile.value = file;
-    state.replacementRequired.value = false;
-    // 仅本地选择并回显，保存时作为组合接口的文件 part 一并提交。
-    return false;
+    if (attachmentUploading.value) return Upload.LIST_IGNORE;
+    if (contractAttachments.value.length >= CONTRACT_ATTACHMENT_LIMIT) {
+      createMessage.warning(`合同附件最多上传 ${CONTRACT_ATTACHMENT_LIMIT} 个`);
+      return Upload.LIST_IGNORE;
+    }
+    attachmentUploading.value = true;
+    try {
+      const { path } = await uploadProjectDocument(file, periodId.value);
+      contractAttachments.value.push({
+        uid: `uploaded-${Date.now()}-${file.name}`,
+        fileId: path,
+        fileName: file.name,
+      });
+      createMessage.success(`“${file.name}”上传成功`);
+    } catch (error: any) {
+      createMessage.error(error?.message || `“${file.name}”上传失败，请重试`);
+    } finally {
+      attachmentUploading.value = false;
+    }
+    return Upload.LIST_IGNORE;
   }
 
-  function handleUploadChange(info: any, kind: ContractUploadKind) {
-    const state = getUploadState(kind);
-    state.fileList.value = (info?.fileList || []).slice(-1).map((item: any) => ({
-      ...item,
-      ...(item.status === 'done' && state.fileId.value ? { url: getFileAccessHttpUrl(state.fileId.value) } : {}),
-    }));
+  function removeContractAttachment(uid: string) {
+    contractAttachments.value = contractAttachments.value.filter((item) => item.uid !== uid);
   }
 
-  function handleRemoveUpload(kind: ContractUploadKind) {
-    const state = getUploadState(kind);
-    state.pendingFile.value = undefined;
-    state.fileList.value = [];
-    state.replacementRequired.value = !!state.fileId.value;
-    return true;
+  /** 合同保存后同步附件关联；上传文件路径已由统一上传接口提前取得。 */
+  async function persistContractAttachments() {
+    const additions = contractAttachments.value.filter((item) => !item.id);
+    const retainedIds = new Set(contractAttachments.value.map((item) => item.id).filter(Boolean));
+    const deletedIds = originalContractAttachments.value.map((item) => item.id).filter((id): id is string => !!id && !retainedIds.has(id));
+
+    let syncError: any;
+    try {
+      if (additions.length) {
+        await addProjectFiles({
+          periodId: periodId.value,
+          records: additions.map((item) => ({
+            fileType: CONTRACT_ATTACHMENT_FILE_TYPE,
+            fileId: item.fileId,
+            fileName: item.fileName,
+          })),
+        });
+      }
+      if (deletedIds.length) await deleteFile({ ids: deletedIds.join(',') });
+    } catch (error) {
+      syncError = error;
+    } finally {
+      // 即使部分同步失败也回读服务端状态，防止重试时把已成功新增的路径再次写入。
+      await loadContractAttachments({ contract: info.value });
+    }
+    if (syncError) throw syncError;
   }
 
   /** 从查看模式进入编辑，按最新接口约定仅保留分期与项目入口参数。 */
@@ -1260,9 +1268,7 @@
     return { ...changed, ...buildSalesFields(values) };
   }
 
-  /**
-   * 新增/编辑均使用 multipart 组合接口；编辑合同字段差量提交，回款计划按接口约定全量同步。
-   */
+  /** 合同与回款先组合保存，再把已上传成功的 1～3 个文件路径同步到项目文件。 */
   async function handleSubmit() {
     if (submitting.value) return;
     submitting.value = true;
@@ -1270,7 +1276,10 @@
       const values = await validate();
       delete values.quotation;
       if (quotationOpen.value || quotationSaving.value) throw new Error('请先完成报价调整');
-      if (!pendingMaterialFile.value && !materialListFileId.value) throw new Error('请上传合同货物清单附件');
+      if (attachmentUploading.value) throw new Error('合同附件正在上传，请等待上传完成');
+      if (contractAttachments.value.length < 1 || contractAttachments.value.length > CONTRACT_ATTACHMENT_LIMIT) {
+        throw new Error(`合同附件至少上传 1 个、最多 ${CONTRACT_ATTACHMENT_LIMIT} 个`);
+      }
       const requestedCandidateId = materialCandidateId.value;
       if (requestedCandidateId) {
         if (candidatesLoading.value) throw new Error('请等待报价加载完成');
@@ -1284,14 +1293,6 @@
           throw new Error('报价状态已变化，请重新确认关联报价');
         }
       }
-      if (contractReplacementRequired.value && !pendingContractFile.value) {
-        createMessage.warning('已移除原合同附件，请先选择新文件后再提交');
-        return;
-      }
-      if (materialReplacementRequired.value && !pendingMaterialFile.value) {
-        createMessage.warning('已移除原物料清单，请先选择新文件后再提交');
-        return;
-      }
       if (!validatePaybackPlan()) return;
 
       recalculateAllPaybackAmounts(values.contractAmount);
@@ -1304,42 +1305,36 @@
           periodId: periodId.value,
           projectId: projectId.value,
         };
-        const result: any = await addContractWithPaymentRecords(
-          {
-            ...(requestedCandidateId ? { materialCandidateId: requestedCandidateId } : {}),
-            contract: {
-              ...payload,
-              // 通用数值审批约定：-1 待提交、0 驳回、1 审核通过、2 待审批、3 已撤回。
-              status: '2',
-              approvalReason: '',
-            },
-            ...(pendingContractFile.value ? { contractFile: { fileName: pendingContractFile.value.name } } : {}),
-            ...(pendingMaterialFile.value ? { materialFile: { fileName: pendingMaterialFile.value.name } } : {}),
-            records: buildPaybackRecords(false, values.contractAmount),
+        const result: any = await addContractWithPaymentRecords({
+          ...(requestedCandidateId ? { materialCandidateId: requestedCandidateId } : {}),
+          contract: {
+            ...payload,
+            // 通用数值审批约定：-1 待提交、0 驳回、1 审核通过、2 待审批、3 已撤回。
+            status: '2',
+            approvalReason: '',
           },
-          pendingContractFile.value,
-          pendingMaterialFile.value
-        );
+          records: buildPaybackRecords(false, values.contractAmount),
+        });
         const savedContract = result?.contract;
         if (!savedContract?.id) throw new Error('合同与回款计划已提交，但接口未返回合同 ID，请刷新列表确认');
         contractId.value = String(savedContract.id);
         info.value = { ...info.value, ...savedContract };
       } else {
-        const result: any = await editContractWithPaymentRecords(
-          {
-            ...(requestedCandidateId ? { materialCandidateId: requestedCandidateId } : {}),
-            contract: buildChangedContract(values),
-            ...(pendingContractFile.value ? { contractFile: { fileName: pendingContractFile.value.name } } : {}),
-            ...(pendingMaterialFile.value ? { materialFile: { fileName: pendingMaterialFile.value.name } } : {}),
-            records: buildPaybackRecords(true, values.contractAmount),
-          },
-          pendingContractFile.value,
-          pendingMaterialFile.value
-        );
+        const result: any = await editContractWithPaymentRecords({
+          ...(requestedCandidateId ? { materialCandidateId: requestedCandidateId } : {}),
+          contract: buildChangedContract(values),
+          records: buildPaybackRecords(true, values.contractAmount),
+        });
         info.value = { ...info.value, ...(result?.contract || buildChangedContract(values)), status: '2', approvalReason: '' };
       }
 
       info.value.status = '2';
+      try {
+        await persistContractAttachments();
+      } catch (error: any) {
+        createMessage.error(error?.message ? `合同已保存，但附件关联失败：${error.message}` : '合同已保存，但附件关联失败，请在当前页面重试');
+        return;
+      }
       createMessage.success(wasNewContract ? '合同已提交，等待审批' : '合同与回款计划已修改并重新提交审批');
       router.push('/project/list');
     } catch (error: any) {
@@ -1376,15 +1371,43 @@
     &__attachment-upload {
       width: 100%;
 
-      :deep(.ant-upload-list) {
-        margin-top: 4px;
+      :deep(.ant-upload) {
+        display: inline-block;
       }
+    }
 
-      :deep(.ant-upload-list-item-name) {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+    &__attachment-hint {
+      margin-top: 6px;
+      color: #8c8c8c;
+      font-size: 12px;
+      line-height: 20px;
+    }
+
+    &__attachment-list {
+      width: 100%;
+      margin-top: 8px;
+    }
+
+    &__attachment-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      min-height: 36px;
+      padding: 4px 8px;
+      border-radius: 4px;
+
+      &:hover {
+        background: #fafafa;
       }
+    }
+
+    &__attachment-name {
+      min-width: 0;
+      overflow: hidden;
+      color: #262626;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     &__payback {

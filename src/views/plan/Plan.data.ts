@@ -57,22 +57,23 @@ export const loadQuotationStatusMap = async (): Promise<Record<string, { text: s
 };
 
 export const quotationColumns: BasicColumn[] = [
-  { title: '主项目名称', align: 'center', dataIndex: 'projectName' },
-  { title: '分期项目名称', align: 'center', dataIndex: 'periodName' },
+  { title: '主项目名称', align: 'center', dataIndex: 'projectName', customRender: ({ text }) => text || '—' },
+  { title: '分期项目名称', align: 'center', dataIndex: 'periodName', customRender: ({ text }) => text || '—' },
   { title: '报价单名称', align: 'center', dataIndex: 'candidateName' },
   { title: '最后更新人', align: 'center', dataIndex: 'lastUpdatedBy', width: 130 },
   { title: '状态', align: 'center', dataIndex: 'status', width: 100 },
 ];
 
 export const quotationSearchFormSchema: FormSchema[] = [
-  { label: '主项目名称', field: 'projectName', component: 'Input', componentProps: { placeholder: '请输入主项目名称' } },
-  { label: '分期项目名称', field: 'periodName', component: 'Input', componentProps: { placeholder: '请输入分期项目名称' } },
-  { label: '报价单名称', field: 'candidateName', component: 'Input', componentProps: { placeholder: '请输入报价单名称' } },
   { label: '分期项目ID', field: 'periodId', component: 'Input', componentProps: { placeholder: '请输入分期项目ID' } },
-  {
-    label: '状态',
-    field: 'status',
-    component: 'ApiSelect',
-    componentProps: { api: loadQuotationStatusOptions, placeholder: '请选择状态' },
-  },
 ];
+
+/** 列表只请求候选分页接口，按候选生命周期契约显示，不加载额外字典。 */
+export const quotationListStatusMap: Record<string, { text: string; color: string }> = {
+  '-1': { text: '草稿', color: 'default' },
+  '0': { text: '驳回', color: 'error' },
+  '1': { text: '通过', color: 'success' },
+  '2': { text: '待处理', color: 'processing' },
+  '3': { text: '已采用', color: 'success' },
+  '4': { text: '已作废', color: 'default' },
+};

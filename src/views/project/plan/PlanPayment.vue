@@ -10,16 +10,19 @@
         <a-descriptions-item label="销售负责人">{{ salesUserText }}</a-descriptions-item>
         <a-descriptions-item label="质保期">{{ contract.warrantyPeriod != null ? `${contract.warrantyPeriod} 月` : '—' }}</a-descriptions-item>
         <a-descriptions-item label="计划交付日期">{{ contract.plannedDeliveryDate || '—' }}</a-descriptions-item>
-        <a-descriptions-item label="合同文件" :span="3">
-          <a-button
-            v-if="contractFileId"
-            type="link"
-            size="small"
-            preIcon="ant-design:eye-outlined"
-            @click="previewFileInModal(contractFileId, contractFileName)"
-          >
-            预览：{{ contractFileName }}
-          </a-button>
+        <a-descriptions-item label="合同附件" :span="3">
+          <a-space v-if="contractAttachments.length" direction="vertical" size="small">
+            <a-button
+              v-for="file in contractAttachments"
+              :key="file.id || file.fileId"
+              type="link"
+              size="small"
+              preIcon="ant-design:eye-outlined"
+              @click="previewFileInModal(file.fileId, file.fileName)"
+            >
+              预览：{{ file.fileName }}
+            </a-button>
+          </a-space>
           <span v-else>—</span>
         </a-descriptions-item>
         <a-descriptions-item label="备注" :span="3">{{ contract.remark || '—' }}</a-descriptions-item>
@@ -75,6 +78,7 @@
   import { loadUserOptions, type UserOption } from '/@/views/resource/userOptions';
   import { getPlanMembers } from './Plan.api';
   import { previewFileInModal } from '/@/utils/filePreview';
+  import { getFiles } from '../detail/ProjectDetail.api';
 
   const props = defineProps<{
     periodId?: string;
@@ -89,20 +93,11 @@
   const userOptions = ref<UserOption[]>([]);
   const projectMembers = ref<any[]>([]);
   const project = ref<Recordable>({});
+  const contractAttachments = ref<Recordable[]>([]);
   const loading = ref(false);
   const loaded = ref(false);
   const loadFailed = ref(false);
   let loadSequence = 0;
-
-  const contractFileId = computed(
-    () => contract.value.contractFile?.fileId || contract.value.contractFileId || contract.value.contractFilePath || ''
-  );
-  const contractFileName = computed(
-    () =>
-      contract.value.contractFile?.fileName ||
-      contract.value.contractFileName ||
-      (contractFileId.value ? String(contractFileId.value).split('/').pop() || '合同文件' : '')
-  );
 
   const contractTypeText = computed(() => {
     const value = contract.value.contractType;
@@ -197,6 +192,7 @@
       project.value = { ...(props.projectRecord || {}) };
       userOptions.value = [];
       projectMembers.value = [];
+      contractAttachments.value = [];
       setRows(Array.isArray(contract.value.records) ? contract.value.records : []);
 
       const dictionaryPromise = Promise.allSettled([initDictOptions('payback_node'), initDictOptions('contract_type')]);
@@ -204,8 +200,33 @@
         !hasSalesNameSnapshot() && props.periodId
           ? Promise.allSettled([loadUserOptions(false), getPlanMembers({ periodId: props.periodId, pageNo: 1, pageSize: 1000 })])
           : Promise.resolve([]);
-      const [dictionaryResults, fallbackResults] = await Promise.all([dictionaryPromise, fallbackPromise]);
+      const attachmentPromise = props.periodId
+        ? getFiles({ periodId: props.periodId, pageNo: 1, pageSize: 100 }).catch(() => undefined)
+        : Promise.resolve(undefined);
+      const [dictionaryResults, fallbackResults, attachmentResult]: any[] = await Promise.all([
+        dictionaryPromise,
+        fallbackPromise,
+        attachmentPromise,
+      ]);
       if (sequence !== loadSequence) return;
+
+      const attachmentRecords = (Array.isArray(attachmentResult) ? attachmentResult : attachmentResult?.records || []).filter(
+        (item: Recordable) => String(item.fileType || '') === 'CONTRACT_ATTACHMENT' && item.fileId
+      );
+      contractAttachments.value = attachmentRecords.length
+        ? attachmentRecords
+        : [
+            {
+              fileId: contract.value.contractFile?.fileId || contract.value.contractFileId || contract.value.contractFilePath,
+              fileName: contract.value.contractFile?.fileName || contract.value.contractFileName,
+            },
+            {
+              fileId: contract.value.materialFile?.fileId || contract.value.materialFileId || contract.value.materialListFilePath,
+              fileName: contract.value.materialFile?.fileName || contract.value.materialFileName,
+            },
+          ]
+            .filter((item) => item.fileId)
+            .map((item) => ({ ...item, fileName: item.fileName || String(item.fileId).split('/').pop() || '合同附件' }));
 
       const [nodeResult, typeResult] = dictionaryResults;
       nodeOptions.value = nodeResult.status === 'fulfilled' ? nodeResult.value || [] : [];
@@ -225,6 +246,7 @@
       contract.value = {};
       project.value = {};
       projectMembers.value = [];
+      contractAttachments.value = [];
       rows.value = [];
     } finally {
       if (sequence === loadSequence) loading.value = false;

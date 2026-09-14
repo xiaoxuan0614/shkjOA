@@ -33,6 +33,13 @@
 <script lang="ts" setup>
   import { computed, defineAsyncComponent, onBeforeUnmount, ref, watch } from 'vue';
   import { getHeaders } from '/@/utils/common/compUtils';
+  import { useGlobSetting } from '/@/hooks/setting';
+  import { trustedFileUrl } from '/@/utils/security';
+
+  const settings = useGlobSetting();
+  const maxBytes = 20 * 1024 * 1024;
+  let controller: AbortController | undefined;
+  let sequence = 0;
 
   const props = defineProps<{
     source: string | File;
@@ -71,14 +78,38 @@
     objectUrl.value = '';
   }
 
-  async function readFileBuffer() {
-    if (props.source instanceof File) return props.source.arrayBuffer();
-    const response = await fetch(props.source, {
-      credentials: 'include',
-      headers: getHeaders() as HeadersInit,
+  async function readFileBuffer(signal: AbortSignal) {
+    if (props.source instanceof File) {
+      if (props.source.size > maxBytes) throw new Error('预览文件不能超过 20 MB');
+      return props.source.arrayBuffer();
+    }
+    const { url, trusted } = trustedFileUrl(props.source, window.location.href, [settings.apiUrl, settings.domainUrl]);
+    const response = await fetch(url, {
+      credentials: trusted ? 'same-origin' : 'omit',
+      headers: trusted ? getHeaders() as HeadersInit : {},
+      redirect: 'error',
+      signal,
     });
     if (!response.ok) throw new Error(`文件读取失败（${response.status}）`);
-    return response.arrayBuffer();
+    if (Number(response.headers.get('content-length')) > maxBytes) throw new Error('预览文件不能超过 20 MB');
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error('浏览器不支持安全文件预览，请升级浏览器');
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > maxBytes) {
+        await reader.cancel();
+        throw new Error('预览文件不能超过 20 MB');
+      }
+      chunks.push(value);
+    }
+    const result = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) { result.set(chunk, offset); offset += chunk.byteLength; }
+    return result.buffer;
   }
 
   function getMimeType() {
@@ -88,6 +119,11 @@
   }
 
   async function loadPreview() {
+    const current = ++sequence;
+    controller?.abort();
+    const request = new AbortController();
+    controller = request;
+    const timeout = window.setTimeout(() => request.abort(), 30000);
     loading.value = true;
     errorMessage.value = '';
     officeSource.value = undefined;
@@ -96,16 +132,19 @@
       if (previewKind.value === 'unsupported') {
         throw new Error('暂不支持旧版 .doc 或 .ppt 内容渲染，请另存为 .docx 或 .pptx 后重新上传。');
       }
-      const buffer = await readFileBuffer();
+      const buffer = await readFileBuffer(request.signal);
+      if (current !== sequence) return;
       if (previewKind.value === 'image' || previewKind.value === 'pdf') {
         objectUrl.value = URL.createObjectURL(new Blob([buffer], { type: getMimeType() }));
       } else {
         officeSource.value = buffer;
       }
     } catch (error: any) {
-      errorMessage.value = error?.message || '文件读取失败，请检查文件是否存在或联系管理员。';
+      if (current !== sequence) return;
+      errorMessage.value = error?.name === 'AbortError' ? '文件读取超时，请重试。' : error?.message || '文件读取失败，请检查文件是否存在或联系管理员。';
     } finally {
-      loading.value = false;
+      window.clearTimeout(timeout);
+      if (current === sequence) loading.value = false;
     }
   }
 
@@ -119,7 +158,7 @@
   }
 
   watch(() => [props.source, props.extension], loadPreview, { immediate: true });
-  onBeforeUnmount(clearObjectUrl);
+  onBeforeUnmount(() => { sequence++; controller?.abort(); clearObjectUrl(); });
 </script>
 
 <style lang="less">

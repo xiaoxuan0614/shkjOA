@@ -59,59 +59,22 @@ export function normalizeQuotationStatus(status: unknown) {
   return String(status ?? QUOTATION_STATUS_DRAFT);
 }
 
-/** 后端候选清单列表必须传 periodId，按分期查询后在前端聚合报价管理列表。 */
+/** 报价管理直接使用后端分页，不再枚举分期、聚合或在当前页过滤。 */
 export async function quotationList(params: Recordable = {}) {
-  const pageNo = Math.max(1, Number(params.pageNo) || 1);
-  const pageSize = Math.max(1, Number(params.pageSize) || 10);
-  const periods = await fetchAllPages((pageParams) => planProjectList(pageParams), {
-    projectName: params.projectName,
-    periodName: params.periodName,
-    periodId: params.periodId,
+  const periodId = String(params.periodId ?? '').trim();
+  const result: any = await getMaterialCandidateList({
+    pageNo: Math.max(1, Number(params.pageNo) || 1),
+    pageSize: Math.max(1, Number(params.pageSize) || 10),
+    ...(periodId ? { periodId } : {}),
   });
-  const candidates: any[] = [];
-  const batchSize = 10;
-  for (let index = 0; index < periods.length; index += batchSize) {
-    const batch = periods.slice(index, index + batchSize);
-    const results = await Promise.all(
-      batch.map(async (period: any) => ({
-        period,
-        records: await fetchAllPages((pageParams) => getMaterialCandidateList({ ...pageParams, periodId: period.periodId })),
-      }))
-    );
-    results.forEach(({ period, records }) => {
-      records.forEach((candidate: any) => candidates.push({ period, candidate }));
-    });
-  }
-  const contains = (value: unknown, keyword: unknown) =>
-    !keyword ||
-    String(value || '')
-      .toLowerCase()
-      .includes(String(keyword).trim().toLowerCase());
-  const records = candidates
-    .filter(({ candidate }) => String(candidate.status) !== QUOTATION_STATUS_VOIDED)
-    .map(({ period, candidate }) => ({
-      ...period,
+  return {
+    ...result,
+    records: (result?.records || []).map((candidate: any) => ({
       ...candidate,
       apiStatus: String(candidate.status ?? ''),
       status: normalizeQuotationStatus(candidate.status),
       lastUpdatedBy: candidate.updateBy || candidate.createBy || '—',
-    }))
-    .filter(
-      (item: any) =>
-        contains(item.projectName, params.projectName) &&
-        contains(item.periodName, params.periodName) &&
-        contains(item.periodId, params.periodId) &&
-        contains(item.candidateName, params.candidateName) &&
-        (params.status === undefined || params.status === null || params.status === '' || String(item.status) === String(params.status))
-    )
-    .sort((a: any, b: any) => String(b.updateTime || b.createTime || '').localeCompare(String(a.updateTime || a.createTime || '')));
-  const start = (pageNo - 1) * pageSize;
-  return {
-    records: records.slice(start, start + pageSize),
-    total: records.length,
-    current: pageNo,
-    size: pageSize,
-    pages: Math.ceil(records.length / pageSize),
+    })),
   };
 }
 

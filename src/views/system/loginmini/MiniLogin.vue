@@ -115,9 +115,6 @@
                     <a-button :loading="loginLoading" class="aui-link-login" type="primary" @click="loginHandleClick">
                       {{ t('sys.login.loginButton') }}</a-button>
                   </div>
-                  <div class="aui-flex">
-                    <a class="aui-linek-code aui-flex-box" @click="registerHandleClick">{{ t('sys.login.registerButton') }}</a>
-                  </div>
                 </div>
               </div>
             </div>
@@ -127,9 +124,6 @@
     </div>
     <div v-if="forgotLoaded" v-show="type === 'forgot'" :class="`${prefixCls}-form`">
       <MiniForgotpad ref="forgotRef" @go-back="goBack" @success="handleSuccess" />
-    </div>
-    <div v-if="registerLoaded" v-show="type === 'register'" :class="`${prefixCls}-form`">
-      <MiniRegister ref="registerRef" @go-back="goBack" @success="handleSuccess" />
     </div>
     <!-- 图片验证码弹窗 -->
     <CaptchaModal @register="captchaRegisterModal" @ok="getLoginCode" />
@@ -144,7 +138,6 @@
   import { useI18n } from '/@/hooks/web/useI18n';
   import { SmsEnum } from '/@/views/sys/login/useLogin';
   const MiniForgotpad = defineAsyncComponent(() => import('./MiniForgotpad.vue'));
-  const MiniRegister = defineAsyncComponent(() => import('./MiniRegister.vue'));
   import logoImg from '/@/assets/loginmini/icon/jeecg_logo.png';
   import adTextImg from '/@/assets/loginmini/icon/jeecg_ad_text.png';
   import { AppLocalePicker, AppDarkModeToggle } from '/@/components/Application';
@@ -180,8 +173,8 @@
   //账号登录表单字段
   const formData = reactive<any>({
     inputCode: '',
-    username: 'admin',
-    password: '123456',
+    username: '',
+    password: '',
     loginOrgCode: '',
   });
   //手机登录表单字段
@@ -199,12 +192,9 @@
   const timer = ref<any>(null);
   //忘记密码
   const forgotRef = ref();
-  //注册
-  const registerRef = ref();
   const loginLoading = ref<boolean>(false);
-  // 以下三个组件懒加载控制标志位，点击时才挂载
+  // 忘记密码组件按需挂载
   const forgotLoaded = ref<boolean>(false);
-  const registerLoaded = ref<boolean>(false);
   const { getIsMobile } = useAppInject();
   const [captchaRegisterModal, { openModal: openCaptchaModal }] = useModal();
   defineProps({
@@ -483,17 +473,6 @@
     type.value = 'login';
     activeIndex.value = 'accountLogin';
     handleChangeCheckCode();
-  }
-
-  /**
-   * 注册
-   */
-  function registerHandleClick() {
-    registerLoaded.value = true;
-    type.value = 'register';
-    setTimeout(() => {
-      registerRef.value?.initForm();
-    }, 300);
   }
 
   onMounted(() => {

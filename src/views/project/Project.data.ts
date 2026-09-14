@@ -109,7 +109,10 @@ export const loadProjectWorkTypeOptions = () => loadDictOptions('work_type');
 
 // 项目状态(字典 project_period_status)
 export const loadProjectStatusOptions = () =>
-  loadDictOptions('project_period_status', Object.entries(projectStatusMap).map(([value, label]) => ({ value, label: String(label) })));
+  loadDictOptions(
+    'project_period_status',
+    Object.entries(projectStatusMap).map(([value, label]) => ({ value, label: String(label) }))
+  );
 
 // 项目类型(字典 project_type)
 export const loadProjectTypeOptions = () => loadDictOptions('project_type');
@@ -233,7 +236,7 @@ export const columns: BasicColumn[] = [
     align: 'center',
     dataIndex: 'projectManagerName',
     width: 120,
-    customRender: ({ text }) => String(text ?? '').trim() || '—',
+    customRender: ({ text }) => String(text ?? '').trim() || '-',
   },
   {
     title: '进度(%)',

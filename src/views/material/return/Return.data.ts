@@ -1,5 +1,5 @@
 import { FormSchema } from '/@/components/Table';
-import { MATERIAL_USAGE_TYPE } from '../material.constants';
+import { MATERIAL_USAGE_TYPE, materialUsageTypeOptions } from '../material.constants';
 
 /**
  * 还料申请 - 申请信息表单
@@ -8,16 +8,15 @@ import { MATERIAL_USAGE_TYPE } from '../material.constants';
  */
 export const returnFormSchema: FormSchema[] = [
   {
-    label: '选择类型',
+    label: '用料类型',
     field: 'usageType',
     component: 'Select',
     defaultValue: MATERIAL_USAGE_TYPE.PROJECT,
     componentProps: {
-      options: [{ label: '项目', value: MATERIAL_USAGE_TYPE.PROJECT }],
+      options: materialUsageTypeOptions.map((item) => ({ ...item, disabled: item.value !== MATERIAL_USAGE_TYPE.PROJECT })),
       allowClear: false,
-      disabled: true,
     },
-    dynamicRules: () => [{ required: true, message: '请选择还料类型!' }],
+    dynamicRules: () => [{ required: true, message: '请选择用料类型!' }],
   },
   {
     label: '选择项目',

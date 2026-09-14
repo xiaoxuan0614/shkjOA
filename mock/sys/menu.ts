@@ -610,6 +610,7 @@ export default [
           'mtl:goods:io',
           // 项目管理(project)生命周期流转按钮权限(角色顺序权限)
           'project:add',
+          'project:close',
           'project:plan',
           'project:implement',
           'project:internalAccept',

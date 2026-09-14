@@ -39,14 +39,14 @@
 </template>
 
 <script lang="ts" name="quotation-management-list" setup>
-  import { onMounted, ref, watch } from 'vue';
+  import { ref, watch } from 'vue';
   import { useRouter } from 'vue-router';
   import { BasicTable, TableAction } from '/@/components/Table';
   import type { ActionItem } from '/@/components/Table';
   import { useListPage } from '/@/hooks/system/useListPage';
   import { useMessage } from '/@/hooks/web/useMessage';
   import { usePermission } from '/@/hooks/web/usePermission';
-  import { loadQuotationStatusMap, quotationColumns, quotationSearchFormSchema } from '../Plan.data';
+  import { quotationListStatusMap, quotationColumns, quotationSearchFormSchema } from '../Plan.data';
   import { exportCandidateMaterials } from '../materialExcel';
   import {
     getMaterialCandidateItemList,
@@ -73,7 +73,7 @@
   const router = useRouter();
   const { createMessage } = useMessage();
   const { hasPermission } = usePermission();
-  const statusMeta = ref<Recordable>({});
+  const statusMeta = quotationListStatusMap;
   const operatingId = ref('');
   const exportingId = ref('');
   const addModalOpen = ref(false);
@@ -89,10 +89,6 @@
     if (candidateName.value.trim() && candidateName.value !== previousDefaultName) return;
     const projectName = periodOptions.value.find((item) => item.value === periodId)?.projectName;
     candidateName.value = projectName ? `${projectName}报价单` : '';
-  });
-
-  onMounted(async () => {
-    statusMeta.value = await loadQuotationStatusMap();
   });
 
   const { tableContext } = useListPage({
@@ -259,7 +255,7 @@
         ifShow: !locked,
         disabled: !!operatingId.value,
         popConfirm: {
-          title: '作废后将从报价列表移除，原记录仍保留，确定作废吗？',
+          title: '作废后报价不可修改，原记录仍保留，确定作废吗？',
           confirm: handleDelete.bind(null, record),
         },
       },

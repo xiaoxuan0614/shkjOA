@@ -5,7 +5,7 @@
         <a-select v-model:value="model[field]" placeholder="请选择消息模版" :options="templateOption" @change="handleChange" />
       </template>
       <template #msgContent="{ model, field }">
-        <div v-html="model[field]" class="article-content"></div>
+        <div v-html="sanitizeHtml(model[field])" class="article-content"></div>
       </template>
     </BasicForm>
     <div class="footer-btn" v-if="!formDisabled">
@@ -14,6 +14,7 @@
   </div>
 </template>
 <script lang="ts" setup>
+  import { sanitizeHtml } from '/@/utils/security';
   import { BasicForm, useForm } from '/@/components/Form/index';
   import { getBpmFormSchema } from './notice.data';
   import { getTempList, queryById, saveOrUpdate } from './notice.api';

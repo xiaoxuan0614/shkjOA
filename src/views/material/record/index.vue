@@ -68,7 +68,7 @@
 
 <script lang="ts" name="mtl-record" setup>
   import { ref, onMounted } from 'vue';
-  import { useStockAccess, isProjectOutbound } from './stockAccess';
+  import { useStockAccess } from './stockAccess';
   import { useRouter } from 'vue-router';
   import { BasicTable, TableAction } from '/@/components/Table';
   import { useModal } from '/@/components/Modal';
@@ -95,11 +95,10 @@
   } from '/@/utils/approvalStatus';
 
   function getListApprovalStatusMeta(record: Recordable) {
-    if (isProjectOutbound(record) && String(record.status) === APPROVAL_APPROVED) return { color: 'blue', text: '自动通过' };
     return getApprovalStatusMeta(record.status);
   }
 
-  const { canApprove, canExecute, hasExecutePermission } = useStockAccess();
+  const { prepareApprovalAccess, canApprove, canExecute, hasExecutePermission } = useStockAccess();
   const router = useRouter();
   const { createMessage, createConfirm } = useMessage();
   const activeKey = ref('apply');
@@ -128,7 +127,15 @@
   const { tableContext: applyCtx } = useListPage({
     tableProps: {
       title: '出入库申请',
-      api: listApply,
+      api: async (params) => {
+        const result = await listApply(params);
+        try {
+          await prepareApprovalAccess(Array.isArray(result) ? result : result?.records || []);
+        } catch {
+          createMessage.warning('项目经理身份加载失败，部分审批按钮暂不可用，请刷新');
+        }
+        return result;
+      },
       columns: applyColumns,
       canResize: true,
       formConfig: {

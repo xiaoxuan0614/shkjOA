@@ -29,7 +29,7 @@
   import { getApprovalStatusMeta } from '/@/utils/approvalStatus';
 
   import { useStockAccess } from '../stockAccess';
-  const { canApprove } = useStockAccess();
+  const { prepareApprovalAccess, canApprove } = useStockAccess();
   const { createMessage } = useMessage();
   const emit = defineEmits(['register', 'success']);
 
@@ -52,6 +52,7 @@
 
   const [register, { closeModal }] = useModalInner(async (data) => {
     const list: any[] = (data?.rows || []).filter((r: any) => r && r.id);
+    await prepareApprovalAccess(list);
     rows.value = list.map((r: any) => ({
       ...r,
       id: r.id,

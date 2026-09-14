@@ -35,7 +35,7 @@
   import { loadDictMap } from '../../material.util';
 
   import { useStockAccess } from '../stockAccess';
-  const { canApprove } = useStockAccess();
+  const { prepareApprovalAccess, canApprove } = useStockAccess();
   const { createMessage } = useMessage();
   const emit = defineEmits(['register', 'success']);
 
@@ -71,6 +71,7 @@
     setModalProps({ loading: true });
     try {
       record.value = await queryById({ id });
+      await prepareApprovalAccess([record.value]);
       if (!canApprove(record.value)) throw new Error('当前申请无需审批或您无权审批');
       // 明细走分页接口 /stock/apply/items(只读展示申请了什么物料)
       const itemRes: any = await queryItems({ applyId: id, pageNo: 1, pageSize: 500 });

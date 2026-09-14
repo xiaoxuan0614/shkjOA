@@ -116,7 +116,7 @@
     getApplyById,
   } from './Pick.api';
   import { queryItems } from '../record/StockApply.api';
-  import { getCurrentUser, loadDictMap, loadMaterialMap } from '../material.util';
+  import { resolveCurrentMaterialUser, getCurrentUser, loadDictMap, loadMaterialMap } from '../material.util';
   import { MATERIAL_USAGE_TYPE } from '../material.constants';
   import MaterialSelectDrawer from '../apply/components/MaterialSelectDrawer.vue';
   import { validateEditableRows } from '/@/components/EditableTable';
@@ -194,8 +194,8 @@
   }
 
   /** 使用人/部门默认当前操作人 */
-  function initUserInfo() {
-    const cur = getCurrentUser();
+  async function initUserInfo() {
+    const cur = await resolveCurrentMaterialUser().catch(() => ({ ...getCurrentUser(), deptName: getCurrentUser().deptName || '部门加载失败' }));
     setFieldsValue({ applyUserName: cur.applyUserName, deptName: cur.deptName });
   }
 
@@ -243,7 +243,7 @@
     if (isReworkMode.value) return;
     if (usageType.value !== value && detailList.value.length) {
       detailList.value = [];
-      createMessage.info('领料类型已变更，原物料明细已清空');
+      createMessage.info('用料类型已变更，原物料明细已清空');
     }
     usageType.value = value;
     setFieldsValue({ repairOrderNo: undefined });
@@ -257,7 +257,7 @@
 
   /** 表单挂载后再注入项目选项 + 默认当前操作人 + 编辑模式回填 */
   onMounted(async () => {
-    initUserInfo();
+    await initUserInfo();
     try {
       brandMap.value = await loadDictMap('material_brand');
       // 返工领料由 reworkId 锁定项目和额外领料额度；普通新增才加载全部参与项目。
@@ -374,7 +374,11 @@
         repairOrderNo: res.repairOrderNo,
         remark: res.remark,
         applyUserName: res.applyUserName,
-        deptName: res.deptName,
+        deptName:
+          res.deptName ||
+          (String(res.applyUserId || '') === getCurrentUser().applyUserId
+            ? (await resolveCurrentMaterialUser().catch(() => getCurrentUser())).deptName
+            : '—'),
       });
       // 明细走 /stock/apply/items 分页接口（queryById.itemList 已废弃）
       const itemRes: any = await queryItems({ applyId, pageNo: 1, pageSize: 500 });

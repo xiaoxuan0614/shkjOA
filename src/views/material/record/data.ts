@@ -79,7 +79,7 @@ export const applyColumns: BasicColumn[] = [
     width: 90,
   },
   {
-    title: '领料类型',
+    title: '用料类型',
     align: 'center',
     dataIndex: 'usageType',
     width: 120,

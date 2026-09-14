@@ -23,27 +23,24 @@
         <strong v-if="arrivalPlan">{{ expectedPaymentDate }}</strong>
         <span v-else>—</span>
       </a-descriptions-item>
-      <a-descriptions-item label="合同货物清单">
-        <a-button
-          v-if="materialFileSource"
-          type="link"
-          size="small"
-          preIcon="ant-design:eye-outlined"
-          @click="previewFileInModal(materialFileSource, materialFileName)"
-        >
-          预览：{{ materialFileName }}
-        </a-button>
-        <span v-else>暂无合同货物清单</span>
+      <a-descriptions-item label="合同附件">
+        <a-space v-if="contractAttachments.length" direction="vertical" size="small">
+          <a-button
+            v-for="file in contractAttachments"
+            :key="file.id || file.fileId"
+            type="link"
+            size="small"
+            preIcon="ant-design:eye-outlined"
+            @click="previewFileInModal(file.fileId, file.fileName)"
+          >
+            预览：{{ file.fileName }}
+          </a-button>
+        </a-space>
+        <span v-else>暂无合同附件</span>
       </a-descriptions-item>
     </a-descriptions>
 
-    <a-alert
-      v-if="!loading && !arrivalPlan"
-      type="error"
-      show-icon
-      class="arrival-confirm__missing"
-      message="合同中未找到到货款计划，请先完善合同回款计划后再确认到货。"
-    />
+    <a-alert v-if="!loading && !arrivalPlan" type="error" show-icon class="arrival-confirm__missing" message="此合同没有到货款，无需确认到货。" />
 
     <template #footer>
       <a-button :disabled="submitting" @click="closeModal">取消</a-button>
@@ -59,8 +56,9 @@
   import { useMessage } from '/@/hooks/web/useMessage';
   import { contractDetailByPeriodId } from '/@/views/payment/Payment.api';
   import { previewFileInModal } from '/@/utils/filePreview';
-  import { changeArrivalStatus } from '../Project.api';
-  import { loadDictOptions } from '../Project.data';
+  import { changeArrivalStatus, projectDetail } from '../Project.api';
+  import { getFiles } from '../detail/ProjectDetail.api';
+  import { findArrivalPayment, isArrivalStage } from '../arrivalPayment';
 
   const emit = defineEmits(['register', 'success']);
   const { createMessage } = useMessage();
@@ -71,39 +69,22 @@
   const loading = ref(false);
   const submitting = ref(false);
   const arrivalPlan = ref<Recordable>();
-  const materialFile = ref<Recordable>({});
   const contract = ref<Recordable>({});
+  const contractAttachments = ref<Recordable[]>([]);
 
   const rollbackDays = computed(() => {
     const value = Number(arrivalPlan.value?.rollbackTime ?? 7);
     return Number.isInteger(value) && value >= 0 ? value : 7;
   });
   const expectedPaymentDate = computed(() => dayjs().add(rollbackDays.value, 'day').format('YYYY-MM-DD'));
-  const materialFileSource = computed(
-    () =>
-      materialFile.value?.fileId ||
-      materialFile.value?.url ||
-      contract.value?.materialFileId ||
-      contract.value?.materialListFileId ||
-      contract.value?.materialListFilePath ||
-      ''
-  );
-  const materialFileName = computed(
-    () =>
-      materialFile.value?.fileName ||
-      contract.value?.materialFileName ||
-      contract.value?.materialListFileName ||
-      (materialFileSource.value ? String(materialFileSource.value).split('/').pop() || '合同货物清单' : '')
-  );
-
   const [register, { closeModal }] = useModalInner(async (data) => {
     const record = data?.record || data || {};
     periodId.value = String(data?.periodId || record.periodId || record.id || '');
     projectName.value = record.projectName || '';
     periodName.value = record.periodName || '';
     arrivalPlan.value = undefined;
-    materialFile.value = {};
     contract.value = {};
+    contractAttachments.value = [];
     submitting.value = false;
 
     if (!periodId.value) {
@@ -113,15 +94,23 @@
 
     loading.value = true;
     try {
-      const [detail, nodeOptions] = await Promise.all([
+      const [detail, filePage]: any[] = await Promise.all([
         contractDetailByPeriodId(periodId.value),
-        loadDictOptions('payback_node', [{ label: '到货款', value: '到货款' }]),
+        getFiles({ periodId: periodId.value, pageNo: 1, pageSize: 100 }).catch(() => undefined),
       ]);
       contract.value = detail || {};
-      materialFile.value = detail?.materialFile || {};
-      const arrivalNodeValues = new Set(nodeOptions.filter((item) => String(item.label).trim() === '到货款').map((item) => String(item.value)));
-      arrivalNodeValues.add('到货款');
-      arrivalPlan.value = (detail?.records || []).find((item: Recordable) => arrivalNodeValues.has(String(item.paymentNode ?? item.node ?? '')));
+      const attachmentRecords = (Array.isArray(filePage) ? filePage : filePage?.records || []).filter(
+        (item: Recordable) => String(item.fileType || '') === 'CONTRACT_ATTACHMENT' && item.fileId
+      );
+      contractAttachments.value = attachmentRecords.length
+        ? attachmentRecords
+        : [
+            { fileId: detail?.contractFile?.fileId || detail?.contractFileId, fileName: detail?.contractFile?.fileName || detail?.contractFileName },
+            { fileId: detail?.materialFile?.fileId || detail?.materialFileId, fileName: detail?.materialFile?.fileName || detail?.materialFileName },
+          ]
+            .filter((item) => item.fileId)
+            .map((item) => ({ ...item, fileName: item.fileName || String(item.fileId).split('/').pop() || '合同附件' }));
+      arrivalPlan.value = findArrivalPayment(detail?.records);
     } catch (error: any) {
       createMessage.error(error?.message || '合同回款信息加载失败，请稍后重试');
     } finally {
@@ -133,6 +122,13 @@
     if (!periodId.value || !arrivalPlan.value || submitting.value) return;
     submitting.value = true;
     try {
+      const [latest, latestContract] = await Promise.all([projectDetail({ periodId: periodId.value }), contractDetailByPeriodId(periodId.value)]);
+      if (!isArrivalStage(latest || {}) || !findArrivalPayment(latestContract?.records)) {
+        createMessage.warning('到货状态或合同回款计划已变化，请刷新后操作');
+        closeModal();
+        emit('success');
+        return;
+      }
       await changeArrivalStatus({ periodId: periodId.value, arrivalStatus: 1 });
       createMessage.success('已确认到货');
       closeModal();

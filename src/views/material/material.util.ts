@@ -1,3 +1,4 @@
+import { getUserDeparts } from '/@/views/system/depart/depart.api';
 import { useUserStore } from '/@/store/modules/user';
 import { initDictOptions } from '/@/utils/dict/index';
 import { loadUserOptions } from '../resource/userOptions';
@@ -27,6 +28,18 @@ export function getCurrentUser() {
   };
 }
 
+/** 当前账号部门实时回显，避免登录缓存缺失名称。 */
+export async function resolveCurrentMaterialUser() {
+  const user = getCurrentUser();
+  const result = await getUserDeparts();
+  const departments = result?.list || [];
+  const department =
+    departments.find((item) => item.orgCode === result.orgCode) ||
+    departments.find((item) => String(item.id) === user.deptId) ||
+    (departments.length === 1 ? departments[0] : undefined);
+  return { ...user, deptId: department?.id || user.deptId, deptName: department?.departName || user.deptName || '未配置部门' };
+}
+
 /**
  * 加载后端数据字典（代码 → {text, color}）。
  * 数据源：后台「系统管理 → 数据字典」配置的 sys_dict；
@@ -39,9 +52,7 @@ export async function loadDictMap(code: string): Promise<Record<string, { text: 
   if (dictCache[code]) return dictCache[code];
   try {
     const items: any[] = (await initDictOptions(code)) || [];
-    dictCache[code] = Object.fromEntries(
-      items.map((i) => [String(i.value), { text: i.text ?? i.label ?? '', color: i.color ?? '' }])
-    );
+    dictCache[code] = Object.fromEntries(items.map((i) => [String(i.value), { text: i.text ?? i.label ?? '', color: i.color ?? '' }]));
   } catch (e) {
     dictCache[code] = {};
   }
@@ -75,10 +86,7 @@ export async function loadUnitOptions(): Promise<{ label: string; value: string 
  * @param unitName 单位名称(明细 unitName)
  * @param fallbackId 匹配不到时的兜底(明细原 unitId)
  */
-export async function resolveDictUnitId(
-  unitName?: string,
-  fallbackId?: string | number
-): Promise<string | number | undefined> {
+export async function resolveDictUnitId(unitName?: string, fallbackId?: string | number): Promise<string | number | undefined> {
   if (!unitName) return fallbackId;
   const dict = await loadDictMap('inv_unit');
   const found = Object.entries(dict).find(([, it]) => it.text === unitName);
@@ -129,9 +137,7 @@ export async function loadMaterialMap(options: { force?: boolean } = {}): Promis
       const res: any = await defHttp.get({ url: '/stock/material/list', params: { pageNo: 1, pageSize: 10000 } });
       const recs = res?.records || (Array.isArray(res) ? res : []);
       const nextMap = Object.fromEntries(
-        (recs || [])
-          .filter((material: any) => material?.id != null)
-          .map((material: any) => [String(material.id), material])
+        (recs || []).filter((material: any) => material?.id != null).map((material: any) => [String(material.id), material])
       );
       materialMapCache = nextMap;
       return nextMap;
