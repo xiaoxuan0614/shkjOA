@@ -1,19 +1,14 @@
 <template>
   <BasicModal v-bind="$attrs" @register="register" destroyOnClose :title="recordTitle" :width="640" :footer="null">
     <a-descriptions :column="2" bordered size="middle">
-      <a-descriptions-item
-        v-for="(f, idx) in recordFields"
-        :key="idx"
-        :label="f.label"
-        :span="f.span || 1"
-      >
+      <a-descriptions-item v-for="(f, idx) in recordFields" :key="idx" :label="f.label" :span="f.span || 1">
         <!-- 照片: 图片预览 -->
         <template v-if="f.type === 'images'">
           <div v-if="getImages(f.value).length" class="record-detail__images">
             <a-image
               v-for="(img, i) in getImages(f.value)"
               :key="i"
-              :src="img"
+              :src="getFileAccessHttpUrl(img.replace(/^\/?sys\/common\/static\//, ''))"
               :width="80"
               :height="80"
               style="margin-right: 8px; object-fit: cover; border-radius: 4px"
@@ -21,7 +16,7 @@
           </div>
           <span v-else>—</span>
         </template>
-        <span v-else>{{ f.value || '—' }}</span>
+        <span v-else>{{ f.value === '' ? '—' : (f.value ?? '—') }}</span>
       </a-descriptions-item>
     </a-descriptions>
   </BasicModal>
@@ -29,6 +24,7 @@
 
 <script lang="ts" setup>
   import { ref } from 'vue';
+  import { getFileAccessHttpUrl } from '/@/utils/common/compUtils';
   import { BasicModal, useModalInner } from '/@/components/Modal';
 
   const props = defineProps<{

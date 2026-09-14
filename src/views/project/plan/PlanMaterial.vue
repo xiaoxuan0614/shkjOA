@@ -2,7 +2,7 @@
   <div class="project-plan-material">
     <div v-if="editable" class="project-plan-material__toolbar">
       <a-button preIcon="ant-design:import-outlined" @click="openImportModal">导入清单</a-button>
-      <span>首次自动带入合同已采用报价，可追加物料、调整数量；保存本页后生效。</span>
+      <span>首次自动带入合同已采用报价，合同物料不可删除、数量只能在合同量上增加；可追加物料；保存本页后生效。</span>
     </div>
     <a-alert
       v-if="hasContractDraft"
@@ -10,10 +10,17 @@
       type="info"
       show-icon
       message="已载入本分期的计划用料清单"
-      description="筹备阶段仍可继续增加、调整或移除物料。"
+      description="合同物料不可移除，计划数量不得低于合同量；追加物料可正常调整或移除。"
     />
     <a-spin :spinning="importing" tip="正在带入物料，请稍候">
-      <MaterialPlanTable ref="tableRef" :period-id="periodId" :editable="editable" @loaded="handleLoaded" />
+      <MaterialPlanTable
+        ref="tableRef"
+        :period-id="periodId"
+        :editable="editable"
+        :contract-loading="importing || initializationFailed"
+        :contract-items="contractItems"
+        @loaded="handleLoaded"
+      />
     </a-spin>
 
     <a-modal
@@ -56,6 +63,7 @@
   const { createMessage } = useMessage();
   const tableRef = ref();
   const hasContractDraft = ref(false);
+  const contractItems = ref<Recordable[]>([]);
   const importModalOpen = ref(false);
   const uploadFile = ref<File>();
   const uploadFileList = ref<any[]>([]);
@@ -67,7 +75,7 @@
     hasContractDraft.value = count > 0;
     if (!importing.value) emit('persisted-change', count > 0);
     await nextTick();
-    if (!initializationAttempted && !count && props.editable && props.periodId) void initializeFromAdoptedQuotation();
+    if (!initializationAttempted && props.editable && props.periodId) void initializeFromAdoptedQuotation();
   }
 
   async function initializeFromAdoptedQuotation() {
@@ -84,10 +92,19 @@
       const items = await getAllMaterialCandidateItems(String(adopted[0].id));
       if (periodId !== props.periodId) return;
       if (!items.length) throw new Error('已采用报价没有物料明细，请核对报价');
-      // 仅初始化空计划；候选明细 ID 不属于计划明细，禁止沿用。
-      if (tableRef.value?.getRowCount()) return;
+      contractItems.value = items;
+      // 已有计划也必须识别合同来源；缺失的合同物料重新补入，不覆盖已有数量。
+      const existingIds = tableRef.value?.getMaterialIds?.() || [];
+      const missingItems = items.filter((item) => !existingIds.includes(String(item.materialId)));
+      if (!missingItems.length) return;
       await tableRef.value?.importRows(
-        items.map((item) => ({ materialId: item.materialId, unitId: item.unitId, unit: item.unit, plannedQty: item.quantity, remark: item.remark }))
+        missingItems.map((item) => ({
+          materialId: item.materialId,
+          unitId: item.unitId,
+          unit: item.unit,
+          plannedQty: item.quantity,
+          remark: item.remark,
+        }))
       );
       emit('persisted-change', false);
     } catch (error: any) {
@@ -159,6 +176,7 @@
   watch(
     () => props.periodId,
     () => {
+      contractItems.value = [];
       initializationAttempted = false;
       initializationFailed.value = false;
     }

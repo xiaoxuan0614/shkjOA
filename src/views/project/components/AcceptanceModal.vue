@@ -41,7 +41,7 @@
   import DetailAcceptance from '../detail/components/DetailAcceptance.vue';
 
   const emit = defineEmits(['register', 'success']);
-  const { canOperateAcceptance } = useAcceptanceAccess();
+  const { canOperateAcceptance, canViewAcceptanceEntry } = useAcceptanceAccess();
   const periodId = ref('');
   const project = ref<Recordable>();
   const error = ref('');
@@ -61,9 +61,11 @@
     error.value = '';
     loading.value = true;
     try {
+      if (!canViewAcceptanceEntry()) throw new Error('当前账号无验收入口权限');
       if (!periodId.value) throw new Error('缺少项目分期信息');
       const detail = await projectDetail({ periodId: periodId.value }, true);
       if (request !== requestId) return;
+      if (!canViewAcceptanceEntry()) throw new Error('当前账号无验收入口权限');
       if (detail?.status !== 'ACCEPTING') throw new Error('项目已不在验收中，请刷新列表后查看');
       const managerId = detail.projectManagerUserId || detail.projectManagerId;
       if (!canOperateAcceptance('INTERNAL', managerId) && !canOperateAcceptance('CUSTOMER', managerId)) {

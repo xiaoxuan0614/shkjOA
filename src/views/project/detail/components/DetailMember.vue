@@ -9,7 +9,7 @@
         <a-space class="detail-member__actions" wrap>
           <a-tag color="blue">{{ members.length }} 人</a-tag>
           <a-button pre-icon="ant-design:reload-outlined" :loading="memberLoading" @click="loadMembers">刷新成员</a-button>
-          <a-button type="primary" pre-icon="ant-design:user-add-outlined" @click="openInviteModal">邀请项目成员</a-button>
+          <a-button v-if="canInvite" type="primary" pre-icon="ant-design:user-add-outlined" @click="openInviteModal">邀请项目成员</a-button>
         </a-space>
       </div>
 
@@ -134,8 +134,20 @@
   import { useMessage } from '/@/hooks/web/useMessage';
   import { getMemberOutsources, getMembers, inviteProjectMembers } from '../ProjectDetail.api';
   import { loadDictOptions } from '../../Project.data';
+  import { readProjectMembership } from '../../projectMembership';
+  import { useUserStore } from '/@/store/modules/user';
 
   const { createMessage } = useMessage();
+  const userStore = useUserStore();
+  const canInvite = ref(false);
+  async function refreshInviteAccess() {
+    const periodId = props.projectId;
+    canInvite.value = false;
+    const user: any = userStore.getUserInfo;
+    const access = await readProjectMembership(periodId, String(user?.id || user?.userId || ''));
+    if (periodId === props.projectId) canInvite.value = access.manager;
+    return periodId === props.projectId && access.manager;
+  }
 
   const props = defineProps<{
     projectId: string;
@@ -254,6 +266,8 @@
   }
 
   async function openInviteModal() {
+    try { if (!await refreshInviteAccess()) return createMessage.warning('仅本分期项目负责人可邀请成员'); }
+    catch { return createMessage.error('邀请资格加载失败，请重试'); }
     inviteForm.roles = [];
     inviteForm.userId = undefined;
     inviteModalOpen.value = true;
@@ -278,6 +292,7 @@
 
     inviteSubmitting.value = true;
     try {
+      if (!await refreshInviteAccess()) return createMessage.warning('仅本分期项目负责人可邀请成员');
       await inviteProjectMembers({
         periodId: props.projectId,
         records: [{ userId: inviteForm.userId, memberRole: rolesToInvite.join(',') }],
@@ -377,7 +392,7 @@
 
   watch(
     () => props.projectId,
-    () => Promise.allSettled([loadMembers(), loadOutsources()]),
+    () => Promise.allSettled([loadMembers(), loadOutsources(), refreshInviteAccess()]),
     { immediate: true }
   );
 </script>

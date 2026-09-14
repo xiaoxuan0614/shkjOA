@@ -1,171 +1,63 @@
-import { BasicColumn } from '/@/components/Table';
-import { FormSchema } from '/@/components/Table';
+import type { BasicColumn, FormSchema } from '/@/components/Table';
 
-/**
- * 车辆状态字典(与设计稿一致)
- */
-export const vehicleStatusOptions = [
-  { label: '可用', value: '可用' },
-  { label: '保养中', value: '保养中' },
-  { label: '维修中', value: '维修中' },
-  { label: '停用', value: '停用' },
+export const vehicleStatusOptions = ['空闲', '使用中', '保养中'].map((value) => ({ label: value, value }));
+export const driveModeOptions = [
+  { label: 'GPS 模式', value: 'GPS' },
+  { label: '车主模式', value: 'OWNER' },
 ];
-
-/**
- * 负责人选项(后续接用户接口, 先写死)
- */
-export const driverOptions = [
-  { label: '张三', value: '张三' },
-  { label: '李四', value: '李四' },
-  { label: '王五', value: '王五' },
-];
-
-/**
- * 车辆列表列
- */
+export function getStatusColor(status: string) {
+  return ({ 空闲: 'success', 使用中: 'processing', 保养中: 'warning' } as Record<string, string>)[status] || 'default';
+}
 export const columns: BasicColumn[] = [
-  {
-    title: '序号',
-    align: 'center',
-    dataIndex: 'id',
-    width: 70,
-  },
-  {
-    title: '车牌号',
-    align: 'center',
-    dataIndex: 'plateNo',
-  },
-  {
-    title: '负责人',
-    align: 'center',
-    dataIndex: 'owner',
-  },
-  {
-    title: '状态',
-    align: 'center',
-    dataIndex: 'status',
-  },
-  {
-    title: '最近使用时间',
-    align: 'center',
-    dataIndex: 'lastUseTime',
-    customRender: ({ text }) => text || '—',
-  },
-  {
-    title: '最近加油时间',
-    align: 'center',
-    dataIndex: 'lastFuelTime',
-    customRender: ({ text }) => text || '—',
-  },
-  {
-    title: '最近保养时间',
-    align: 'center',
-    dataIndex: 'lastMaintenanceTime',
-    customRender: ({ text }) => text || '—',
-  },
+  { title: '车牌号', dataIndex: 'plateNumber' },
+  { title: '负责人', dataIndex: 'principal' },
+  { title: '状态', dataIndex: 'status' },
+  ...[
+    ['最近使用时间', 'latestUseTime'],
+    ['最近加油时间', 'latestRefuelTime'],
+    ['最近保养时间', 'latestMaintainTime'],
+  ].map(([title, dataIndex]) => ({ title, dataIndex, customRender: ({ text }) => text || '—' })),
 ];
-
-/**
- * 车辆列表搜索
- */
 export const searchFormSchema: FormSchema[] = [
-  {
-    label: '车牌号',
-    field: 'plateNo',
-    component: 'Input',
-    componentProps: { placeholder: '请输入车牌号' },
-  },
-  {
-    label: '负责人',
-    field: 'owner',
-    component: 'Select',
-    componentProps: { options: driverOptions, placeholder: '请选择负责人' },
-  },
-  {
-    label: '状态',
-    field: 'status',
-    component: 'Select',
-    componentProps: { options: vehicleStatusOptions, placeholder: '请选择状态' },
-  },
+  { label: '车牌号', field: 'plateNumber', component: 'Input' },
+  { label: '负责人', field: 'principal', component: 'Input' },
+  { label: '状态', field: 'status', component: 'Select', componentProps: { options: vehicleStatusOptions, allowClear: true } },
 ];
-
-/**
- * 车辆新增/编辑弹窗表单(设计稿: 车牌号* / 状态* / 负责人*)
- */
 export const formSchema: FormSchema[] = [
-  {
-    label: '车牌号',
-    field: 'plateNo',
-    component: 'Input',
-    componentProps: { placeholder: '请输入车牌号' },
-    dynamicRules: () => [{ required: true, message: '请输入车牌号!' }],
-  },
-  {
-    label: '状态',
-    field: 'status',
-    component: 'Select',
-    componentProps: { options: vehicleStatusOptions, placeholder: '请选择状态' },
-    dynamicRules: () => [{ required: true, message: '请选择状态!' }],
-  },
+  { label: '车牌号', field: 'plateNumber', component: 'Input', rules: [{ required: true, whitespace: true, message: '请输入车牌号' }] },
   {
     label: '负责人',
-    field: 'owner',
-    component: 'Select',
-    componentProps: { options: driverOptions, placeholder: '请选择负责人' },
-    dynamicRules: () => [{ required: true, message: '请选择负责人!' }],
-  },
-  {
-    label: '备注',
-    field: 'remark',
-    component: 'InputTextArea',
-    componentProps: { placeholder: '请输入备注', rows: 3 },
-  },
-  // 主键隐藏字段
-  {
-    label: '',
-    field: 'id',
+    field: 'principal',
     component: 'Input',
-    show: false,
+    componentProps: { placeholder: '请输入负责人姓名' },
+    rules: [{ required: true, whitespace: true, message: '请输入负责人姓名' }],
   },
+  { label: '行车模式', field: 'driveMode', component: 'Select', componentProps: { options: driveModeOptions } },
+  { label: '当前里程', field: 'currentMileage', component: 'InputNumber', componentProps: { min: 0, addonAfter: '公里', style: { width: '100%' } } },
+  { label: '', field: 'vehicleId', component: 'Input', show: false },
 ];
-
-/* ================= 车辆详情页 - 三类记录列 ================= */
-
-/**
- * 使用(行车)记录列
- * 设计稿: 用车原因 / 驾驶员 / 驾车时间 / 驾驶时长 / 行驶公里 / 目的地 / 操作
- */
 export const driveColumns: BasicColumn[] = [
-  { title: '用车原因', align: 'center', dataIndex: 'reason' },
-  { title: '驾驶员', align: 'center', dataIndex: 'driver' },
-  { title: '驾车时间', align: 'center', dataIndex: 'driveTime' },
-  { title: '驾驶时长', align: 'center', dataIndex: 'duration' },
-  { title: '行驶公里', align: 'center', dataIndex: 'mileage' },
-  { title: '目的地', align: 'center', dataIndex: 'destination' },
+  { title: '用车原因', dataIndex: 'useReason' },
+  { title: '驾驶员', dataIndex: 'driver' },
+  { title: '开始时间', dataIndex: 'driveStartTime' },
+  { title: '结束时间', dataIndex: 'driveEndTime' },
+  { title: '驾驶时长', dataIndex: 'driveDuration' },
+  { title: '行驶公里', dataIndex: 'mileage' },
+  { title: '目的地', dataIndex: 'destination' },
 ];
-
-/**
- * 加油记录列
- * 设计稿: 驾驶员 / 加油量 / 金额 / 付款方式 / 加油地点 / 加油时间 / 操作
- */
 export const fuelColumns: BasicColumn[] = [
-  { title: '驾驶员', align: 'center', dataIndex: 'driver' },
-  { title: '加油量', align: 'center', dataIndex: 'fuelAmount' },
-  { title: '金额', align: 'center', dataIndex: 'amount' },
-  { title: '付款方式', align: 'center', dataIndex: 'payType' },
-  { title: '加油地点', align: 'center', dataIndex: 'location' },
-  { title: '加油时间', align: 'center', dataIndex: 'fuelTime' },
+  { title: '驾驶员', dataIndex: 'driver' },
+  { title: '加油量（升）', dataIndex: 'refuelLiter' },
+  { title: '金额', dataIndex: 'amount' },
+  { title: '付款方式', dataIndex: 'payType' },
+  { title: '加油地点', dataIndex: 'refuelAddress' },
+  { title: '加油时间', dataIndex: 'refuelTime' },
 ];
-
-/**
- * 保养记录列
- * 设计稿: 提交人 / 保养日期 / 下次保养时间 / 价格 / 说明 / 保养地点 / 操作
- */
 export const maintenanceColumns: BasicColumn[] = [
-  { title: '提交人', align: 'center', dataIndex: 'submitBy' },
-  { title: '保养日期', align: 'center', dataIndex: 'maintenanceDate' },
-  { title: '下次保养时间', align: 'center', dataIndex: 'nextMaintenanceTime' },
-  { title: '价格', align: 'center', dataIndex: 'price' },
-  { title: '说明', align: 'center', dataIndex: 'remark' },
-  { title: '保养地点', align: 'center', dataIndex: 'location' },
+  { title: '提交人', dataIndex: 'submitter' },
+  { title: '保养日期', dataIndex: 'maintainDate' },
+  { title: '下次保养时间', dataIndex: 'nextMaintainDate' },
+  { title: '价格', dataIndex: 'price' },
+  { title: '说明', dataIndex: 'remark' },
+  { title: '保养地点', dataIndex: 'maintainAddress' },
 ];

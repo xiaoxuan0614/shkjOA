@@ -1,25 +1,10 @@
 <template>
   <div>
     <!-- 车辆列表 -->
-    <BasicTable @register="registerTable">
+    <BasicTable @register="registerTable" :row-selection="null">
       <!-- 插槽:table标题 -->
       <template #tableTitle>
-        <a-button type="primary" preIcon="ant-design:plus-outlined" @click="handleAdd">
-          新增车辆
-        </a-button>
-        <a-dropdown>
-          <template #overlay>
-            <a-menu>
-              <a-menu-item key="1" @click="batchHandleDelete">
-                <Icon icon="ant-design:delete-outlined"></Icon>
-                删除
-              </a-menu-item>
-            </a-menu>
-          </template>
-          <a-button>批量操作
-            <Icon icon="mdi:chevron-down"></Icon>
-          </a-button>
-        </a-dropdown>
+        <a-button type="primary" preIcon="ant-design:plus-outlined" @click="handleAdd"> 新增车辆 </a-button>
       </template>
       <!-- 操作栏 -->
       <template #action="{ record }">
@@ -38,19 +23,15 @@
 </template>
 
 <script lang="ts" name="resource-vehicle" setup>
-  import { reactive } from 'vue';
   import { useRouter } from 'vue-router';
   import { BasicTable, TableAction } from '/@/components/Table';
   import { useModal } from '/@/components/Modal';
   import { useListPage } from '/@/hooks/system/useListPage';
-  import { useMessage } from '/@/hooks/web/useMessage';
   import VehicleModal from './VehicleModal.vue';
-  import { columns, searchFormSchema } from './Vehicle.data';
-  import { list, deleteOne, batchDelete } from './Vehicle.api';
+  import { columns, searchFormSchema, getStatusColor } from './Vehicle.data';
+  import { list, deleteOne } from './Vehicle.api';
 
-  const { createMessage } = useMessage();
   const router = useRouter();
-  const queryParam = reactive<any>({});
 
   // 注册 modal
   const [registerModal, { openModal }] = useModal();
@@ -60,6 +41,8 @@
     tableProps: {
       title: '车辆管理',
       api: list,
+      rowKey: 'vehicleId',
+      showIndexColumn: true,
       columns,
       canResize: true,
       formConfig: {
@@ -70,9 +53,6 @@
       actionColumn: {
         width: 140,
         fixed: 'right',
-      },
-      beforeFetch: (params) => {
-        return Object.assign(params, queryParam);
       },
     },
   });
@@ -104,25 +84,14 @@
    * 详情: 跳转车辆详情页
    */
   function handleDetail(record: Recordable) {
-    router.push({ path: `/resource/vehicle/detail/${record.id}` });
+    router.push({ path: `/resource/vehicle/detail/${record.vehicleId}` });
   }
 
   /**
    * 删除单个
    */
   async function handleDelete(record: Recordable) {
-    await deleteOne({ id: record.id }, handleSuccess);
-  }
-
-  /**
-   * 批量删除(按钮常显，点击时校验选择)
-   */
-  async function batchHandleDelete() {
-    if (!selectedRowKeys.value.length) {
-      createMessage.warning('请先勾选要删除的数据');
-      return;
-    }
-    await batchDelete({ ids: selectedRowKeys.value }, handleSuccess);
+    await deleteOne({ vehicleId: record.vehicleId }, handleSuccess);
   }
 
   /**
@@ -131,19 +100,6 @@
   function handleSuccess() {
     selectedRowKeys.value = [];
     reload();
-  }
-
-  /**
-   * 状态颜色
-   */
-  function getStatusColor(status: string): string {
-    const map: Recordable = {
-      可用: 'success',
-      保养中: 'processing',
-      维修中: 'warning',
-      停用: 'default',
-    };
-    return map[status] || 'default';
   }
 
   /**

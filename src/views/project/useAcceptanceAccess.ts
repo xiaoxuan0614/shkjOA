@@ -15,5 +15,7 @@ export function useAcceptanceAccess() {
     return hasPermission('project:accept') && !!userId && userId === String(managerId || '');
   }
   const canStartAcceptance = () => isAdministrator() || hasPermission('project:acceptance:submit');
-  return { canOperateAcceptance, canStartAcceptance };
+  // 列表入口单独授权，不沿用内外验办理权限或管理员账号兜底。
+  const canViewAcceptanceEntry = () => hasPermission('project:acceptance:view');
+  return { canOperateAcceptance, canStartAcceptance, canViewAcceptanceEntry };
 }

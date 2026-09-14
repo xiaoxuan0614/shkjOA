@@ -80,7 +80,6 @@
   import { queryItems } from '../record/StockApply.api';
   import { getCurrentUser } from '../material.util';
   import { MATERIAL_USAGE_TYPE } from '../material.constants';
-  import { APPROVAL_PENDING } from '/@/utils/approvalStatus';
 
   const router = useRouter();
   const route = useRoute();
@@ -372,28 +371,17 @@
       createMessage.warning(`「${missingReason.materialName}」本次还料数量与系统应还数量不一致，请填写差异原因`);
       return null;
     }
-    const cur = getCurrentUser();
-    const formValues = { ...values };
-    delete formValues.projectName;
     return {
-      ...formValues,
+      ...(String(values.remark || '').trim() ? { remark: String(values.remark).trim() } : {}),
       applyType: 'IN', // 还料 = 入库
       bizType: 'RETURN',
       usageType: MATERIAL_USAGE_TYPE.PROJECT,
       periodId: selectedPeriodId.value,
-      applyUserId: cur.applyUserId,
       itemList: hasReturn.map((d) => ({
         ...(d.applyItemId ? { id: d.applyItemId } : {}),
         materialId: d.materialId,
-        materialName: d.materialName,
-        materialCategory: d.materialCategory,
-        brand: d.brand,
-        model: d.model,
-        unit: d.unitName,
         unitName: d.unitName,
         unitQty: Number(d.returnQty),
-        baseQty: Number(d.returnQty),
-        applyQty: Number(d.returnQty),
         remark: needsDifferenceReason(d) ? String(d.differenceReason).trim() : '',
       })),
     };
@@ -406,7 +394,7 @@
     submitLoading.value = true;
     try {
       if (editMode) {
-        await updateReturnApply({ ...data, id: applyId, status: APPROVAL_PENDING, executeStatus: '待入库' });
+        await updateReturnApply({ ...data, id: applyId });
         createMessage.success('重新提交成功');
       } else {
         await submitReturnApply(data);

@@ -614,6 +614,7 @@ export default [
           'project:implement',
           'project:internalAccept',
           'project:accept',
+          'project:acceptance:view',
           'project:acceptance:submit',
           'project:rework:apply',
           'project:rework:approve',

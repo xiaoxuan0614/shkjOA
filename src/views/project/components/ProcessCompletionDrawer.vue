@@ -76,11 +76,29 @@
   import { useMessage } from '/@/hooks/web/useMessage';
   import { changeProjectProcessStatus, getProjectProcessDetail } from '../Project.api';
   import { loadProjectProcessStatusOptions, loadProjectWorkTypeOptions, projectProcessStatusOptions } from '../Project.data';
+  import { getProjectBasic } from '../detail/ProjectDetail.api';
+  import { readProjectMembership } from '../projectMembership';
+  import { useUserStore } from '/@/store/modules/user';
+  import { usePermission } from '/@/hooks/web/usePermission';
 
   const emit = defineEmits(['register', 'success']);
   const route = useRoute();
   const router = useRouter();
   const { createConfirm, createMessage } = useMessage();
+  const user = useUserStore();
+  const { hasPermission } = usePermission();
+  const userId = computed(() => String(user.getUserInfo?.id || ''));
+  const isManager = ref(false);
+  const currentReworkId = ref('');
+  const currentStatus = ref('');
+  const submitting = ref(false);
+  function selectable(record: Recordable) {
+    return hasPermission('project:implement') && !!userId.value &&
+      (isManager.value || String(record.siteLeaderId || '') === userId.value) &&
+      (!currentReworkId.value || String(record.reworkId || '') === currentReworkId.value) &&
+      ['IMPLEMENTING', 'DEBUGGING', 'DEBUG_COMPLETED', 'REWORKING'].includes(currentStatus.value) &&
+      normalizeStatus(record.status) === 'IN_PROGRESS';
+  }
 
   const periodId = ref('');
   const projectName = ref('');
@@ -111,7 +129,7 @@
       selectedProcessId.value = keys.length ? String(keys[0]) : '';
     },
     getCheckboxProps: (record: Recordable) => ({
-      disabled: normalizeStatus(record.status) === 'COMPLETED',
+      disabled: submitting.value || !selectable(record),
       name: `选择工序${getProcessName(record.processName)}`,
     }),
   }));
@@ -178,11 +196,16 @@
     loadError.value = '';
     selectedProcessId.value = '';
     try {
-      const [detail, statusOptions, workTypeOptions]: any[] = await Promise.all([
+      const [detail, statusOptions, workTypeOptions, access, period]: any[] = await Promise.all([
         getProjectProcessDetail({ periodId: periodId.value }),
         loadProjectProcessStatusOptions(),
         loadProjectWorkTypeOptions(),
+        readProjectMembership(periodId.value, userId.value),
+        getProjectBasic({ periodId: periodId.value }),
       ]);
+      isManager.value = access.manager;
+      currentReworkId.value = String(period.currentReworkId || '');
+      currentStatus.value = String(period.periodStatus ?? period.status ?? '').toUpperCase();
       processes.value = Array.isArray(detail?.records) ? detail.records : [];
       statusMeta.value = Object.fromEntries(
         statusOptions.map((item: Recordable) => [String(item.value), { label: item.label, color: item.color || 'default' }])
@@ -211,8 +234,9 @@
   }
 
   function handleComplete() {
+    if (submitting.value || loading.value || loadError.value) return;
     const selected = processes.value.find((item) => String(item.id) === selectedProcessId.value);
-    if (!selected) {
+    if (!selected || !selectable(selected)) {
       createMessage.warning('请选择本次已完成的工序');
       return;
     }
@@ -223,13 +247,20 @@
       okText: '确认完成',
       cancelText: '取消',
       onOk: async () => {
+        if (submitting.value) return;
+        submitting.value = true;
+        const selectedId = selectedProcessId.value;
         setDrawerProps({ confirmLoading: true });
         try {
-          await changeProjectProcessStatus({ processId: selectedProcessId.value, status: 'COMPLETED' });
+          await loadProcesses();
+          const fresh = processes.value.find((item) => String(item.id) === selectedId);
+          if (loadError.value || !fresh || !selectable(fresh)) return createMessage.warning('工序状态或操作资格已变化，请重新选择');
+          await changeProjectProcessStatus({ processId: selectedId, status: 'COMPLETED' });
           createMessage.success(`工序“${getProcessName(selected.processName)}”已完成`);
           closeDrawer();
           emit('success');
         } finally {
+          submitting.value = false;
           setDrawerProps({ confirmLoading: false });
         }
       },

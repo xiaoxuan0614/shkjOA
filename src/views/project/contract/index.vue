@@ -105,15 +105,23 @@
           <template #quotation>
             <a-space wrap>
               <a-select
-                v-model:value="materialCandidateId"
+                :value="materialCandidateId"
+                @change="handleQuotationSelection"
                 :options="contractCandidateOptions"
                 :loading="candidatesLoading"
-                :disabled="submitting || hasAdoptedCandidate"
+                :disabled="submitting || quotationSaving || candidatesLoading"
                 show-search
-                option-filter-prop="label"
-                placeholder="请选择已通过的报价单"
+                :filter-option="filterQuotationByName"
+                allow-clear
+                placeholder="可选：请选择已通过的报价单"
                 style="min-width: 240px"
               />
+              <a-button
+                v-if="materialCandidateId"
+                :disabled="submitting || quotationSaving || candidatesLoading"
+                @click="handleQuotationSelection(undefined)"
+                >取消选择</a-button
+              >
               <a-button :disabled="!canAdjustQuotation || submitting" @click="openQuotation(true)">修改调整</a-button>
               <a-popconfirm v-if="canReleaseQuotation" title="解除采用后可调整同一张报价单，确认解锁？" @confirm="releaseQuotation">
                 <a-button :loading="quotationSaving">解锁报价</a-button>
@@ -440,7 +448,6 @@
     }
   }
   const selectedCandidate = computed(() => contractCandidates.value.find((item) => String(item.id) === materialCandidateId.value));
-  const hasAdoptedCandidate = computed(() => contractCandidates.value.some((item) => String(item.status) === QUOTATION_STATUS_ADOPTED));
   const contractCandidateOptions = computed(() =>
     contractCandidates.value
       .filter((item) => [QUOTATION_STATUS_APPROVED, QUOTATION_STATUS_ADOPTED].includes(String(item.status)))
@@ -450,14 +457,43 @@
     () => !!selectedCandidate.value && String(selectedCandidate.value.status) === QUOTATION_STATUS_APPROVED && (!readonly.value || editing.value)
   );
 
-  async function loadContractCandidates() {
+  function filterQuotationByName(input: string, option: { label?: unknown }) {
+    return String(option?.label || '')
+      .toLocaleLowerCase()
+      .includes(input.trim().toLocaleLowerCase());
+  }
+
+  async function handleQuotationSelection(value?: string) {
+    if (submitting.value || quotationSaving.value || candidatesLoading.value) return;
+    if (value === materialCandidateId.value) return;
+    if (String(selectedCandidate.value?.status) === QUOTATION_STATUS_ADOPTED) {
+      if (!canReleaseQuotation.value) {
+        createMessage.warning('已采用报价须在合同驳回或撤回后解除采用，才能取消或更换');
+        return;
+      }
+      quotationSaving.value = true;
+      try {
+        await updateMaterialCandidateStatus(selectedCandidate.value!, QUOTATION_STATUS_APPROVED, false);
+        await loadContractCandidates();
+        if (candidatesFailed.value) return;
+      } catch (error: any) {
+        createMessage.error(error?.message || '解除报价采用失败，原选择已保留');
+        return;
+      } finally {
+        quotationSaving.value = false;
+      }
+    }
+    materialCandidateId.value = value || undefined;
+  }
+
+  async function loadContractCandidates(restoreSelection = false) {
     candidatesLoading.value = true;
     candidatesFailed.value = false;
     try {
       contractCandidates.value = await getAllMaterialCandidates(periodId.value);
       const adopted = contractCandidates.value.filter((item) => String(item.status) === QUOTATION_STATUS_ADOPTED);
       if (adopted.length > 1) throw new Error('当前分期存在多张已采用报价，请联系管理员核对');
-      if (adopted.length) materialCandidateId.value = String(adopted[0].id);
+      if (restoreSelection && adopted.length) materialCandidateId.value = String(adopted[0].id);
     } catch (error: any) {
       candidatesFailed.value = true;
       createMessage.error(error?.message || '关联报价加载失败');
@@ -754,7 +790,7 @@
   });
 
   onMounted(async () => {
-    if (periodId.value) void loadContractCandidates();
+    if (periodId.value) void loadContractCandidates(true);
     if (pageMode.value !== 'create' && !periodId.value) {
       createMessage.error('查看或编辑合同必须提供项目分期 ID');
       await router.replace('/project/list');
@@ -1233,19 +1269,20 @@
     try {
       const values = await validate();
       delete values.quotation;
-      if (candidatesLoading.value || candidatesFailed.value) throw new Error('请等待报价加载完成；加载失败时请刷新重试');
-      if (!materialCandidateId.value) throw new Error('请选择关联报价单');
       if (quotationOpen.value || quotationSaving.value) throw new Error('请先完成报价调整');
       if (!pendingMaterialFile.value && !materialListFileId.value) throw new Error('请上传合同货物清单附件');
       const requestedCandidateId = materialCandidateId.value;
-      await loadContractCandidates();
-      if (
-        candidatesFailed.value ||
-        requestedCandidateId !== materialCandidateId.value ||
-        !selectedCandidate.value ||
-        ![QUOTATION_STATUS_APPROVED, QUOTATION_STATUS_ADOPTED].includes(String(selectedCandidate.value.status))
-      ) {
-        throw new Error('报价状态已变化，请重新确认关联报价');
+      if (requestedCandidateId) {
+        if (candidatesLoading.value) throw new Error('请等待报价加载完成');
+        await loadContractCandidates();
+        if (
+          candidatesFailed.value ||
+          requestedCandidateId !== materialCandidateId.value ||
+          !selectedCandidate.value ||
+          ![QUOTATION_STATUS_APPROVED, QUOTATION_STATUS_ADOPTED].includes(String(selectedCandidate.value.status))
+        ) {
+          throw new Error('报价状态已变化，请重新确认关联报价');
+        }
       }
       if (contractReplacementRequired.value && !pendingContractFile.value) {
         createMessage.warning('已移除原合同附件，请先选择新文件后再提交');
@@ -1269,7 +1306,7 @@
         };
         const result: any = await addContractWithPaymentRecords(
           {
-            materialCandidateId: materialCandidateId.value,
+            ...(requestedCandidateId ? { materialCandidateId: requestedCandidateId } : {}),
             contract: {
               ...payload,
               // 通用数值审批约定：-1 待提交、0 驳回、1 审核通过、2 待审批、3 已撤回。
@@ -1290,7 +1327,7 @@
       } else {
         const result: any = await editContractWithPaymentRecords(
           {
-            materialCandidateId: materialCandidateId.value,
+            ...(requestedCandidateId ? { materialCandidateId: requestedCandidateId } : {}),
             contract: buildChangedContract(values),
             ...(pendingContractFile.value ? { contractFile: { fileName: pendingContractFile.value.name } } : {}),
             ...(pendingMaterialFile.value ? { materialFile: { fileName: pendingMaterialFile.value.name } } : {}),

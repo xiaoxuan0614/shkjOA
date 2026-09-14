@@ -9,7 +9,7 @@
             <a-progress type="circle" :percent="progressPercent" :width="64" />
           </div>
           <div class="project-detail__info">
-            <div class="project-detail__name">{{ project.periodName || project.projectName || '—' }}</div>
+            <div class="project-detail__name">{{ projectDisplayName }}</div>
             <div class="project-detail__meta">
               <span
                 >当前状态：<a-tag :color="statusColor">{{ statusText }}</a-tag></span
@@ -23,7 +23,6 @@
                   {{ action.label }}
                 </a-button>
               </template>
-              <span>项目编号：{{ project.projectNo || '—' }}</span>
               <span>项目类型：{{ projectTypeText }}</span>
               <span>甲方名称：{{ project.customerName || '—' }}</span>
               <span>项目对接人：{{ project.projectLiaisonUserName || '—' }}</span>
@@ -34,39 +33,45 @@
 
       <!-- 项目详情 tab -->
       <a-card class="project-detail__body">
-        <a-tabs v-model:activeKey="activeKey">
-          <a-tab-pane key="basic" tab="基本信息">
-            <DetailBasic
-              :project="project"
-              :editable="canEditProject"
-              :project-type-text="projectTypeText"
-              :business-attribute-text="businessAttributeText"
-              :involved-products-text="involvedProductsText"
-              @edit="handleEditProject"
-            />
-          </a-tab-pane>
-          <a-tab-pane key="contract" tab="合同信息">
-            <DetailContract :project-id="projectId" :project="project" />
-          </a-tab-pane>
-          <a-tab-pane key="member" tab="项目成员">
-            <DetailMember :project-id="projectId" />
-          </a-tab-pane>
-          <a-tab-pane key="position" tab="实施位置">
-            <DetailPosition :project-id="projectId" />
-          </a-tab-pane>
-          <a-tab-pane key="implement" tab="实施记录">
-            <DetailImplement :project-id="projectId" />
-          </a-tab-pane>
-          <a-tab-pane key="acceptance" tab="验收记录">
-            <DetailAcceptance :project-id="projectId" :project="project" :initial-rework-id="initialReworkId" @changed="handleBusinessChanged" />
-          </a-tab-pane>
-          <a-tab-pane key="file" tab="项目文件">
-            <DetailFile :project-id="projectId" :editable="canManageFiles" />
-          </a-tab-pane>
-          <a-tab-pane key="material" tab="用料统计">
-            <DetailMaterialAccount :project-id="projectId" />
-          </a-tab-pane>
-        </a-tabs>
+        <a-alert v-if="loadError" type="error" :message="loadError" show-icon>
+          <template #action><a-button @click="load">重新加载</a-button></template>
+        </a-alert>
+        <a-spin v-else-if="!detailReady" tip="正在加载项目信息…" />
+        <template v-else>
+          <a-tabs :key="projectId" v-model:activeKey="activeKey">
+            <a-tab-pane key="basic" tab="基本信息">
+              <DetailBasic
+                :project="project"
+                :editable="canEditProject"
+                :project-type-text="projectTypeText"
+                :business-attribute-text="businessAttributeText"
+                :involved-products-text="involvedProductsText"
+                @edit="handleEditProject"
+              />
+            </a-tab-pane>
+            <a-tab-pane v-if="visibleTabs.includes('contract')" key="contract" tab="合同信息">
+              <DetailContract :project-id="projectId" :project="project" />
+            </a-tab-pane>
+            <a-tab-pane v-if="visibleTabs.includes('member')" key="member" tab="项目成员">
+              <DetailMember :project-id="projectId" />
+            </a-tab-pane>
+            <a-tab-pane v-if="visibleTabs.includes('position')" key="position" tab="实施位置">
+              <DetailPosition :project-id="projectId" />
+            </a-tab-pane>
+            <a-tab-pane v-if="visibleTabs.includes('implement')" key="implement" tab="实施记录">
+              <DetailImplement :project-id="projectId" />
+            </a-tab-pane>
+            <a-tab-pane v-if="visibleTabs.includes('acceptance')" key="acceptance" tab="验收记录">
+              <DetailAcceptance :project-id="projectId" :project="project" :initial-rework-id="initialReworkId" @changed="handleBusinessChanged" />
+            </a-tab-pane>
+            <a-tab-pane v-if="visibleTabs.includes('file')" key="file" tab="项目文件">
+              <DetailFile :project-id="projectId" :editable="canManageFiles" />
+            </a-tab-pane>
+            <a-tab-pane v-if="visibleTabs.includes('material')" key="material" tab="用料统计">
+              <DetailMaterialAccount :project-id="projectId" />
+            </a-tab-pane>
+          </a-tabs>
+        </template>
       </a-card>
     </div>
 
@@ -90,7 +95,8 @@
 </template>
 
 <script lang="ts" name="project-detail" setup>
-  import { ref, computed, onMounted } from 'vue';
+  import { ref, computed, onMounted, watch, onBeforeUnmount } from 'vue';
+  import { DETAIL_TAB_KEYS, resolveDetailTabs, type DetailTabKey } from './detailTabs';
   import { useRoute, useRouter } from 'vue-router';
   import { getProjectBasic, getActivities } from './ProjectDetail.api';
   import { statusFlow, projectStatusMap, statusColorMap, loadProjectStatusMap, loadProjectTypeMap, loadDictOptions } from '../Project.data';
@@ -110,13 +116,24 @@
   const router = useRouter();
   const { createMessage } = useMessage();
   const userStore = useUserStore();
-  const projectId = route.params.id as string; // 分期ID periodId
-
-  const detailTabs = new Set(['basic', 'contract', 'member', 'position', 'implement', 'acceptance', 'file', 'material']);
-  const requestedTab = String(route.query.tab || 'basic');
-  const activeKey = ref(detailTabs.has(requestedTab) ? requestedTab : 'basic');
-  const initialReworkId = String(route.query.reworkId || '');
+  const projectId = computed(() => String(route.params.id || '')); // 分期ID periodId
+  const activeKey = ref<DetailTabKey>('basic');
+  const initialReworkId = computed(() => String(route.query.reworkId || ''));
+  const detailReady = ref(false);
+  const loadError = ref('');
+  const openedTabs = ref<DetailTabKey[]>([]);
+  let loadSequence = 0;
+  const visibleTabs = computed(() =>
+    DETAIL_TAB_KEYS.filter((key) => resolveDetailTabs(project.value).includes(key) || openedTabs.value.includes(key))
+  );
   const project = ref<any>({});
+  const projectDisplayName = computed(
+    () =>
+      [project.value.projectName, project.value.periodName]
+        .map((name) => String(name ?? '').trim())
+        .filter(Boolean)
+        .join('-') || '—'
+  );
   const activities = ref<any[]>([]);
   const advancing = ref(false);
   // 状态字典映射(数据源 project_period_status, 加载失败回退 projectStatusMap)
@@ -173,12 +190,59 @@
   });
 
   async function load() {
-    const data = await getProjectBasic({ periodId: projectId });
-    project.value = data || {};
-    const acts = await getActivities({ periodId: projectId, pageNo: 1, pageSize: 50 });
-    const list = acts?.records || acts || [];
-    activities.value = list || [];
+    const sequence = ++loadSequence;
+    const id = projectId.value;
+    loadError.value = '';
+    try {
+      if (!id) throw new Error('缺少项目分期 ID');
+      const data = await getProjectBasic({ periodId: id });
+      if (sequence !== loadSequence) return;
+      if (!data?.periodId) throw new Error('未找到项目详情');
+      project.value = data;
+      openedTabs.value = [...new Set([...openedTabs.value, ...resolveDetailTabs(data)])];
+      const firstLoad = !detailReady.value;
+      detailReady.value = true;
+      if (firstLoad) applyRequestedTab();
+    } catch (error: any) {
+      if (sequence !== loadSequence) return;
+      loadError.value = error?.message || '项目加载失败，请重试';
+      return;
+    }
+    try {
+      const acts = await getActivities({ periodId: id, pageNo: 1, pageSize: 50 });
+      if (sequence !== loadSequence) return;
+      const list = acts?.records || acts || [];
+      activities.value = Array.isArray(list) ? list : [];
+    } catch {
+      /* 动态加载失败由请求层提示，不阻断已加载的详情。 */
+    }
   }
+
+  function applyRequestedTab() {
+    if (!detailReady.value) return;
+    const requested = String(route.query.tab || 'basic') as DetailTabKey;
+    if (!DETAIL_TAB_KEYS.includes(requested)) {
+      activeKey.value = 'basic';
+      return;
+    }
+    activeKey.value = visibleTabs.value.includes(requested) ? requested : 'basic';
+  }
+  watch(
+    projectId,
+    () => {
+      project.value = {};
+      activities.value = [];
+      detailReady.value = false;
+      openedTabs.value = [];
+      activeKey.value = 'basic';
+      void load();
+    },
+    { immediate: true }
+  );
+  watch(() => route.query.tab, applyRequestedTab);
+  onBeforeUnmount(() => {
+    loadSequence++;
+  });
 
   /**
    * 状态推进: 前端传 periodId + status 给统一状态变更接口
@@ -187,7 +251,7 @@
     if (advancing.value) return;
     advancing.value = true;
     try {
-      await changePeriodStatus({ periodId: projectId, status: action.status });
+      await changePeriodStatus({ periodId: projectId.value, status: action.status });
       createMessage.success(`操作成功：${action.label}`);
       await load();
     } catch (error: any) {
@@ -209,7 +273,7 @@
     if (!canEditProject.value) return;
     router.push({
       path: '/project/apply',
-      query: { id: projectId, periodId: projectId, projectId: project.value.projectId },
+      query: { id: projectId.value, periodId: projectId.value, projectId: project.value.projectId },
     });
   }
 
@@ -224,7 +288,6 @@
     projectTypeMeta.value = loadedProjectTypeMeta;
     businessAttributeMeta.value = Object.fromEntries(businessOptions.map((item) => [String(item.value), item.label]));
     involvedProductsMeta.value = Object.fromEntries(productOptions.map((item) => [String(item.value), item.label]));
-    await load();
   });
 </script>
 
@@ -259,6 +322,7 @@
     }
 
     &__name {
+      overflow-wrap: anywhere;
       font-size: 18px;
       font-weight: 600;
       color: #333;

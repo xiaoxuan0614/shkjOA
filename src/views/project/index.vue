@@ -101,7 +101,7 @@
 
   import { useAcceptanceAccess } from './useAcceptanceAccess';
 
-  const { canOperateAcceptance, canStartAcceptance } = useAcceptanceAccess();
+  const { canOperateAcceptance, canStartAcceptance, canViewAcceptanceEntry } = useAcceptanceAccess();
   const router = useRouter();
   const { createMessage } = useMessage();
   const { hasPermission } = usePermission();
@@ -185,7 +185,7 @@
       formConfig: {
         schemas: searchFormSchema,
         autoSubmitOnEnter: true,
-        showAdvancedButton: true,
+        showAdvancedButton: false,
         fieldMapToTime: [],
       },
       actionColumn: {
@@ -345,7 +345,7 @@
   function getTableAction(record: Recordable) {
     const flow = statusFlow[record.status];
     const actions = [];
-    if (String(record.status || '') === 'ACCEPTING') {
+    if (String(record.status || '') === 'ACCEPTING' && canViewAcceptanceEntry()) {
       const managerId = record.projectManagerUserId || record.projectManagerId;
       const canAccept = canOperateAcceptance('INTERNAL', managerId) || canOperateAcceptance('CUSTOMER', managerId);
       actions.push({
@@ -353,7 +353,7 @@
         disabled: !canAccept,
         tooltip: canAccept ? '填写验收结果' : '无本项目验收办理权限',
         onClick: () => {
-          if (canAccept) openAcceptanceModal(true, { periodId: record.periodId || record.id });
+          if (canViewAcceptanceEntry() && canAccept) openAcceptanceModal(true, { periodId: record.periodId || record.id });
         },
       });
     }

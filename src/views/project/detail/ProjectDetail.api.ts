@@ -145,6 +145,7 @@ export const startProjectAcceptance = (params: {
 
 /** 完成内部/外部验收；FAILED 时 remark 必填。 */
 export const completeProjectAcceptance = (params: {
+  acceptanceId: string;
   periodId: string;
   acceptType: 'INTERNAL' | 'CUSTOMER';
   acceptEndDate?: string;
@@ -214,3 +215,7 @@ export const getMaterialAccounts = (params) => defHttp.get({ url: Api.materialAc
  * 项目动态(右侧时间线)
  */
 export const getActivities = (params) => defHttp.get({ url: Api.activity, params });
+
+/** 项目经理申请免整改复验；来源验收类型由后端确定。 */
+export const submitAcceptanceRecheck = (params: { periodId: string; sourceAcceptanceId: string; reason: string }) =>
+  defHttp.post({ url: '/project/acceptance/submit', params }, quietFeedback);

@@ -30,23 +30,7 @@
           </template>
           <template #extra>
             <div class="accept-card__actions">
-              <a-button
-                v-if="canSave(card.model, card.type)"
-                size="small"
-                :disabled="uploadBusy"
-                :loading="isCardLoading(card.type)"
-                @click="handleSave(card.type)"
-                >保存资料</a-button
-              >
-              <a-button
-                v-if="canComplete(card.model, card.type)"
-                type="primary"
-                size="small"
-                :disabled="uploadBusy"
-                :loading="isCardLoading(card.type)"
-                @click="handleComplete(card.type)"
-                >完成验收</a-button
-              >
+              <a-button v-if="card.type === 'INTERNAL' && canRequestRecheck(card.model)" size="small" @click="openRecheck">申请重新内验</a-button>
               <a-button v-if="canApplyRework(card.model)" danger size="small" @click="openRework(card.model, card.type)">申请返工</a-button>
             </div>
           </template>
@@ -72,41 +56,68 @@
               <a-input v-else :value="formatAcceptanceDate(card.model.acceptEndDate)" disabled />
             </a-form-item>
 
+            <a-form-item label="验收结果" required>
+              <a-select
+                v-model:value="card.model.result"
+                placeholder="请选择通过或不通过"
+                :options="resultOptions"
+                :disabled="!canEdit(card.model, card.type)"
+              />
+            </a-form-item>
             <template v-if="card.type === 'CUSTOMER'">
               <a-form-item label="负责人联系电话">
                 <a-input v-model:value="card.model.acceptUnitPhone" placeholder="请输入负责人联系电话" :disabled="!canEdit(card.model, card.type)" />
               </a-form-item>
             </template>
 
-            <a-form-item :label="card.type === 'INTERNAL' ? '验收报告' : '竣工报告（验收报告）'" required>
+            <a-form-item
+              v-if="normalizeResult(card.model.result) === 'PASSED' || (!canEdit(card.model, card.type) && reportFiles(card.type).length)"
+              :label="card.type === 'INTERNAL' ? '验收报告' : '竣工报告（验收报告）'"
+              required
+            >
               <div class="file-field">
                 <a-upload
-                  v-if="canEdit(card.model, card.type) && !primaryFile(card.type)"
-                  :accept="DOCUMENT_UPLOAD_ACCEPT"
+                  v-if="canEdit(card.model, card.type)"
+                  :accept="ACCEPTANCE_REPORT_ACCEPT"
+                  :multiple="false"
                   :show-upload-list="false"
-                  :disabled="uploadBusy || internalLoading || customerLoading"
+                  :disabled="uploadBusy || internalLoading || customerLoading || reportFiles(card.type).length >= ACCEPTANCE_REPORT_LIMIT"
                   :before-upload="(file) => onReportUpload(card.type === 'INTERNAL' ? 'internal' : 'customer', file)"
                 >
                   <a-button
                     size="small"
                     :loading="uploadingTarget === (card.type === 'INTERNAL' ? 'internal' : 'customer')"
-                    :disabled="uploadBusy || internalLoading || customerLoading"
+                    :disabled="uploadBusy || internalLoading || customerLoading || reportFiles(card.type).length >= ACCEPTANCE_REPORT_LIMIT"
                     >上传{{ card.type === 'INTERNAL' ? '验收报告' : '外部验收报告' }}</a-button
                   >
                 </a-upload>
-                <span v-if="!primaryFile(card.type)" class="file-field__empty">未上传</span>
-                <a-tag
-                  v-else
-                  :closable="canEdit(card.model, card.type) && !uploadBusy && !internalLoading && !customerLoading"
-                  class="file-tag"
-                  @close="clearPrimaryFile(card.type)"
-                  >{{ fileName(primaryFile(card.type)) }}</a-tag
-                >
-                <a-button v-if="primaryFile(card.type)" size="small" @click="previewFileInModal(primaryFile(card.type))">预览</a-button>
+                <span v-if="canEdit(card.model, card.type)" class="file-field__empty" aria-live="polite">
+                  {{ reportFiles(card.type).length }}/{{ ACCEPTANCE_REPORT_LIMIT }} 个，每次上传一个；支持图片、Word、PDF、Excel
+                </span>
+                <span v-if="!reportFiles(card.type).length" class="file-field__empty">未上传</span>
+                <div v-for="path in reportFiles(card.type)" :key="path" class="file-field__row">
+                  <span class="file-field__name" :title="fileName(path)">{{ fileName(path) }}</span>
+                  <a-button size="small" :aria-label="`预览 ${fileName(path)}`" @click="previewFileInModal(path)">预览</a-button>
+                  <a-button
+                    v-if="canEdit(card.model, card.type)"
+                    size="small"
+                    danger
+                    :aria-label="`删除 ${fileName(path)}`"
+                    :disabled="uploadBusy || internalLoading || customerLoading"
+                    @click="removeAcceptanceFile(card.type, 'completionReportFileId', path)"
+                    >删除</a-button
+                  >
+                </div>
               </div>
             </a-form-item>
 
-            <a-form-item v-if="card.type === 'CUSTOMER'" label="验收单">
+            <a-form-item
+              v-if="
+                card.type === 'CUSTOMER' &&
+                (normalizeResult(card.model.result) === 'PASSED' || (!canEdit(card.model, card.type) && card.model.acceptanceFormFileId))
+              "
+              label="验收单"
+            >
               <div class="file-field">
                 <a-upload
                   v-if="canEdit(card.model, card.type) && !card.model.acceptanceFormFileId"
@@ -122,9 +133,10 @@
                 <span v-if="!card.model.acceptanceFormFileId" class="file-field__empty">未上传</span>
                 <a-tag
                   v-else
+                  :key="card.type + (card.model.completionReportFileId || card.model.acceptanceFormFileId)"
                   :closable="canEdit(card.model, card.type) && !uploadBusy && !internalLoading && !customerLoading"
                   class="file-tag"
-                  @close="card.model.acceptanceFormFileId = ''"
+                  @close.prevent="removeAcceptanceFile(card.type, 'acceptanceFormFileId')"
                   >{{ fileName(card.model.acceptanceFormFileId) }}</a-tag
                 >
                 <a-button v-if="card.model.acceptanceFormFileId" size="small" @click="previewFileInModal(card.model.acceptanceFormFileId)"
@@ -133,15 +145,11 @@
               </div>
             </a-form-item>
 
-            <a-form-item label="验收结果" required>
-              <a-select
-                v-model:value="card.model.result"
-                placeholder="请选择通过或不通过"
-                :options="resultOptions"
-                :disabled="!canEdit(card.model, card.type)"
-              />
-            </a-form-item>
-            <a-form-item label="验收说明" :required="normalizeResult(card.model.result) === 'FAILED'">
+            <a-form-item
+              v-if="normalizeResult(card.model.result) === 'FAILED' || card.model.remark"
+              label="不通过原因"
+              :required="normalizeResult(card.model.result) === 'FAILED'"
+            >
               <a-textarea
                 v-model:value="card.model.remark"
                 placeholder="验收不通过时必须填写原因"
@@ -151,6 +159,16 @@
                 :disabled="!canEdit(card.model, card.type)"
               />
             </a-form-item>
+            <div v-if="canComplete(card.model, card.type)" class="accept-card__submit">
+              <span class="file-field__empty">附件及填写内容将在提交验收后保存。</span>
+              <a-button
+                type="primary"
+                :disabled="uploadBusy || internalLoading || customerLoading"
+                :loading="isCardLoading(card.type)"
+                @click="handleComplete(card.type)"
+                >提交验收</a-button
+              >
+            </div>
           </a-form>
         </a-card>
       </div>
@@ -162,7 +180,7 @@
         :data-source="historyRows"
         :row-key="(record) => `${record.acceptType}-${record.id}`"
         :pagination="false"
-        :scroll="{ x: 920 }"
+        :scroll="{ x: 1160 }"
         size="small"
       >
         <template #emptyText><a-empty description="暂无历史验收记录" /></template>
@@ -178,6 +196,21 @@
               ><span class="detail-acceptance__ellipsis">{{ record.remark || '—' }}</span></a-tooltip
             >
           </template>
+          <template v-else-if="column.key === 'files'">
+            <div v-for="field in ['completionReportFileId', 'acceptanceFormFileId']" :key="field">
+              <a-button
+                v-for="path in acceptanceFilePaths(record[field])"
+                :key="path"
+                type="link"
+                size="small"
+                :title="fileName(path)"
+                @click="previewFileInModal(path)"
+              >
+                {{ field === 'completionReportFileId' ? '验收报告' : '验收单' }}：{{ fileName(path) }}
+              </a-button>
+            </div>
+            <span v-if="!record.completionReportFileId && !record.acceptanceFormFileId">—</span>
+          </template>
           <template v-else-if="column.key === 'action'">
             <a-button v-if="canApplyRework(record)" type="link" danger size="small" @click="openRework(record, record.acceptType)">申请返工</a-button>
             <span v-else>—</span>
@@ -186,6 +219,26 @@
       </a-table>
     </a-card>
 
+    <a-modal
+      v-model:open="recheckOpen"
+      title="申请重新内部验收"
+      ok-text="提交申请"
+      :confirm-loading="internalLoading"
+      :closable="!internalLoading"
+      :mask-closable="false"
+      :cancel-button-props="{ disabled: internalLoading }"
+      @ok="submitRecheck"
+    >
+      <a-alert type="info" show-icon message="提交后直接开始重新内验，外部验收结果保持不变。" />
+      <a-form layout="vertical">
+        <a-form-item label="原不通过原因"
+          ><span>{{ internal.remark || '—' }}</span></a-form-item
+        >
+        <a-form-item label="申请原因" required
+          ><a-textarea v-model:value="recheckReason" :rows="4" placeholder="请说明无需施工整改、申请重新内验的原因" :disabled="internalLoading"
+        /></a-form-item>
+      </a-form>
+    </a-modal>
     <ReworkDrawer @register="registerReworkDrawer" @success="handleReworkChanged" />
   </div>
 </template>
@@ -198,9 +251,10 @@
   import { useDrawer } from '/@/components/Drawer';
   import { useMessage } from '/@/hooks/web/useMessage';
   import { usePermission } from '/@/hooks/web/usePermission';
-  import { completeProjectAcceptance, editAcceptance, getAcceptance } from '../ProjectDetail.api';
+  import { completeProjectAcceptance, getAcceptance, getMembers, submitAcceptanceRecheck } from '../ProjectDetail.api';
   import { DOCUMENT_UPLOAD_ACCEPT, isAllowedDocumentFile, uploadProjectDocument } from '/@/utils/documentUpload';
   import { previewFileInModal } from '/@/utils/filePreview';
+  import { ACCEPTANCE_REPORT_ACCEPT, ACCEPTANCE_REPORT_LIMIT, acceptanceFilePaths, isAcceptanceReportFile } from '../acceptanceFiles';
   import { useUserStore } from '/@/store/modules/user';
   import { refreshTodos } from '/@/views/todo/useTodoCenter';
   import ReworkDrawer from './ReworkDrawer.vue';
@@ -221,6 +275,9 @@
 
   const { canOperateAcceptance, canStartAcceptance } = useAcceptanceAccess();
   const startingAcceptance = ref(false);
+  const recheckOpen = ref(false);
+  const recheckReason = ref('');
+  const acceptedManager = ref(false);
   const loading = ref(false);
   const internalLoading = ref(false);
   const customerLoading = ref(false);
@@ -245,7 +302,7 @@
     [
       { type: 'INTERNAL' as const, title: '内部验收', model: internal },
       { type: 'CUSTOMER' as const, title: '外部验收', model: customer },
-    ].filter((card) => !props.operationOnly || canOperate(card.type))
+    ].filter((card) => !props.operationOnly || canOperate(card.type) || (card.type === 'INTERNAL' && canRequestRecheck(card.model)))
   );
   const currentUserId = computed(() => String((userStore.getUserInfo as any)?.id || (userStore.getUserInfo as any)?.userId || ''));
   const currentUserName = computed(() => {
@@ -271,6 +328,7 @@
     { title: '验收负责人', width: 130, customRender: ({ record }) => record.acceptUnitLeader || record.acceptLeaderName || '—' },
     { title: '验收日期', dataIndex: 'acceptEndDate', width: 120, customRender: ({ text }) => formatAcceptanceDate(text) },
     { title: '验收说明', key: 'remark', width: 220 },
+    { title: '验收附件', key: 'files', width: 240 },
     { title: '操作', key: 'action', width: 100, fixed: 'right' },
   ];
 
@@ -369,10 +427,6 @@
     return Boolean(record?.id) && !['COMPLETED', 'CANCELLED'].includes(resolveStatus(record)) && canOperate(type);
   }
 
-  function canSave(record: Recordable, type: AcceptanceType) {
-    return canEdit(record, type);
-  }
-
   function canComplete(record: Recordable, type: AcceptanceType) {
     return canOperate(type) && resolveStatus(record) === 'IN_PROGRESS';
   }
@@ -380,6 +434,8 @@
   function canApplyRework(record: Recordable) {
     return (
       Boolean(record?.id) &&
+      [internal.id, customer.id].includes(record.id) &&
+      ![internal, customer].some((item) => item.sourceAcceptanceId && resolveStatus(item) === 'IN_PROGRESS') &&
       resolveStatus(record) === 'COMPLETED' &&
       normalizeResult(record.result) === 'FAILED' &&
       hasPermission('project:rework:apply')
@@ -398,19 +454,36 @@
     return activeLoading(type).value;
   }
 
-  function primaryFile(type: AcceptanceType) {
-    return String(activeRecord(type).completionReportFileId || '');
+  function reportFiles(type: AcceptanceType) {
+    return acceptanceFilePaths(activeRecord(type).completionReportFileId);
   }
 
-  function clearPrimaryFile(type: AcceptanceType) {
-    activeRecord(type).completionReportFileId = '';
+  type AcceptanceFileField = 'completionReportFileId' | 'acceptanceFormFileId';
+
+  function removeAcceptanceFile(type: AcceptanceType, field: AcceptanceFileField, path?: string) {
+    const record = activeRecord(type);
+    if (uploadBusy.value || internalLoading.value || customerLoading.value || !canEdit(record, type)) return;
+    record[field] = path
+      ? acceptanceFilePaths(record[field])
+          .filter((item) => item !== path)
+          .join(',')
+      : '';
   }
 
   async function onReportUpload(target: UploadTarget, file: any): Promise<boolean> {
     const type = target === 'internal' ? 'INTERNAL' : 'CUSTOMER';
     if (!file || uploadBusy.value || internalLoading.value || customerLoading.value || !canEdit(activeRecord(type), type)) return false;
-    if (!isAllowedDocumentFile(file)) {
-      createMessage.warning('仅支持 PDF、Word、Excel、PPT 文件');
+    const isReport = target !== 'acceptForm';
+    if (isReport && reportFiles(type).length >= ACCEPTANCE_REPORT_LIMIT) {
+      createMessage.warning('验收报告最多上传 3 个文件，请先删除再添加');
+      return false;
+    }
+    if (String(file.name || '').includes(',')) {
+      createMessage.warning('文件名不能包含英文逗号，请重命名后上传');
+      return false;
+    }
+    if (!(isReport ? isAcceptanceReportFile(file) : isAllowedDocumentFile(file))) {
+      createMessage.warning(isReport ? '仅支持图片、Word、PDF、Excel 文件' : '仅支持 PDF、Word、Excel、PPT 文件');
       return false;
     }
     const periodId = props.projectId;
@@ -419,10 +492,11 @@
     try {
       const { path } = await uploadProjectDocument(file, periodId);
       if (periodId !== props.projectId || recordId !== activeRecord(type).id) return false;
-      if (target === 'internal') internal.completionReportFileId = path;
-      else if (target === 'customer') customer.completionReportFileId = path;
-      else customer.acceptanceFormFileId = path;
-      createMessage.success('文件上传成功');
+      const field: AcceptanceFileField = target === 'acceptForm' ? 'acceptanceFormFileId' : 'completionReportFileId';
+      if (path.includes(',')) throw new Error('上传返回的路径包含英文逗号，无法关联附件，请联系管理员');
+      const value = isReport ? [...new Set([...reportFiles(type), path])].join(',') : path;
+      activeRecord(type)[field] = value;
+      createMessage.success('文件上传成功，可预览；提交验收后保存');
     } catch (error: any) {
       createMessage.error(error?.message || '上传失败，请重试');
     } finally {
@@ -432,69 +506,36 @@
   }
 
   function fileName(path?: string): string {
-    const parts = String(path || '').split('/');
-    return parts[parts.length - 1] || '';
+    const name =
+      String(path || '')
+        .split(/[?#]/)[0]
+        .split(/[\\/]/)
+        .pop() || '';
+    try {
+      return decodeURIComponent(name);
+    } catch {
+      return name;
+    }
   }
 
   function validateAcceptance(type: AcceptanceType, requireResult = false) {
     const record = activeRecord(type);
     if (!record.acceptDate || !dayjs(record.acceptDate).isValid()) throw new Error('请选择验收日期');
     if (!record.acceptLeaderId) throw new Error(`${responsibilityText(type)}信息缺失，无法办理验收`);
-    if (type === 'INTERNAL' && !record.completionReportFileId) throw new Error('内部验收必须由运维部门经理上传验收报告');
-    if (type === 'CUSTOMER' && !record.completionReportFileId) throw new Error('外部验收必须由本项目项目经理上传验收报告');
+    if (reportFiles(type).length > ACCEPTANCE_REPORT_LIMIT) throw new Error('验收报告最多保留 3 个文件，请先删除多余附件');
+    if (normalizeResult(record.result) === 'PASSED' && type === 'INTERNAL' && !record.completionReportFileId)
+      throw new Error('内部验收必须由运维部门经理上传验收报告');
+    if (normalizeResult(record.result) === 'PASSED' && type === 'CUSTOMER' && !record.completionReportFileId)
+      throw new Error('外部验收必须由本项目项目经理上传验收报告');
     if (requireResult && !normalizeResult(record.result)) throw new Error('请选择验收结果');
     if (requireResult && normalizeResult(record.result) === 'FAILED' && !String(record.remark || '').trim()) {
       throw new Error('验收不通过时必须填写原因');
     }
   }
 
-  function acceptancePayload(type: AcceptanceType) {
-    const record = activeRecord(type);
-    const common = {
-      id: record.id,
-      acceptDate: record.acceptDate || undefined,
-      acceptLeaderId: record.acceptLeaderId || undefined,
-      acceptLeaderName: record.acceptLeaderName || undefined,
-      acceptUnitLeader: record.acceptUnitLeader || '',
-      completionReportFileId: record.completionReportFileId,
-    };
-    if (type === 'INTERNAL') return common;
-    return {
-      ...common,
-      acceptUnitPhone: record.acceptUnitPhone || '',
-      acceptanceFormFileId: record.acceptanceFormFileId || '',
-    };
-  }
-
-  async function persistAcceptance(type: AcceptanceType) {
-    await editAcceptance(acceptancePayload(type));
-  }
-
-  async function handleSave(type: AcceptanceType) {
-    const state = activeLoading(type);
-    if (state.value || uploadBusy.value || !canSave(activeRecord(type), type)) return;
-    try {
-      assignResponsible(type);
-      validateAcceptance(type, false);
-    } catch (error: any) {
-      createMessage.warning(error.message);
-      return;
-    }
-    state.value = true;
-    try {
-      await persistAcceptance(type);
-      createMessage.success(`${type === 'INTERNAL' ? '内部' : '外部'}验收资料已保存`);
-      await load();
-    } catch (error: any) {
-      createMessage.error(error?.message || '验收资料保存失败，请重试');
-    } finally {
-      state.value = false;
-    }
-  }
-
   async function handleComplete(type: AcceptanceType) {
     const state = activeLoading(type);
-    if (state.value || uploadBusy.value || !canComplete(activeRecord(type), type)) return;
+    if (internalLoading.value || customerLoading.value || uploadBusy.value || !canComplete(activeRecord(type), type)) return;
     try {
       assignResponsible(type);
       validateAcceptance(type, true);
@@ -507,14 +548,15 @@
     state.value = true;
     try {
       await completeProjectAcceptance({
+        acceptanceId: String(record.id),
         periodId: props.projectId,
         acceptType: type,
         acceptEndDate: dayjs(record.acceptDate).startOf('day').format('YYYY-MM-DD HH:mm:ss'),
         result,
         acceptUnitLeader: currentUserName.value,
         acceptUnitPhone: record.acceptUnitPhone || '',
-        completionReportFileId: record.completionReportFileId || '',
-        ...(type === 'CUSTOMER' ? { acceptanceFormFileId: record.acceptanceFormFileId || '' } : {}),
+        completionReportFileId: result === 'PASSED' ? record.completionReportFileId || '' : '',
+        ...(type === 'CUSTOMER' ? { acceptanceFormFileId: result === 'PASSED' ? record.acceptanceFormFileId || '' : '' } : {}),
         remark: String(record.remark || '').trim(),
         ...(currentReworkId.value ? { reworkId: currentReworkId.value } : {}),
       });
@@ -537,9 +579,79 @@
   }
 
   function chooseCurrent(records: Recordable[]) {
-    if (!records.length) return {};
-    const requestedId = String(props.initialReworkId || props.project?.currentReworkId || '');
-    return (requestedId && records.find((record) => String(record.reworkId || '') === requestedId)) || records[0];
+    const round = String(props.project?.currentReworkId || props.initialReworkId || '');
+    const current = records.filter((record) => String(record.reworkId || '') === round);
+    const sources = new Set(current.map((record) => String(record.sourceAcceptanceId || '')));
+    return current.find((record) => !sources.has(String(record.id))) || {};
+  }
+
+  function canRequestRecheck(record: Recordable) {
+    return (
+      props.project.status === 'ACCEPTING' &&
+      acceptedManager.value &&
+      hasPermission('project:acceptance:submit') &&
+      record.id === internal.id &&
+      resolveStatus(record) === 'COMPLETED' &&
+      normalizeResult(record.result) === 'FAILED'
+    );
+  }
+
+  function openRecheck() {
+    recheckReason.value = '';
+    recheckOpen.value = true;
+  }
+
+  async function submitRecheck() {
+    if (internalLoading.value || !canRequestRecheck(internal)) return;
+    const reason = recheckReason.value.trim();
+    if (!reason) return createMessage.warning('请填写重新内验申请原因');
+    internalLoading.value = true;
+    try {
+      const result = await submitAcceptanceRecheck({ periodId: props.projectId, sourceAcceptanceId: String(internal.id), reason });
+      if (!result?.id) throw new Error('接口未返回新验收记录，请刷新确认，勿重复申请');
+      // 直接采用新记录 ID，不复制原失败结论和附件，也不改动外部验收草稿。
+      fillInternal(result);
+      internalRecords.value = [result, ...internalRecords.value.filter((item) => item.id !== result.id)];
+      recheckOpen.value = false;
+      createMessage.success('重新内部验收已开始');
+      refreshTodos(true).catch(() => undefined);
+    } catch (error: any) {
+      createMessage.error(error?.message || '重新内验申请失败');
+    } finally {
+      internalLoading.value = false;
+    }
+  }
+
+  async function loadManager() {
+    const periodId = props.projectId;
+    acceptedManager.value = false;
+    try {
+      let pageNo = 1;
+      while (true) {
+        const result = await getMembers({ periodId, pageNo, pageSize: 100 });
+        if (periodId !== props.projectId) return;
+        const records = Array.isArray(result) ? result : result?.records || [];
+        if (
+          records.some(
+            (item) =>
+              String(item.userId) === currentUserId.value &&
+              String(item.inviteStatus) === '1' &&
+              Number(item.delFlag || 0) === 0 &&
+              String(item.memberRole)
+                .split(',')
+                .map((role) => role.trim())
+                .includes('2')
+          )
+        ) {
+          acceptedManager.value = true;
+          return;
+        }
+        if (Array.isArray(result) || records.length < 100 || pageNo * 100 >= Number(result.total)) return;
+        pageNo++;
+      }
+    } catch {
+      createMessage.warning('项目经理身份加载失败，暂无法申请重新内验，请刷新重试');
+    }
   }
 
   function fillInternal(record: Recordable) {
@@ -615,6 +727,8 @@
     () => props.projectId,
     () => {
       openedInitialRework = false;
+      recheckOpen.value = false;
+      void loadManager();
       void load();
     },
     { immediate: true }
@@ -657,6 +771,14 @@
         gap: 8px;
         flex-wrap: wrap;
       }
+      &__submit {
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 24px;
+      }
       &__owner {
         display: flex;
         align-items: center;
@@ -673,6 +795,18 @@
       flex-wrap: wrap;
       &__empty {
         color: #8c8c8c;
+      }
+      &__row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        min-width: 0;
+      }
+      &__name {
+        flex: 1;
+        min-width: 0;
+        overflow-wrap: anywhere;
       }
       .file-tag {
         max-width: 240px;

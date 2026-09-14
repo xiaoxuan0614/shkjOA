@@ -1,6 +1,7 @@
 import { BasicColumn } from '/@/components/Table';
 import { FormSchema } from '/@/components/Table';
 import { initDictOptions } from '/@/utils/dict/index';
+import { getApprovalStatusMeta } from '/@/utils/approvalStatus';
 
 export const PROJECT_ATTACHMENT_ACCEPT = '.doc,.docx,.xls,.xlsx,.ppt,.pptx,.pdf,image/*';
 const PROJECT_ATTACHMENT_DOCUMENT_EXTENSIONS = new Set(['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'pdf']);
@@ -107,7 +108,8 @@ export const loadProjectProcessStatusOptions = () => loadDictOptions('project_pr
 export const loadProjectWorkTypeOptions = () => loadDictOptions('work_type');
 
 // 项目状态(字典 project_period_status)
-export const loadProjectStatusOptions = () => loadDictOptions('project_period_status');
+export const loadProjectStatusOptions = () =>
+  loadDictOptions('project_period_status', Object.entries(projectStatusMap).map(([value, label]) => ({ value, label: String(label) })));
 
 // 项目类型(字典 project_type)
 export const loadProjectTypeOptions = () => loadDictOptions('project_type');
@@ -227,6 +229,13 @@ export const columns: BasicColumn[] = [
     dataIndex: 'projectLiaisonUserName',
   },
   {
+    title: '项目经理',
+    align: 'center',
+    dataIndex: 'projectManagerName',
+    width: 120,
+    customRender: ({ text }) => String(text ?? '').trim() || '—',
+  },
+  {
     title: '进度(%)',
     align: 'center',
     dataIndex: 'totalProgress',
@@ -281,10 +290,39 @@ export const searchFormSchema: FormSchema[] = [
     componentProps: { api: loadProjectTypeOptions, placeholder: '请选择项目类型', allowClear: true },
   },
   {
-    label: '状态',
+    label: '项目状态',
     field: 'status',
     component: 'ApiSelect',
-    componentProps: { api: loadProjectStatusOptions, placeholder: '请选择状态' },
+    componentProps: {
+      api: loadProjectStatusOptions,
+      placeholder: '全部项目状态',
+      allowClear: true,
+      showSearch: true,
+      optionFilterProp: 'label',
+    },
+  },
+  {
+    label: '到货状态',
+    field: 'arrivalStatus',
+    component: 'Select',
+    componentProps: {
+      placeholder: '全部到货状态',
+      allowClear: true,
+      options: [
+        { label: '未到货', value: 0 },
+        { label: '已到货', value: 1 },
+      ],
+    },
+  },
+  {
+    label: '合同状态',
+    field: 'contractStatus',
+    component: 'Select',
+    componentProps: {
+      placeholder: '全部合同状态',
+      allowClear: true,
+      options: ['-1', '0', '1', '2', '3'].map((value) => ({ value, label: getApprovalStatusMeta(value).text })),
+    },
   },
 ];
 

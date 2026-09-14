@@ -27,7 +27,10 @@ export async function uploadProjectDocument(file: File, periodId?: string): Prom
 
 /** 校验统一上传接口响应，并固定从成功响应的 message 读取文件路径。 */
 export function getUploadedDocumentPath(response: any): string {
-  if (!response || response.success !== true || Number(response.code) !== 200) {
+  // 公共上传实际返回 code=0；兼容原有 code=200，仍要求明确成功，避免将错误文案当作路径。
+  const code = response?.code;
+  const isSuccessCode = code === 0 || code === '0' || code === 200 || code === '200';
+  if (!response || response.success !== true || !isSuccessCode) {
     throw new Error(String(response?.message || '文件上传失败，请重试'));
   }
   const path = String(response?.message || '').trim();

@@ -1,7 +1,9 @@
 <template>
   <div class="material-plan-table">
     <div v-if="showToolbar" class="material-plan-table__toolbar">
-      <a-button type="primary" preIcon="ant-design:plus-outlined" :disabled="!editable" @click="openMaterialDrawer"> 选择物料 </a-button>
+      <a-button type="primary" preIcon="ant-design:plus-outlined" :disabled="!editable || contractLoading" @click="openMaterialDrawer">
+        选择物料
+      </a-button>
       <span v-if="editable" class="material-plan-table__hint"> 从物料库选择后会自动带出物料编码，可继续填写{{ quantityText }}、单位和备注。 </span>
       <span v-else class="material-plan-table__hint">{{ mode === 'quotation' ? '报价已锁定或当前账号无编辑权限' : '清单已锁定' }}，仅支持查看。</span>
     </div>
@@ -29,9 +31,9 @@
         <template v-if="column.key === 'plannedQty'">
           <a-input-number
             v-model:value="record.plannedQty"
-            :min="0.01"
+            :min="contractMinimum(record)"
             :precision="2"
-            :disabled="!editable"
+            :disabled="!editable || contractLoading"
             placeholder="请输入"
             style="width: 100%"
           />
@@ -41,16 +43,22 @@
             v-model:value="record._unitValue"
             :options="record._unitOptions"
             :loading="record._unitLoading"
-            :disabled="!editable || record._unitLoading"
+            :disabled="!editable || contractLoading || record._unitLoading || !!contractItem(record)"
             placeholder="请选择单位"
             style="width: 100%"
           />
         </template>
         <template v-else-if="column.key === 'remark'">
-          <a-input v-model:value="record.remark" :disabled="!editable" :maxlength="mode === 'quotation' ? 500 : 200" placeholder="选填" />
+          <a-input
+            v-model:value="record.remark"
+            :disabled="!editable || contractLoading"
+            :maxlength="mode === 'quotation' ? 500 : 200"
+            placeholder="选填"
+          />
         </template>
         <template v-else-if="column.key === 'action'">
-          <a-popconfirm v-if="editable" title="确定移除该物料吗？" @confirm="removeRow(record._key)">
+          <span v-if="contractItem(record)">合同物料，不可移除</span>
+          <a-popconfirm v-else-if="editable && !contractLoading" title="确定移除该物料吗？" @confirm="removeRow(record._key)">
             <a-button type="link" size="small" danger>移除</a-button>
           </a-popconfirm>
           <span v-else>—</span>
@@ -82,6 +90,8 @@
   const props = withDefaults(
     defineProps<{
       periodId?: string;
+      contractItems?: Recordable[];
+      contractLoading?: boolean;
       candidateId?: string;
       editable?: boolean;
       mode?: 'plan' | 'quotation' | 'supplement' | 'rework';
@@ -90,7 +100,16 @@
       showRemark?: boolean;
       paginated?: boolean;
     }>(),
-    { editable: true, mode: 'plan', showToolbar: true, showAction: true, showRemark: true, paginated: false }
+    {
+      contractItems: () => [],
+      contractLoading: false,
+      editable: true,
+      mode: 'plan',
+      showToolbar: true,
+      showAction: true,
+      showRemark: true,
+      paginated: false,
+    }
   );
 
   const { createMessage } = useMessage();
@@ -327,7 +346,29 @@
     }
   }
 
+  function contractItem(row: Recordable) {
+    return props.mode === 'plan' ? props.contractItems.find((item) => String(item.materialId) === String(row.materialId)) : undefined;
+  }
+
+  function contractMinimum(row: Recordable) {
+    return Math.max(0.01, Number(contractItem(row)?.quantity) || 0);
+  }
+
+  function validateContractRows(data: Recordable[]) {
+    if (props.mode !== 'plan') return;
+    for (const item of props.contractItems) {
+      const row = data.find((entry) => String(entry.materialId) === String(item.materialId));
+      if (!row) throw new Error('合同物料不可删除，请刷新用料计划后重试');
+      const label = row.materialName || item.materialId;
+      if (!Number.isFinite(Number(item.quantity)) || Number(item.quantity) <= 0) throw new Error(`「${label}」合同数量无效，请核对合同清单`);
+      if (Number(row.plannedQty) < Number(item.quantity)) throw new Error(`「${label}」计划数量不能低于合同数量 ${item.quantity}`);
+      if (item.unitId && String(row._unitValue) !== String(item.unitId)) throw new Error(`「${label}」单位与合同清单不一致，请核对已有计划`);
+    }
+  }
+
   function removeRow(key: number) {
+    const row = rows.value.find((item) => item._key === key);
+    if (!props.editable || props.contractLoading || (row && contractItem(row))) return;
     rows.value = rows.value.filter((item) => item._key !== key);
   }
 
@@ -381,6 +422,7 @@
           added += 1;
         }
       });
+      validateContractRows(nextRows);
       rows.value = nextRows;
       emit('loaded', rows.value.length);
       return { added, updated };
@@ -390,7 +432,9 @@
   }
 
   function getData() {
+    if (props.contractLoading) throw new Error('合同清单尚未加载完成，请稍后再保存');
     if (loading.value) throw new Error('用料清单仍在加载，请稍后再保存');
+    validateContractRows(rows.value);
     if (loadFailed.value) throw new Error('用料清单加载失败，为避免覆盖原数据，请刷新后重试');
     const loadingUnit = rows.value.find((item) => item._unitLoading);
     if (loadingUnit) throw new Error(`「${loadingUnit.materialName || '未命名物料'}」的单位仍在加载，请稍后再保存`);
@@ -476,6 +520,7 @@
     getData,
     getRows: () => rows.value,
     importRows,
+    getMaterialIds: () => rows.value.map((item) => String(item.materialId)),
     hydrateSavedQuotationRows,
     reload: load,
     reset,

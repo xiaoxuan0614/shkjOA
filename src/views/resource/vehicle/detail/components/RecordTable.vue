@@ -3,18 +3,18 @@
     <!-- 搜索区 -->
     <div class="record-table__search">
       <slot name="extra" />
-      <a-input v-if="showKeyword" v-model:value="query.keyword" allowClear placeholder="关键字" style="width: 160px" @pressEnter="handleSearch" />
-      <a-range-picker v-if="showDate" v-model:value="dateRange" :value-format="dateFormat" style="width: 260px" />
+      <a-input v-if="showKeyword" v-model:value="query.keyword" allowClear placeholder="关键字" style="width: 160px" @press-enter="handleSearch" />
+      <a-range-picker v-if="showDate" v-model:value="dateRange" :value-format="dateFormat || 'YYYY-MM-DD'" style="width: 260px" />
       <a-button type="primary" @click="handleSearch">筛选</a-button>
       <a-button @click="handleReset">重置</a-button>
     </div>
 
     <!-- 表格 -->
     <a-table
-      :columns="columns"
+      :columns="[...columns, { title: '操作', key: 'action', width: 80 }]"
       :data-source="tableData"
       :pagination="pagination"
-      :row-key="(record) => record.id"
+      :row-key="rowKey"
       :loading="loading"
       size="middle"
       bordered
@@ -23,7 +23,6 @@
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'action'">
           <a-button type="link" size="small" @click="emit('detail', record)">详情</a-button>
-          <a-button type="link" size="small" danger @click="handleDelete(record)">删除</a-button>
         </template>
       </template>
     </a-table>
@@ -31,13 +30,11 @@
 </template>
 
 <script lang="ts" setup>
-  import { ref, reactive, watch, onMounted } from 'vue';
-  import { useMessage } from '/@/hooks/web/useMessage';
-
-  const { createConfirm, createMessage } = useMessage();
+  import { ref, reactive, watch, onBeforeUnmount } from 'vue';
 
   const props = defineProps<{
     columns: any[];
+    rowKey: string;
     loadFn: (params: any) => Promise<any>;
     params?: Recordable; // 固定参数, 如 { vehicleId }
     query?: Recordable; // 父组件注入的查询条件(响应式对象)
@@ -68,28 +65,37 @@
   /**
    * 加载数据
    */
+  let sequence = 0;
   async function loadData() {
+    const request = ++sequence;
+    if (!props.params?.vehicleId) return;
     loading.value = true;
     try {
       const params = {
         pageNo: pagination.current,
         pageSize: pagination.pageSize,
-        ...props.params,
         ...query,
+        ...props.params,
       };
       // 日期区间 -> 后端 { date_begin, date_end }
       if (dateRange.value && dateRange.value.length === 2) {
         const field = props.dateField || 'date';
-        params[`${field}_begin`] = dateRange.value[0];
-        params[`${field}_end`] = dateRange.value[1];
+        params[`${field}_begin`] = `${dateRange.value[0]} 00:00:00`;
+        params[`${field}_end`] = `${dateRange.value[1]} 23:59:59`;
       }
       const res = await props.loadFn(params);
+      if (request !== sequence) return;
       tableData.value = res?.records || [];
       pagination.current = params.pageNo;
       pagination.pageSize = params.pageSize;
       pagination.total = res?.total ?? 0;
+    } catch {
+      if (request === sequence) {
+        tableData.value = [];
+        pagination.total = 0;
+      }
     } finally {
-      loading.value = false;
+      if (request === sequence) loading.value = false;
     }
   }
 
@@ -120,25 +126,16 @@
     loadData();
   }
 
-  /**
-   * 删除记录(占位, 后续接接口)
-   */
-  function handleDelete(record: any) {
-    createConfirm({
-      iconType: 'warning',
-      title: '确认删除',
-      content: `是否删除该条记录?`,
-      okText: '确认',
-      cancelText: '取消',
-      onOk: () => {
-        createMessage.success('删除成功(演示)');
-        loadData();
-      },
-    });
-  }
-
-  onMounted(() => {
-    loadData();
+  watch(
+    () => props.params?.vehicleId,
+    () => {
+      pagination.current = 1;
+      loadData();
+    },
+    { immediate: true }
+  );
+  onBeforeUnmount(() => {
+    ++sequence;
   });
 </script>
 
