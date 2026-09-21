@@ -1,3 +1,4 @@
+import { uploadProjectDocument } from '/@/utils/documentUpload';
 import { defHttp } from '/@/utils/http/axios';
 import { ContentTypeEnum } from '/@/enums/httpEnum';
 
@@ -48,20 +49,12 @@ export const getPlanProcessDetail = (params: { periodId: string }) => defHttp.ge
 
 export const getPlanLocations = (params) => defHttp.get({ url: Api.locationList, params }, quietFeedback);
 
-/** 新增单条计划方案；文件与业务数据使用同一个 multipart 请求提交。 */
+/** 新增单条计划方案；可选文件先公共上传，再使用 JSON 提交路径。 */
 export const addProjectPlan = (data: Recordable, attachment?: File) => submitProjectPlan(Api.planAdd, data, attachment);
 
-/** 批量新增方案文件，附件索引从 0 开始，对应重复 attachments 字段。 */
-export function addProjectPlansBatch(periodId: string, rows: { plan: Recordable; attachment?: File }[]) {
-  const formData = new FormData();
-  let attachmentIndex = 0;
-  const records = rows.map(({ plan, attachment }) => {
-    const index = attachment ? attachmentIndex++ : null;
-    if (attachment) formData.append('attachments', attachment, attachment.name);
-    return { plan, attachmentIndex: index };
-  });
-  formData.append('data', JSON.stringify({ periodId, records }));
-  return defHttp.post({ url: Api.planAddBatch, params: formData, headers: { 'Content-Type': ContentTypeEnum.FORM_DATA } }, quietFeedback);
+/** 批量新增方案使用 JSON；可选文件先公共上传，再传 plan.planFileId。 */
+export function addProjectPlansBatch(periodId: string, records: { plan: Recordable }[]) {
+  return defHttp.post({ url: Api.planAddBatch, params: { periodId, records }, headers: { 'Content-Type': ContentTypeEnum.JSON } }, quietFeedback);
 }
 
 /** 修改单条计划方案；未传 attachment 时保留原文件。 */
@@ -74,11 +67,10 @@ export const deleteProjectPlansBatch = (params: { ids: string }, showSuccessMess
     { joinParamsToUrl: true, ...quietFeedback, successMessageMode: showSuccessMessage ? 'success' : 'none' }
   );
 
-function submitProjectPlan(url: string, data: Recordable, attachment?: File) {
-  const formData = new FormData();
-  formData.append('data', JSON.stringify(data));
-  if (attachment) formData.append('attachment', attachment, attachment.name);
-  return defHttp.post({ url, params: formData, headers: { 'Content-Type': ContentTypeEnum.FORM_DATA } }, quietFeedback);
+async function submitProjectPlan(url: string, data: Recordable, attachment?: File) {
+  const params = { ...data };
+  if (attachment) params.planFileId = (await uploadProjectDocument(attachment, String(data.periodId || ''))).path;
+  return defHttp.post({ url, params, headers: { 'Content-Type': ContentTypeEnum.JSON } }, quietFeedback);
 }
 
 /**

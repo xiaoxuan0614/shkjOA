@@ -1,5 +1,7 @@
 import { BasicColumn } from '/@/components/Table';
 import { FormSchema } from '/@/components/Table';
+import { projectDisplayName } from '../project/projectListFilters';
+import { isImplementProjectStatus } from './implementScope';
 import {
   loadProjectProcessStatusOptions,
   loadProjectStatusOptions,
@@ -16,12 +18,14 @@ export const workStatusOptions = projectProcessStatusOptions;
 // 工序状态(字典 project_process_status)
 export const loadWorkStatusOptions = loadProjectProcessStatusOptions;
 
+export const loadImplementProjectStatusOptions = async () =>
+  (await loadProjectStatusOptions()).filter((item) => isImplementProjectStatus(item.value));
+
 /**
  * 项目分期列表列（后端 projectPeriodList 字段）。
  */
 export const columns: BasicColumn[] = [
-  { title: '主项目名称', dataIndex: 'projectName', width: 220, ellipsis: true },
-  { title: '分期名称', dataIndex: 'periodName', width: 160, ellipsis: true },
+  { title: '项目名称', dataIndex: 'projectName', width: 260, ellipsis: true, customRender: ({ record }) => projectDisplayName(record) },
   { title: '客户名称', dataIndex: 'customerName', width: 190, ellipsis: true },
   { title: '项目类型', align: 'center', dataIndex: 'projectType', width: 130 },
   { title: '项目状态', align: 'center', dataIndex: 'status', width: 120 },
@@ -33,16 +37,10 @@ export const columns: BasicColumn[] = [
  */
 export const searchFormSchema: FormSchema[] = [
   {
-    label: '主项目名称',
+    label: '项目名称',
     field: 'projectName',
     component: 'Input',
     componentProps: { placeholder: '请输入主项目名称' },
-  },
-  {
-    label: '分期名称',
-    field: 'periodName',
-    component: 'Input',
-    componentProps: { placeholder: '请输入分期名称' },
   },
   {
     label: '客户名称',
@@ -60,6 +58,6 @@ export const searchFormSchema: FormSchema[] = [
     label: '状态',
     field: 'status',
     component: 'ApiSelect',
-    componentProps: { api: loadProjectStatusOptions, placeholder: '请选择状态' },
+    componentProps: { api: loadImplementProjectStatusOptions, placeholder: '实施中及后续阶段', allowClear: true },
   },
 ];

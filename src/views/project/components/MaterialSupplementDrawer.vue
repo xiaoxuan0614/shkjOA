@@ -54,7 +54,7 @@
         <a-button danger :disabled="!selectedOrderKeys.length" @click="prepareApproval(false)">批量驳回</a-button>
       </div>
 
-      <a-alert v-if="!canApprove" class="material-supplement__scope-tip" type="info" show-icon message="当前仅显示本人提交的补料申请" />
+      <a-alert v-if="!canApprove && !targetOnly" class="material-supplement__scope-tip" type="info" show-icon message="当前仅显示本人提交的补料申请" />
 
       <a-table
         v-model:expandedRowKeys="expandedRowKeys"
@@ -191,6 +191,7 @@
   const selectedOrderKeys = ref<string[]>([]);
   const expandedRowKeys = ref<string[]>([]);
   const targetBizId = ref('');
+  const targetOnly = ref(false);
   const loading = ref(false);
   const submitting = ref(false);
   const supplementRef = ref();
@@ -215,6 +216,7 @@
   );
   const pendingCount = computed(() => pendingApprovalOrders.value.length);
   const displayOrders = computed(() => {
+    if (targetOnly.value) return orders.value;
     if (activeTab.value === 'pending' && canApprove.value) return pendingApprovalOrders.value;
     if (activeTab.value === 'history' && canApprove.value) return approvalHistoryOrders.value;
     return myOrders.value;
@@ -266,6 +268,7 @@
     projectName.value = data?.projectName || record.projectName || record.title || '';
     periodName.value = data?.periodName || record.periodName || '';
     targetBizId.value = String(data?.targetBizId || record.bizId || '');
+    targetOnly.value = Boolean(data?.targetOnly && targetBizId.value);
     allowCreate.value = data?.allowCreate ?? ['IMPLEMENTING', 'DEBUGGING', 'DEBUG_COMPLETED'].includes(String(record.status || ''));
     const requestedTab = String(data?.initialTab || (targetBizId.value ? 'pending' : 'mine')) as SupplementTab;
     activeTab.value = canApprove.value && ['pending', 'history'].includes(requestedTab) ? requestedTab : 'mine';
@@ -278,12 +281,12 @@
     expandedRowKeys.value = [];
     approvalVisible.value = false;
     supplementRef.value?.reset?.();
-    if (!periodId.value) {
+    if (!periodId.value && !targetOnly.value) {
       createMessage.error('缺少项目分期 ID，无法加载补料管理');
       return;
     }
     await Promise.all([loadOrders(), loadBrandMap(), allowCreate.value ? loadPlanRecords() : Promise.resolve()]);
-    if (targetBizId.value && canApprove.value) await locateTargetOrder();
+    if (targetBizId.value && (canApprove.value || targetOnly.value)) await locateTargetOrder();
   });
 
   function isCurrentUserApplication(record: Recordable) {
@@ -324,6 +327,13 @@
   async function loadOrders() {
     loading.value = true;
     try {
+      if (targetOnly.value) {
+        const detail: any = await getProjectMaterialApplyDetail({ id: targetBizId.value });
+        if (!detail?.id || String(detail.id) !== targetBizId.value || !detail.periodId) throw new Error('补料申请不存在或详情缺少分期信息');
+        periodId.value = String(detail.periodId);
+        orders.value = [toOrder(detail)];
+        return;
+      }
       const [result, materialMap]: any[] = await Promise.all([
         getProjectMaterialApplies({ periodId: periodId.value, pageNo: 1, pageSize: 1000 }),
         loadMaterialMap({ force: true }),

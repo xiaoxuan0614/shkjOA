@@ -1,0 +1,18 @@
+{
+  "target": "test",
+  "api": "https://oa-test.shouhuikeji.com/shouhuiApi",
+  "pcBase": "/",
+  "h5Base": "/h5/",
+  "packages": [
+    {
+      "file": "oa-pc-test.zip",
+      "bytes": 12506108,
+      "sha256": "ef292b3475705af257af1d95a737ff0f9af7e5924c5b063e96f55a11a351c659"
+    },
+    {
+      "file": "oa-h5-test.zip",
+      "bytes": 3535861,
+      "sha256": "88c10ae4366c2e8e292492f4a1bf610763aba8a8deb9a0576cbce6feb5d2382e"
+    }
+  ]
+}

@@ -33,6 +33,7 @@
 
   const prefixCls = inject('prefixCls');
   const props = defineProps({
+    active: { type: Boolean, default: true },
     data: { require: true, type: Object },
   });
   const userSelectModalRef: any = ref(null);
@@ -80,7 +81,7 @@
       beforeFetch(params) {
         return Object.assign(params, { orgCode: orgCode.value });
       },
-      immediate: !!orgCode.value,
+      immediate: false,
     },
   });
 
@@ -88,8 +89,9 @@
   const [registerTable, { reload, setProps, setLoading, updateTableDataRecord }, { rowSelection, selectedRowKeys }] = tableContext;
 
   watch(
-    () => props.data,
-    () => reload()
+    () => [orgCode.value, props.active],
+    () => { if (props.active && orgCode.value) reload(); },
+    { immediate: true }
   );
   //注册drawer
   const [registerDrawer, { openDrawer, setDrawerProps }] = useDrawer();

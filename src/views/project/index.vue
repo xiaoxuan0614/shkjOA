@@ -23,7 +23,8 @@
           </a-tag>
         </template>
         <template v-else-if="column.dataIndex === 'arrivalStatus'">
-          <a-tag :color="Number(record.arrivalStatus) === 1 ? 'success' : 'default'">
+          <span v-if="isSoftwareProject(record, projectTypeMeta)">—</span>
+          <a-tag v-else :color="Number(record.arrivalStatus) === 1 ? 'success' : 'default'">
             {{ Number(record.arrivalStatus) === 1 ? '已到货' : '未到货' }}
           </a-tag>
         </template>
@@ -89,7 +90,7 @@
   import { columns, searchFormSchema, statusFlow, projectStatusMap, statusColorMap, loadProjectStatusMap, loadProjectTypeMap } from './Project.data';
   import { projectList, deleteProject, changePeriodStatus, getMainProjectList } from './Project.api';
   import { useMessage } from '/@/hooks/web/useMessage';
-  import { getApprovalStatusMeta, isApprovalApproved } from '/@/utils/approvalStatus';
+  import { getApprovalStatusMeta, isApprovalApproved, isApprovalPending } from '/@/utils/approvalStatus';
   import { loadUserOptions } from '/@/views/resource/userOptions';
   import PlanAuditModal from './components/PlanAuditModal.vue';
   import ArrivalConfirmModal from './components/ArrivalConfirmModal.vue';
@@ -98,15 +99,17 @@
   import MaterialSupplementDrawer from './components/MaterialSupplementDrawer.vue';
   import ProcessCompletionDrawer from './components/ProcessCompletionDrawer.vue';
   import { refreshTodos } from '/@/views/todo/useTodoCenter';
-  import { contractDetail } from '/@/views/payment/Payment.api';
-  import { findArrivalPayment, isArrivalStage } from './arrivalPayment';
+  import { isArrivalStage, isPhysicalProject, isSoftwareProject } from './arrivalPayment';
+  import { readProjectMembership } from './projectMembership';
+  import { useUserStore } from '/@/store/modules/user';
 
   import { useAcceptanceAccess } from './useAcceptanceAccess';
 
-  const { canOperateAcceptance, canStartAcceptance, canViewAcceptanceEntry } = useAcceptanceAccess();
+  const { canStartAcceptance, canViewAcceptanceEntry } = useAcceptanceAccess();
   const router = useRouter();
   const { createMessage } = useMessage();
   const { hasPermission } = usePermission();
+  const userStore = useUserStore();
   const PROJECT_CLOSE_PERMISSION = 'project:close';
   const closingPeriodIds = new Set<string>();
 
@@ -178,10 +181,14 @@
         return Object.assign(params, queryParam);
       },
       afterFetch: async (rows: Recordable[]) => {
-        const result = rows.map((row) => ({ ...row, _hasArrivalPayment: false }));
-        if (!hasPermission('project:arrival:confirm')) return result;
-        const pending = result.filter((row) => isArrivalStage(row) && (row.periodId || row.id));
-        // 列表尚无到货款标志，仅查当前页符合阶段的分期，最多三项并发。
+        projectTypeMeta.value = await loadProjectTypeMap();
+        const result = rows.map((row) => ({ ...row, _isArrivalManager: false }));
+        if (!hasPermission('project:arrival:confirm') && !hasPermission('project:acceptance:submit')) return result;
+        const pending = result.filter(
+          (row) =>
+            ((isArrivalStage(row) && isPhysicalProject(row, projectTypeMeta.value)) || row.status === 'PENDING_ACCEPT') && (row.periodId || row.id)
+        );
+        // 仅查询当前页可确认到货的分期经理身份，去重并限制三项并发。
         const requests = new Map<string, Promise<boolean>>();
         for (let offset = 0; offset < pending.length; offset += 3) {
           await Promise.all(
@@ -190,12 +197,12 @@
               if (!requests.has(periodId)) {
                 requests.set(
                   periodId,
-                  contractDetail({ periodId }, true)
-                    .then((detail) => !!findArrivalPayment(detail?.records))
+                  readProjectMembership(periodId, String(userStore.getUserInfo?.id || ''))
+                    .then((access) => access.manager)
                     .catch(() => false)
                 );
               }
-              row._hasArrivalPayment = await requests.get(periodId)!;
+              row._isArrivalManager = await requests.get(periodId)!;
             })
           );
         }
@@ -262,9 +269,9 @@
     return ['IMPLEMENTING', 'DEBUGGING', 'DEBUG_COMPLETED'].includes(String(record.status || ''));
   }
 
-  /** 合同没有到货款不需要确认到货；尚未查明时不显示入口。 */
+  /** 到货与回款独立，仅本分期项目经理可操作硬件类项目。 */
   function canConfirmArrival(record: Recordable) {
-    return record._hasArrivalPayment === true && isArrivalStage(record);
+    return record._isArrivalManager === true && isArrivalStage(record) && isPhysicalProject(record, projectTypeMeta.value);
   }
 
   function handleConfirmArrival(record: Recordable) {
@@ -279,6 +286,10 @@
 
   /** 已提交合同统一进入合同信息页查看和处理，不再使用独立审批弹窗。 */
   function handleContractInfo(record: Recordable) {
+    if (!hasPermission('project:contract:view') && !(isApprovalPending(record.contractStatus) && hasPermission('project:contract:approve'))) {
+      createMessage.warning('无合同信息查看权限');
+      return;
+    }
     router.push({
       path: '/project/contract',
       query: { mode: 'view', periodId: record.periodId || record.id, projectId: record.projectId },
@@ -372,32 +383,23 @@
   function getTableAction(record: Recordable) {
     const flow = statusFlow[record.status];
     const actions = [];
-    if (String(record.status || '') === 'ACCEPTING' && canViewAcceptanceEntry()) {
-      const managerId = record.projectManagerUserId || record.projectManagerId;
-      const canAccept = canOperateAcceptance('INTERNAL', managerId) || canOperateAcceptance('CUSTOMER', managerId);
+    if (
+      ['PENDING_ACCEPT', 'ACCEPTING', 'REWORKING', 'WARRANTY', 'COMPLETED', 'CLOSED'].includes(String(record.status || '')) &&
+      canViewAcceptanceEntry()
+    ) {
       actions.push({
         label: '验收',
-        disabled: !canAccept,
-        tooltip: canAccept ? '填写验收结果' : '无本项目验收办理权限',
+        tooltip: '查看验收、返工申请及审批记录',
         onClick: () => {
-          if (canViewAcceptanceEntry() && canAccept) openAcceptanceModal(true, { periodId: record.periodId || record.id });
+          if (canViewAcceptanceEntry()) openAcceptanceModal(true, { periodId: record.periodId || record.id, project: record });
         },
       });
     }
     if (record.status === 'PENDING_ACCEPT') {
       actions.push({
-        label: '开始验收',
-        disabled: !canStartAcceptance(),
-        popConfirm: {
-          title: '确认启动内部和外部验收？',
-          confirm: async () => {
-            if (!canStartAcceptance()) return;
-            await changePeriodStatus({ periodId: record.periodId || record.id, status: 'PENDING_ACCEPT' });
-            createMessage.success('验收已启动');
-            await reload();
-            refreshTodos(true).catch(() => undefined);
-          },
-        },
+        label: '提交验收',
+        disabled: !canStartAcceptance(record._isArrivalManager),
+        onClick: () => openAcceptanceModal(true, { periodId: record.periodId || record.id, project: record, apply: true }),
       });
     }
     if (flow && flow.actions) {
@@ -422,9 +424,16 @@
       });
     }
     // 合同通过前，列表统一显示合同信息入口；通过后仅从项目详情查看。
-    if (isContractSubmitted(record) && !isApprovalApproved(record.contractStatus)) {
+    if (isApprovalPending(record.contractStatus) && hasPermission('project:contract:approve')) {
+      actions.push({
+        label: '合同审批',
+        auth: 'project:contract:approve',
+        onClick: handleContractInfo.bind(null, record),
+      });
+    } else if (hasPermission('project:contract:view') && isContractSubmitted(record) && !isApprovalApproved(record.contractStatus)) {
       actions.push({
         label: '合同信息',
+        auth: 'project:contract:view',
         onClick: handleContractInfo.bind(null, record),
       });
     }

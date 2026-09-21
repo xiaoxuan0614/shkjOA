@@ -272,6 +272,7 @@
 
     try {
       map = new AMap.Map(mapRef.value, {
+        resizeEnable: true,
         zoom: initialLocation ? 15 : 11,
         center,
         viewMode: '2D',

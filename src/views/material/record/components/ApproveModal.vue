@@ -1,5 +1,12 @@
 <template>
-  <BasicModal v-bind="$attrs" @register="register" title="申请审批" :width="880" @ok="handleSubmit" :okText="'提交审批'">
+  <BasicModal
+    v-bind="$attrs"
+    @register="register"
+    :title="record.applyType === 'IN' ? '入库申请审批' : '出库申请审批'"
+    :width="880"
+    @ok="handleSubmit"
+    :okText="'提交审批'"
+  >
     <!-- 申请信息(只读) -->
     <a-descriptions :column="3" size="small" bordered class="approve-desc">
       <a-descriptions-item label="申请单号">{{ record.applyNo || '—' }}</a-descriptions-item>
@@ -13,12 +20,12 @@
     <div class="approve-title">申请明细（整单审批：通过=整单通过，驳回=整单驳回）</div>
     <a-table :columns="columns" :data-source="rows" :row-key="(r) => r._key" :pagination="false" size="small" bordered />
 
-    <!-- 整单审批结果：整单通过 / 整单驳回（驳回必填原因） -->
+    <!-- 整单审批结果：通过 /  驳回（驳回必填原因） -->
     <div class="approve-result">
       <span class="approve-result__label">审批结果：</span>
       <a-radio-group v-model:value="result" size="small">
-        <a-radio value="AGREE">整单通过</a-radio>
-        <a-radio value="REJECT">整单驳回</a-radio>
+        <a-radio value="AGREE">通过</a-radio>
+        <a-radio value="REJECT">驳回</a-radio>
       </a-radio-group>
     </div>
     <a-input v-model:value="comment" placeholder="审批备注（驳回时必填，填写驳回原因）" />

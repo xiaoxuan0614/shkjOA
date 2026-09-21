@@ -153,12 +153,6 @@ export const formSchema: FormSchema[] = [
     dynamicRules: () => [{ required: true, message: '请输入型号(规格)!' }],
   },
   {
-    label: '基准单价',
-    field: 'unitPrice',
-    component: 'InputNumber',
-    componentProps: { placeholder: '请输入基准单位单价', min: 0, precision: 2, style: { width: '100%' } },
-  },
-  {
     label: '安全库存',
     field: 'safetyStock',
     component: 'InputNumber',

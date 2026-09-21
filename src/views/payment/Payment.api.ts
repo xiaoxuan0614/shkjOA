@@ -3,7 +3,7 @@ import { ContentTypeEnum } from '/@/enums/httpEnum';
 
 /**
  * 回款管理 - 对接后端 /project/contract/* 与 /project/paymentRecord/*
- * 合同新增/修改均走 multipart 组合事务接口，详情按 periodId 返回合同、文件与回款计划。
+ * 合同新增和修改均使用 JSON，详情按 periodId 返回合同、文件与回款计划。
  */
 enum Api {
   list = '/project/contract/list',
@@ -51,25 +51,16 @@ export const contractDetailByPeriodId = (periodId: string) => contractDetail({ p
 export const saveContract = (params) => defHttp.post({ url: Api.add, params }, { successMessageMode: 'success' });
 
 /**
- * 新增合同、两个可选文件与回款计划（multipart 后端事务接口）。
+ * 新增合同与回款计划：文件先公共上传，路径随 JSON contract 提交。
  */
-export const addContractWithPaymentRecords = (data: Recordable, attachment?: File, materialAttachment?: File) =>
-  submitContractWithPaymentRecords(Api.addWithPaymentRecords, data, attachment, materialAttachment);
+export const addContractWithPaymentRecords = (data: Recordable) =>
+  defHttp.post({ url: Api.addWithPaymentRecords, params: data, headers: { 'Content-Type': ContentTypeEnum.JSON } }, { successMessageMode: 'none' });
 
 /**
  * 按 periodId 差量修改合同字段，并全量同步回款计划；未传新文件时保留旧文件。
  */
-export const editContractWithPaymentRecords = (data: Recordable, attachment?: File, materialAttachment?: File) =>
-  submitContractWithPaymentRecords(Api.editWithPaymentRecords, data, attachment, materialAttachment);
-
-function submitContractWithPaymentRecords(url: string, data: Recordable, attachment?: File, materialAttachment?: File) {
-  const formData = new FormData();
-  formData.append('data', JSON.stringify(data));
-  if (attachment) formData.append('attachment', attachment, attachment.name);
-  if (materialAttachment) formData.append('materialAttachment', materialAttachment, materialAttachment.name);
-  // defHttp 会将非 GET 的 params 原样搬到 body；直接传 data=FormData 会被其空对象判断误清空。
-  return defHttp.post({ url, params: formData, headers: { 'Content-Type': ContentTypeEnum.FORM_DATA } }, { successMessageMode: 'success' });
-}
+export const editContractWithPaymentRecords = (data: Recordable) =>
+  defHttp.post({ url: Api.editWithPaymentRecords, params: data, headers: { 'Content-Type': ContentTypeEnum.JSON } }, { successMessageMode: 'none' });
 
 /**
  * 合同状态变更（审批、撤回、重新提审）。

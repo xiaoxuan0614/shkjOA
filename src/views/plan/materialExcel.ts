@@ -1,5 +1,6 @@
 import ExcelJS from 'exceljs';
 import { downloadByData } from '/@/utils/file/download';
+import { decimalPrice } from './quotationPricing';
 
 const XLSX_MIME_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
@@ -29,7 +30,12 @@ function safeFileName(value: unknown) {
   return String(value || '报价物料清单').replace(/[\\/:*?"<>|]/g, '_');
 }
 
-export async function exportCandidateMaterials(record: Recordable, rows: Recordable[]) {
+// 只接收 exportData 的受控结果，不使用普通明细接口或物料库补充价格。
+export async function exportCandidateMaterials(record: Recordable) {
+  if (!record?.candidateId || !Array.isArray(record.records)) throw new Error('导出数据不完整');
+  const rows: Recordable[] = record.records;
+  if (!rows.length) throw new Error('报价没有可导出的明细');
+  rows.forEach((row) => decimalPrice(row.finalPrice, '每项物料的终价'));
   const workbook = new ExcelJS.Workbook();
   const worksheet = workbook.addWorksheet('物料清单');
   worksheet.columns = [
@@ -40,7 +46,7 @@ export async function exportCandidateMaterials(record: Recordable, rows: Recorda
     { header: '型号', key: 'model', width: 20 },
     { header: '数量', key: 'quantity', width: 14 },
     { header: '单位', key: 'unit', width: 14 },
-    { header: '备注', key: 'remark', width: 30 },
+    { header: '终价（单价）', key: 'finalPrice', width: 18 },
   ];
   rows.forEach((item) => {
     worksheet.addRow({
@@ -51,7 +57,7 @@ export async function exportCandidateMaterials(record: Recordable, rows: Recorda
       model: item.model || '',
       quantity: Number(item.quantity ?? item.plannedQty) || '',
       unit: item.unit || '',
-      remark: item.remark || '',
+      finalPrice: Number(item.finalPrice),
     });
   });
   const header = worksheet.getRow(1);
@@ -61,6 +67,7 @@ export async function exportCandidateMaterials(record: Recordable, rows: Recorda
   header.height = 24;
   worksheet.views = [{ state: 'frozen', ySplit: 1 }];
   worksheet.autoFilter = { from: 'A1', to: 'H1' };
+  worksheet.getColumn('finalPrice').numFmt = '0.00';
   worksheet.eachRow((row, rowNumber) => {
     if (rowNumber > 1) row.alignment = { vertical: 'middle' };
   });

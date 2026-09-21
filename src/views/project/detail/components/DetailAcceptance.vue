@@ -1,41 +1,40 @@
 <template>
   <div class="detail-acceptance">
-    <a-alert
-      type="info"
-      show-icon
-      message="内部验收与外部验收由不同责任人并行办理"
-      description="当前轮全部工序完成后进入待验收，点击开始验收后，内部与外部验收并行办理。两项都通过时自动进入质保，任一项不通过可申请返工。"
-      class="detail-acceptance__notice"
-    />
+    <a-alert type="info" show-icon message="内部验收与外部验收由不同责任人并行办理" class="detail-acceptance__notice" />
+    <a-alert v-if="identityError" type="warning" :message="identityError" show-icon>
+      <template #action><a-button @click="loadIdentity">重试身份查询</a-button></template>
+    </a-alert>
 
     <a-button
-      v-if="project.status === 'PENDING_ACCEPT' && canStartAcceptance()"
+      v-if="!footerActions && canApplyNormal"
       type="primary"
       :loading="startingAcceptance"
       @click="handleStartAcceptance"
-      >开始验收</a-button
+      >提交验收申请</a-button
     >
     <a-spin :spinning="loading">
       <a-empty v-if="!hasCurrentRound">
-        <template #description>当前暂无验收记录；全部工序完成后，在待验收阶段点击开始验收。</template>
+        <template #description>当前暂无验收记录；全部工序完成后，在待验收阶段点击提交验收申请。</template>
       </a-empty>
 
       <div v-else class="detail-acceptance__grid" :class="{ 'detail-acceptance__grid--single': acceptanceCards.length === 1 }">
-        <a-card v-for="card in acceptanceCards" :key="card.type" size="small" class="accept-card">
+        <a-card v-for="card in acceptanceCards" :id="`acceptance-${card.type}`" :key="card.type" size="small" class="accept-card">
           <template #title>
             <div class="accept-card__title">
               <span>{{ card.title }}</span>
               <a-tag :color="getAcceptanceMeta(card.model).color">{{ getAcceptanceMeta(card.model).text }}</a-tag>
             </div>
           </template>
-          <template #extra>
-            <div class="accept-card__actions">
-              <a-button v-if="card.type === 'INTERNAL' && canRequestRecheck(card.model)" size="small" @click="openRecheck">申请重新内验</a-button>
-              <a-button v-if="canApplyRework(card.model)" danger size="small" @click="openRework(card.model, card.type)">申请返工</a-button>
-            </div>
-          </template>
 
-          <a-form layout="vertical">
+          <a-descriptions v-if="!canEdit(card.model, card.type)" :column="1" size="small">
+            <a-descriptions-item label="办理责任">{{ responsibilityText(card.type) }}</a-descriptions-item>
+            <a-descriptions-item label="验收负责人">{{ card.model.acceptLeaderName || '—' }}</a-descriptions-item>
+            <a-descriptions-item v-if="card.type === 'CUSTOMER'" label="客户验收负责人">{{ card.model.acceptUnitLeader || '—' }}</a-descriptions-item>
+            <a-descriptions-item v-if="card.type === 'CUSTOMER'" label="客户验收负责人角色">{{ customerRoleLabel(card.model.acceptUnitName) }}</a-descriptions-item>
+            <a-descriptions-item label="验收日期">{{ formatAcceptanceDate(card.model.acceptEndDate) }}</a-descriptions-item>
+            <a-descriptions-item v-if="card.model.remark" label="验收说明">{{ card.model.remark }}</a-descriptions-item>
+          </a-descriptions>
+          <a-form v-else layout="vertical">
             <div class="accept-card__owner">
               <span>办理责任</span>
               <strong>{{ responsibilityText(card.type) }}</strong>
@@ -44,12 +43,22 @@
             <a-form-item label="验收负责人">
               <a-input :value="responsibleName(card.type)" disabled placeholder="提交时自动记录当前登录人" />
             </a-form-item>
+            <a-form-item v-if="card.type === 'CUSTOMER'" label="客户验收负责人" required>
+              <a-input
+                v-model:value="card.model.acceptUnitLeader"
+                :disabled="!canEdit(card.model, card.type)"
+                placeholder="请输入客户方验收负责人姓名"
+              />
+            </a-form-item>
+            <a-form-item v-if="card.type === 'CUSTOMER'" label="客户验收负责人角色">
+              <a-select v-model:value="card.model.acceptUnitName" :options="customerRoleOptions" allow-clear placeholder="请选择客户方角色" />
+            </a-form-item>
             <a-form-item label="验收日期" :required="canEdit(card.model, card.type)">
               <a-date-picker
                 v-if="canEdit(card.model, card.type)"
                 v-model:value="card.model.acceptDate"
                 format="YYYY-MM-DD"
-                value-format="YYYY-MM-DD HH:mm:ss"
+                value-format="YYYY-MM-DD"
                 placeholder="请选择验收日期"
                 style="width: 100%"
               />
@@ -72,7 +81,7 @@
 
             <a-form-item
               v-if="normalizeResult(card.model.result) === 'PASSED' || (!canEdit(card.model, card.type) && reportFiles(card.type).length)"
-              :label="card.type === 'INTERNAL' ? '验收报告' : '竣工报告（验收报告）'"
+              label="验收文件"
               required
             >
               <div class="file-field">
@@ -81,18 +90,18 @@
                   :accept="ACCEPTANCE_REPORT_ACCEPT"
                   :multiple="false"
                   :show-upload-list="false"
-                  :disabled="uploadBusy || internalLoading || customerLoading || reportFiles(card.type).length >= ACCEPTANCE_REPORT_LIMIT"
+                  :disabled="uploadBusy || internalLoading || customerLoading || attachmentCount(card.type) >= ACCEPTANCE_REPORT_LIMIT"
                   :before-upload="(file) => onReportUpload(card.type === 'INTERNAL' ? 'internal' : 'customer', file)"
                 >
                   <a-button
                     size="small"
                     :loading="uploadingTarget === (card.type === 'INTERNAL' ? 'internal' : 'customer')"
-                    :disabled="uploadBusy || internalLoading || customerLoading || reportFiles(card.type).length >= ACCEPTANCE_REPORT_LIMIT"
-                    >上传{{ card.type === 'INTERNAL' ? '验收报告' : '外部验收报告' }}</a-button
+                    :disabled="uploadBusy || internalLoading || customerLoading || attachmentCount(card.type) >= ACCEPTANCE_REPORT_LIMIT"
+                    >上传验收文件</a-button
                   >
                 </a-upload>
                 <span v-if="canEdit(card.model, card.type)" class="file-field__empty" aria-live="polite">
-                  {{ reportFiles(card.type).length }}/{{ ACCEPTANCE_REPORT_LIMIT }} 个，每次上传一个；支持图片、Word、PDF、Excel
+                  附件共 {{ attachmentCount(card.type) }}/{{ ACCEPTANCE_REPORT_LIMIT }} 个（每类独立），每次上传一个；支持图片、Word、PDF、Excel
                 </span>
                 <span v-if="!reportFiles(card.type).length" class="file-field__empty">未上传</span>
                 <div v-for="path in reportFiles(card.type)" :key="path" class="file-field__row">
@@ -104,44 +113,10 @@
                     danger
                     :aria-label="`删除 ${fileName(path)}`"
                     :disabled="uploadBusy || internalLoading || customerLoading"
-                    @click="removeAcceptanceFile(card.type, 'completionReportFileId', path)"
+                    @click="removeAcceptanceFile(card.type, 'acceptanceFormFileId', path)"
                     >删除</a-button
                   >
                 </div>
-              </div>
-            </a-form-item>
-
-            <a-form-item
-              v-if="
-                card.type === 'CUSTOMER' &&
-                (normalizeResult(card.model.result) === 'PASSED' || (!canEdit(card.model, card.type) && card.model.acceptanceFormFileId))
-              "
-              label="验收单"
-            >
-              <div class="file-field">
-                <a-upload
-                  v-if="canEdit(card.model, card.type) && !card.model.acceptanceFormFileId"
-                  :accept="DOCUMENT_UPLOAD_ACCEPT"
-                  :show-upload-list="false"
-                  :disabled="uploadBusy || internalLoading || customerLoading"
-                  :before-upload="(file) => onReportUpload('acceptForm', file)"
-                >
-                  <a-button size="small" :loading="uploadingTarget === 'acceptForm'" :disabled="uploadBusy || internalLoading || customerLoading"
-                    >上传验收单</a-button
-                  >
-                </a-upload>
-                <span v-if="!card.model.acceptanceFormFileId" class="file-field__empty">未上传</span>
-                <a-tag
-                  v-else
-                  :key="card.type + (card.model.completionReportFileId || card.model.acceptanceFormFileId)"
-                  :closable="canEdit(card.model, card.type) && !uploadBusy && !internalLoading && !customerLoading"
-                  class="file-tag"
-                  @close.prevent="removeAcceptanceFile(card.type, 'acceptanceFormFileId')"
-                  >{{ fileName(card.model.acceptanceFormFileId) }}</a-tag
-                >
-                <a-button v-if="card.model.acceptanceFormFileId" size="small" @click="previewFileInModal(card.model.acceptanceFormFileId)"
-                  >预览</a-button
-                >
               </div>
             </a-form-item>
 
@@ -159,14 +134,14 @@
                 :disabled="!canEdit(card.model, card.type)"
               />
             </a-form-item>
-            <div v-if="canComplete(card.model, card.type)" class="accept-card__submit">
+            <div v-if="!footerActions && canComplete(card.model, card.type)" class="accept-card__submit">
               <span class="file-field__empty">附件及填写内容将在提交验收后保存。</span>
               <a-button
                 type="primary"
                 :disabled="uploadBusy || internalLoading || customerLoading"
                 :loading="isCardLoading(card.type)"
                 @click="handleComplete(card.type)"
-                >提交验收</a-button
+                >提交验收结果</a-button
               >
             </div>
           </a-form>
@@ -174,68 +149,103 @@
       </div>
     </a-spin>
 
-    <a-card v-if="!operationOnly" title="历次验收记录" size="small" class="detail-acceptance__history">
-      <a-table
-        :columns="historyColumns"
-        :data-source="historyRows"
-        :row-key="(record) => `${record.acceptType}-${record.id}`"
-        :pagination="false"
-        :scroll="{ x: 1160 }"
-        size="small"
-      >
-        <template #emptyText><a-empty description="暂无历史验收记录" /></template>
-        <template #bodyCell="{ column, record }">
-          <template v-if="column.key === 'acceptType'">{{ record.acceptType === 'INTERNAL' ? '内部验收' : '外部验收' }}</template>
-          <template v-else-if="column.key === 'round'">{{ record.reworkId ? '返工复验' : '首次验收' }}</template>
-          <template v-else-if="column.key === 'status'">
-            <a-tag :color="getAcceptanceMeta(record).color">{{ getAcceptanceMeta(record).text }}</a-tag>
-          </template>
-          <template v-else-if="column.key === 'result'">{{ resultText(record.result) }}</template>
-          <template v-else-if="column.key === 'remark'">
-            <a-tooltip :title="record.remark"
-              ><span class="detail-acceptance__ellipsis">{{ record.remark || '—' }}</span></a-tooltip
+    <div v-if="!footerActions && !loading && failedActionCards.length" class="detail-acceptance__failure-actions">
+      <div v-for="card in failedActionCards" :key="card.type" class="accept-card__actions">
+        <span>{{ card.title }}未通过：</span>
+        <a-button
+          v-if="canRequestRecheck(card.model)"
+          :disabled="uploadBusy || internalLoading || customerLoading"
+          @click="openRecheck(card.type)"
+          >申请重新验收</a-button
+        >
+        <a-button
+          v-if="canApplyRework(card.model)"
+          danger
+          :disabled="uploadBusy || internalLoading || customerLoading"
+          @click="openRework(card.model, card.type)"
+          >申请返工</a-button
+        >
+      </div>
+    </div>
+    <div v-if="!footerActions && !loading" class="detail-acceptance__history">
+      <a-button @click="openHistory">查看详情</a-button>
+    </div>
+    <a-drawer v-model:open="historyOpen" title="验收详情" width="min(1100px, 96vw)" destroy-on-close>
+      <a-tabs v-model:activeKey="historyTab">
+        <a-tab-pane key="acceptance" tab="历史验收记录">
+          <a-card size="small">
+            <a-alert v-if="historyError" type="warning" :message="historyError">
+              <template #action><a-button @click="loadHistoryPage(historyPage)">重试</a-button></template>
+            </a-alert>
+            <a-table
+              :loading="historyLoading"
+              @change="(page) => loadHistoryPage(page.current)"
+              :columns="historyColumns"
+              :data-source="historyRows"
+              :row-key="(record) => `${record.acceptType}-${record.id}`"
+              :pagination="{ current: historyPage, total: historyTotal, pageSize: 10, showSizeChanger: false }"
+              :scroll="{ x: 1160 }"
+              size="small"
             >
-          </template>
-          <template v-else-if="column.key === 'files'">
-            <div v-for="field in ['completionReportFileId', 'acceptanceFormFileId']" :key="field">
-              <a-button
-                v-for="path in acceptanceFilePaths(record[field])"
-                :key="path"
-                type="link"
-                size="small"
-                :title="fileName(path)"
-                @click="previewFileInModal(path)"
-              >
-                {{ field === 'completionReportFileId' ? '验收报告' : '验收单' }}：{{ fileName(path) }}
-              </a-button>
-            </div>
-            <span v-if="!record.completionReportFileId && !record.acceptanceFormFileId">—</span>
-          </template>
-          <template v-else-if="column.key === 'action'">
-            <a-button v-if="canApplyRework(record)" type="link" danger size="small" @click="openRework(record, record.acceptType)">申请返工</a-button>
-            <span v-else>—</span>
-          </template>
-        </template>
-      </a-table>
-    </a-card>
+              <template #emptyText><a-empty description="暂无历史验收记录" /></template>
+              <template #bodyCell="{ column, record }">
+                <template v-if="column.key === 'acceptType'">{{ record.acceptType === 'INTERNAL' ? '内部验收' : '外部验收' }}</template>
+                <template v-else-if="column.key === 'round'">{{ record.reworkId ? '返工复验' : '首次验收' }}</template>
+                <template v-else-if="column.key === 'status'">
+                  <a-tag :color="getAcceptanceMeta(record).color">{{ getAcceptanceMeta(record).text }}</a-tag>
+                </template>
+                <template v-else-if="column.key === 'result'">{{ resultText(record.result) }}</template>
+                <template v-else-if="column.key === 'remark'">
+                  <a-tooltip :title="record.remark"
+                    ><span class="detail-acceptance__ellipsis">{{ record.remark || '—' }}</span></a-tooltip
+                  >
+                </template>
+                <template v-else-if="column.key === 'files'">
+                  <div v-for="field in ['completionReportFileId', 'acceptanceFormFileId']" :key="field">
+                    <a-button
+                      v-for="path in acceptanceFilePaths(record[field])"
+                      :key="path"
+                      type="link"
+                      size="small"
+                      :title="fileName(path)"
+                      @click="previewFileInModal(path)"
+                    >
+                      {{ field === 'completionReportFileId' ? '验收报告' : '验收单' }}：{{ fileName(path) }}
+                    </a-button>
+                  </div>
+                  <span v-if="!record.completionReportFileId && !record.acceptanceFormFileId">—</span>
+                </template>
+              </template>
+            </a-table>
+          </a-card>
+        </a-tab-pane>
+        <a-tab-pane key="rework" tab="返工申请审批记录">
+          <DetailReworks v-if="historyOpen && reworkVisited" ref="reworkRecordsRef" :period-id="projectId" @open="openReworkRecord" />
+        </a-tab-pane>
+      </a-tabs>
+    </a-drawer>
 
     <a-modal
       v-model:open="recheckOpen"
-      title="申请重新内部验收"
+      :title="applicationMode === 'NORMAL' ? '申请验收' : '申请验收（免整改复验）'"
       ok-text="提交申请"
-      :confirm-loading="internalLoading"
-      :closable="!internalLoading"
+      :confirm-loading="recheckLoading"
+      :closable="!recheckLoading"
       :mask-closable="false"
-      :cancel-button-props="{ disabled: internalLoading }"
+      :cancel-button-props="{ disabled: recheckLoading }"
       @ok="submitRecheck"
     >
-      <a-alert type="info" show-icon message="提交后直接开始重新内验，外部验收结果保持不变。" />
+      <a-alert type="info" show-icon :message="applicationMode === 'NORMAL' ? '选择本次申请类型；全部工序完成后方可申请，已通过结果保持不变。' : '仅重新办理当前不通过的验收；需要施工整改时请申请返工。'" />
       <a-form layout="vertical">
-        <a-form-item label="原不通过原因"
-          ><span>{{ internal.remark || '—' }}</span></a-form-item
-        >
+        <a-form-item label="验收类型（可多选）" required>
+          <a-checkbox-group v-model:value="recheckTypes" :disabled="recheckLoading">
+            <a-checkbox v-for="card in acceptanceCards" :key="card.type" :value="card.type" :disabled="!canSelectApplication(card.model)">
+              {{ card.title }}（{{ getAcceptanceMeta(card.model).text }}）
+            </a-checkbox>
+          </a-checkbox-group>
+        </a-form-item>
         <a-form-item label="申请原因" required
-          ><a-textarea v-model:value="recheckReason" :rows="4" placeholder="请说明无需施工整改、申请重新内验的原因" :disabled="internalLoading"
+          ><a-textarea v-model:value="recheckReason" :rows="4" :maxlength="400" show-count :placeholder="applicationMode === 'NORMAL' ? '请填写申请原因（最多400字）' : '请说明无需施工整改、申请重新验收的原因（最多400字）'" :disabled="recheckLoading"
         /></a-form-item>
       </a-form>
     </a-modal>
@@ -247,25 +257,47 @@
   import { computed, nextTick, reactive, ref, watch } from 'vue';
   import dayjs from 'dayjs';
   import { useAcceptanceAccess } from '../../useAcceptanceAccess';
-  import { changePeriodStatus } from '../../Project.api';
   import { useDrawer } from '/@/components/Drawer';
   import { useMessage } from '/@/hooks/web/useMessage';
   import { usePermission } from '/@/hooks/web/usePermission';
-  import { completeProjectAcceptance, getAcceptance, getMembers, submitAcceptanceRecheck } from '../ProjectDetail.api';
-  import { DOCUMENT_UPLOAD_ACCEPT, isAllowedDocumentFile, uploadProjectDocument } from '/@/utils/documentUpload';
+  import { completeProjectAcceptance, getAcceptance, applyProjectAcceptance } from '../ProjectDetail.api';
+  import { readProjectMembership, readCachedProjectMembership } from '../../projectMembership';
+  import { readInternalAcceptanceAccess } from '../../internalAcceptanceAccess';
+  import { isAllowedDocumentFile, uploadProjectDocument } from '/@/utils/documentUpload';
   import { previewFileInModal } from '/@/utils/filePreview';
   import { ACCEPTANCE_REPORT_ACCEPT, ACCEPTANCE_REPORT_LIMIT, acceptanceFilePaths, isAcceptanceReportFile } from '../acceptanceFiles';
   import { useUserStore } from '/@/store/modules/user';
   import { refreshTodos } from '/@/views/todo/useTodoCenter';
+  import { hasBlockingRework, isAcceptanceHistory } from '/@/utils/acceptanceWorkflow';
+  import { readAcceptanceReworks, readAllAcceptancePages } from '../acceptanceWorkflow';
   import ReworkDrawer from './ReworkDrawer.vue';
+  import DetailReworks from './DetailReworks.vue';
+  const historyOpen = ref(false);
+  const historyTab = ref('acceptance');
+  const reworkVisited = ref(false);
+  watch(historyTab, (tab) => {
+    if (tab === 'rework') reworkVisited.value = true;
+  });
+  function openHistory() {
+    reworkVisited.value = false;
+    historyTab.value = 'acceptance';
+    historyOpen.value = true;
+    void loadHistoryPage(historyPage.value);
+  }
+  const reworkRecordsRef = ref<InstanceType<typeof DetailReworks>>();
+  function openReworkRecord(reworkId: string) {
+    historyOpen.value = false;
+    openReworkDrawer(true, { periodId: props.projectId, reworkId, project: props.project });
+  }
 
   type AcceptanceType = 'INTERNAL' | 'CUSTOMER';
   type UploadTarget = 'internal' | 'customer' | 'acceptForm';
 
-  const props = withDefaults(defineProps<{ projectId: string; project?: Recordable; initialReworkId?: string; operationOnly?: boolean }>(), {
+  const props = withDefaults(defineProps<{ projectId: string; project?: Recordable; initialReworkId?: string; initialApply?: boolean; initialRecheckType?: string; initialAcceptanceId?: string; operationOnly?: boolean; footerActions?: boolean }>(), {
     project: () => ({}),
     initialReworkId: '',
     operationOnly: false,
+    footerActions: false,
   });
   const emit = defineEmits<{ changed: []; busyChange: [busy: boolean] }>();
   const { createMessage } = useMessage();
@@ -273,19 +305,30 @@
   const userStore = useUserStore();
   const [registerReworkDrawer, { openDrawer: openReworkDrawer }] = useDrawer();
 
-  const { canOperateAcceptance, canStartAcceptance } = useAcceptanceAccess();
+  const { canStartAcceptance } = useAcceptanceAccess();
   const startingAcceptance = ref(false);
+  const applicationMode = ref<'NORMAL' | 'WITHOUT_RECTIFICATION'>('NORMAL');
   const recheckOpen = ref(false);
   const recheckReason = ref('');
+  const recheckTypes = ref<AcceptanceType[]>([]);
+  const recheckLoading = ref(false);
+  const applicationReady = ref(false);
+  const applicationReworks = ref<any[]>([]);
+  const blockingRework = computed(() => hasBlockingRework(applicationReworks.value, currentReworkId.value));
   const acceptedManager = ref(false);
+  const identityReady = ref(false);
+  const operationsMember = ref(false);
+  const identityError = ref('');
+  let identitySequence = 0;
   const loading = ref(false);
+  const recordsReady = ref(false);
   const internalLoading = ref(false);
   const customerLoading = ref(false);
   const uploadingTarget = ref<UploadTarget | ''>('');
   const uploadBusy = computed(() => Boolean(uploadingTarget.value));
   watch(
-    [internalLoading, customerLoading, uploadBusy],
-    ([internalBusy, customerBusy, uploading]) => emit('busyChange', internalBusy || customerBusy || uploading),
+    [internalLoading, customerLoading, uploadBusy, recheckLoading],
+    ([internalBusy, customerBusy, uploading, applying]) => emit('busyChange', internalBusy || customerBusy || uploading || applying),
     { flush: 'sync' }
   );
   const internalRecords = ref<Recordable[]>([]);
@@ -296,45 +339,102 @@
     { label: '通过', value: 'PASSED' },
     { label: '不通过', value: 'FAILED' },
   ];
+  // 暂定协议，待后端增加同名字段并持久化、回显；不是系统授权角色。
+  const customerRoleOptions = [
+    { label: '项目负责人', value: 'PROJECT_LEADER' },
+    { label: '技术负责人', value: 'TECHNICAL_LEADER' },
+    { label: '采购负责人', value: 'PURCHASE_LEADER' },
+    { label: '其他', value: 'OTHER' },
+  ];
+  const customerRoleLabel = (value: unknown) => customerRoleOptions.find((item) => item.value === value)?.label || String(value || '—');
   const internal = reactive<Recordable>(emptyInternal());
   const customer = reactive<Recordable>(emptyCustomer());
   const acceptanceCards = computed(() =>
     [
       { type: 'INTERNAL' as const, title: '内部验收', model: internal },
       { type: 'CUSTOMER' as const, title: '外部验收', model: customer },
-    ].filter((card) => !props.operationOnly || canOperate(card.type) || (card.type === 'INTERNAL' && canRequestRecheck(card.model)))
+    ].filter((card) => !props.operationOnly || canOperate(card.type) || canRequestRecheck(card.model) || canApplyRework(card.model))
   );
+  const failedActionCards = computed(() => acceptanceCards.value.filter((card) => canRequestRecheck(card.model) || canApplyRework(card.model)));
+  const submitActions = computed(() => loading.value ? [] : acceptanceCards.value
+    .filter((card) => canComplete(card.model, card.type))
+    .map((card) => ({ type: card.type, label: `提交${card.title}`, loading: isCardLoading(card.type) })));
+  const submitDisabled = computed(() => loading.value || uploadBusy.value || internalLoading.value || customerLoading.value || recheckLoading.value);
+  const secondaryActions = computed(() => {
+    if (loading.value) return [];
+    const disabled = submitDisabled.value || startingAcceptance.value;
+    const actions = [{ key: 'history', label: '查看详情', disabled, danger: false, loading: false, onClick: openHistory }];
+    if (canApplyNormal.value) {
+      actions.push({ key: 'start', label: '申请验收', disabled, danger: false, loading: startingAcceptance.value, onClick: handleStartAcceptance });
+    }
+    if (failedActionCards.value.some((card) => canRequestRecheck(card.model))) {
+      actions.push({ key: 'recheck', label: '申请验收（免整改复验）', disabled, danger: false, loading: recheckLoading.value, onClick: () => openRecheck() });
+    }
+    if (failedActionCards.value.some((card) => canApplyRework(card.model))) {
+      actions.push({ key: 'rework', label: '申请返工', disabled, danger: true, loading: false, onClick: openLatestRework });
+    }
+    return actions;
+  });
+  defineExpose({ submitActions, secondaryActions, submitDisabled, submit: handleComplete });
   const currentUserId = computed(() => String((userStore.getUserInfo as any)?.id || (userStore.getUserInfo as any)?.userId || ''));
   const currentUserName = computed(() => {
     const user: any = userStore.getUserInfo;
     return String(user?.realname || user?.realName || user?.username || '');
   });
-  const projectManagerId = computed(() => String(props.project?.projectManagerUserId || props.project?.projectManagerId || ''));
   const hasCurrentRound = computed(() => Boolean(internal.id || customer.id));
   const currentReworkId = computed(() =>
     String(props.project?.currentReworkId || internal.reworkId || customer.reworkId || props.initialReworkId || '')
   );
-  const historyRows = computed(() =>
-    [
-      ...internalRecords.value.map((record) => ({ ...record, acceptType: 'INTERNAL' })),
-      ...customerRecords.value.map((record) => ({ ...record, acceptType: 'CUSTOMER' })),
-    ].sort((a, b) => String(b.updateTime || b.createTime || '').localeCompare(String(a.updateTime || a.createTime || '')))
-  );
+  const historyRows = ref<Recordable[]>([]);
+  const historyPage = ref(1),
+    historyTotal = ref(0),
+    historyLoading = ref(false),
+    historyError = ref('');
+  const historyCache = new Map<number, { records: Recordable[]; total: number }>();
+  let historySequence = 0;
+  async function loadHistoryPage(page = 1) {
+    const sequence = ++historySequence;
+    const periodId = props.projectId;
+    historyLoading.value = true;
+    historyError.value = '';
+    try {
+      let result = historyCache.get(page);
+      if (!result) {
+        const response = await getAcceptance({ periodId, pageNo: page, pageSize: 10 });
+        if (sequence !== historySequence || periodId !== props.projectId) return;
+        result = { records: normalizeRecords(response).filter(isAcceptanceHistory), total: Number(response?.total || 0) };
+        historyCache.set(page, result);
+      }
+      historyRows.value = result.records;
+      historyTotal.value = result.total;
+      historyPage.value = page;
+    } catch (error: any) {
+      if (sequence === historySequence) historyError.value = error?.message || '历史验收记录加载失败';
+    } finally {
+      if (sequence === historySequence) historyLoading.value = false;
+    }
+  }
   const historyColumns = [
     { title: '验收类型', key: 'acceptType', width: 110 },
     { title: '验收轮次', key: 'round', width: 110 },
     { title: '状态', key: 'status', width: 110 },
     { title: '结果', key: 'result', width: 100 },
-    { title: '验收负责人', width: 130, customRender: ({ record }) => record.acceptUnitLeader || record.acceptLeaderName || '—' },
+    { title: '验收负责人', width: 130, customRender: ({ record }) => record.acceptLeaderName || '—' },
+    { title: '客户验收负责人', width: 140, customRender: ({ record }) => record.acceptType === 'CUSTOMER' ? record.acceptUnitLeader || '—' : '—' },
+    { title: '客户负责人角色', width: 140, customRender: ({ record }) => record.acceptType === 'CUSTOMER' ? customerRoleLabel(record.acceptUnitName) : '—' },
     { title: '验收日期', dataIndex: 'acceptEndDate', width: 120, customRender: ({ text }) => formatAcceptanceDate(text) },
     { title: '验收说明', key: 'remark', width: 220 },
     { title: '验收附件', key: 'files', width: 240 },
-    { title: '操作', key: 'action', width: 100, fixed: 'right' },
   ];
 
   function emptyInternal() {
     return {
       id: '',
+      sourceAcceptanceId: '',
+      resubmitReason: '',
+      acceptUnitLeader: '',
+      acceptUnitPhone: '',
+      acceptanceFormFileId: '',
       reworkId: '',
       acceptStatus: '',
       acceptLeaderId: undefined,
@@ -350,6 +450,8 @@
   function emptyCustomer() {
     return {
       id: '',
+      sourceAcceptanceId: '',
+      resubmitReason: '',
       reworkId: '',
       acceptStatus: '',
       acceptDate: '',
@@ -402,17 +504,41 @@
   }
 
   function canOperate(type: AcceptanceType) {
-    return canOperateAcceptance(type, projectManagerId.value);
+    return identityReady.value && !loading.value &&
+      (type === 'INTERNAL' ? operationsMember.value : acceptedManager.value) &&
+      resolveStatus(activeRecord(type)) === 'IN_PROGRESS' && hasPermission(type === 'INTERNAL' ? 'project:internalAccept' : 'project:accept');
+  }
+
+  async function loadIdentity() {
+    const sequence = ++identitySequence;
+    const periodId = props.projectId;
+    const userId = currentUserId.value;
+    identityReady.value = false;
+    acceptedManager.value = false;
+    operationsMember.value = false;
+    identityError.value = '';
+    if (!periodId || !userId) return;
+    const needsManager = ['project:accept', 'project:acceptance:submit', 'project:rework:apply'].some(code => hasPermission(code));
+    const [membership, internalAccess] = await Promise.allSettled([
+      needsManager ? readCachedProjectMembership(periodId, userId, JSON.stringify([userStore.getToken, (userStore.getUserInfo as any).loginTenantId])) : Promise.resolve({ manager: false }),
+      hasPermission('project:internalAccept') ? readInternalAcceptanceAccess(userStore.getIdentity) : Promise.resolve(false),
+    ]);
+    if (sequence !== identitySequence || periodId !== props.projectId || userId !== currentUserId.value) return;
+    acceptedManager.value = membership.status === 'fulfilled' && membership.value.manager;
+    operationsMember.value = internalAccess.status === 'fulfilled' && internalAccess.value;
+    identityReady.value = true;
+    if (membership.status === 'rejected') identityError.value = '项目经理身份查询失败，外部验收暂不可编辑，请重试';
+    if (internalAccess.status === 'rejected') identityError.value += ' 运维负责部门查询失败，内部验收暂不可编辑，请重试';
   }
 
   function responsibilityText(type: AcceptanceType) {
-    return type === 'INTERNAL' ? '运维部门经理' : '本项目项目经理';
+    return type === 'INTERNAL' ? '运维部主管 / 系统管理员' : '本项目项目经理';
   }
 
   function responsibleName(type: AcceptanceType) {
     const record = activeRecord(type);
     if (canEdit(record, type)) return currentUserName.value;
-    return String(record.acceptUnitLeader || record.acceptLeaderName || '—');
+    return String(record.acceptLeaderName || '—');
   }
 
   function assignResponsible(type: AcceptanceType) {
@@ -420,7 +546,8 @@
     if (!currentUserId.value || !currentUserName.value) throw new Error('当前登录人信息缺失，请重新登录后提交');
     record.acceptLeaderId = currentUserId.value;
     record.acceptLeaderName = currentUserName.value;
-    record.acceptUnitLeader = currentUserName.value;
+    if (type === 'INTERNAL') record.acceptUnitLeader = currentUserName.value;
+    else if (!String(record.acceptUnitLeader || '').trim()) throw new Error('请填写客户方验收负责人姓名');
   }
 
   function canEdit(record: Recordable, type: AcceptanceType) {
@@ -433,6 +560,10 @@
 
   function canApplyRework(record: Recordable) {
     return (
+      props.project.status === 'ACCEPTING' &&
+      applicationReady.value &&
+      acceptedManager.value &&
+      !blockingRework.value &&
       Boolean(record?.id) &&
       [internal.id, customer.id].includes(record.id) &&
       ![internal, customer].some((item) => item.sourceAcceptanceId && resolveStatus(item) === 'IN_PROGRESS') &&
@@ -455,8 +586,10 @@
   }
 
   function reportFiles(type: AcceptanceType) {
-    return acceptanceFilePaths(activeRecord(type).completionReportFileId);
+    return acceptanceFilePaths(activeRecord(type).acceptanceFormFileId);
   }
+
+  const attachmentCount = (type: AcceptanceType) => reportFiles(type).length;
 
   type AcceptanceFileField = 'completionReportFileId' | 'acceptanceFormFileId';
 
@@ -474,8 +607,8 @@
     const type = target === 'internal' ? 'INTERNAL' : 'CUSTOMER';
     if (!file || uploadBusy.value || internalLoading.value || customerLoading.value || !canEdit(activeRecord(type), type)) return false;
     const isReport = target !== 'acceptForm';
-    if (isReport && reportFiles(type).length >= ACCEPTANCE_REPORT_LIMIT) {
-      createMessage.warning('验收报告最多上传 3 个文件，请先删除再添加');
+    if (attachmentCount(type) >= ACCEPTANCE_REPORT_LIMIT) {
+      createMessage.warning('验收附件合计最多 3 个文件，请先删除再添加');
       return false;
     }
     if (String(file.name || '').includes(',')) {
@@ -492,7 +625,7 @@
     try {
       const { path } = await uploadProjectDocument(file, periodId);
       if (periodId !== props.projectId || recordId !== activeRecord(type).id) return false;
-      const field: AcceptanceFileField = target === 'acceptForm' ? 'acceptanceFormFileId' : 'completionReportFileId';
+      const field: AcceptanceFileField = 'acceptanceFormFileId';
       if (path.includes(',')) throw new Error('上传返回的路径包含英文逗号，无法关联附件，请联系管理员');
       const value = isReport ? [...new Set([...reportFiles(type), path])].join(',') : path;
       activeRecord(type)[field] = value;
@@ -522,11 +655,10 @@
     const record = activeRecord(type);
     if (!record.acceptDate || !dayjs(record.acceptDate).isValid()) throw new Error('请选择验收日期');
     if (!record.acceptLeaderId) throw new Error(`${responsibilityText(type)}信息缺失，无法办理验收`);
-    if (reportFiles(type).length > ACCEPTANCE_REPORT_LIMIT) throw new Error('验收报告最多保留 3 个文件，请先删除多余附件');
-    if (normalizeResult(record.result) === 'PASSED' && type === 'INTERNAL' && !record.completionReportFileId)
-      throw new Error('内部验收必须由运维部门经理上传验收报告');
-    if (normalizeResult(record.result) === 'PASSED' && type === 'CUSTOMER' && !record.completionReportFileId)
-      throw new Error('外部验收必须由本项目项目经理上传验收报告');
+    if (normalizeResult(record.result) === 'PASSED' && attachmentCount(type) > ACCEPTANCE_REPORT_LIMIT)
+      throw new Error('验收附件合计最多 3 个文件，请先删除多余附件');
+    if (normalizeResult(record.result) === 'PASSED' && !attachmentCount(type))
+      throw new Error('验收通过时请上传至少一个验收文件');
     if (requireResult && !normalizeResult(record.result)) throw new Error('请选择验收结果');
     if (requireResult && normalizeResult(record.result) === 'FAILED' && !String(record.remark || '').trim()) {
       throw new Error('验收不通过时必须填写原因');
@@ -551,17 +683,19 @@
         acceptanceId: String(record.id),
         periodId: props.projectId,
         acceptType: type,
-        acceptEndDate: dayjs(record.acceptDate).startOf('day').format('YYYY-MM-DD HH:mm:ss'),
+        // 页面按日期录入；接口仍要求日期时间，后端需同步按日期粒度校验开始日期。
+        acceptEndDate: `${dayjs(record.acceptDate).format('YYYY-MM-DD')} 00:00:00`,
         result,
-        acceptUnitLeader: currentUserName.value,
+        acceptUnitLeader: type === 'CUSTOMER' ? String(record.acceptUnitLeader).trim() : currentUserName.value,
+        ...(type === 'CUSTOMER' ? { acceptUnitName: record.acceptUnitName || '' } : {}),
         acceptUnitPhone: record.acceptUnitPhone || '',
-        completionReportFileId: result === 'PASSED' ? record.completionReportFileId || '' : '',
-        ...(type === 'CUSTOMER' ? { acceptanceFormFileId: result === 'PASSED' ? record.acceptanceFormFileId || '' : '' } : {}),
+        acceptanceFormFileId: result === 'PASSED' ? record.acceptanceFormFileId || '' : '',
         remark: String(record.remark || '').trim(),
-        ...(currentReworkId.value ? { reworkId: currentReworkId.value } : {}),
+        ...(record.reworkId ? { reworkId: record.reworkId } : {}),
       });
       createMessage.success(`${type === 'INTERNAL' ? '内部' : '外部'}验收已完成`);
-      await load();
+      historyCache.clear();
+      await load(type);
       refreshTodos(true).catch(() => undefined);
       emit('changed');
     } catch (error: any) {
@@ -579,78 +713,124 @@
   }
 
   function chooseCurrent(records: Recordable[]) {
-    const round = String(props.project?.currentReworkId || props.initialReworkId || '');
-    const current = records.filter((record) => String(record.reworkId || '') === round);
-    const sources = new Set(current.map((record) => String(record.sourceAcceptanceId || '')));
-    return current.find((record) => !sources.has(String(record.id))) || {};
+    // 两种验收各取最新链末端，不受项目列表旧轮次影响。
+    const superseded = new Set(records.map((record) => String(record.sourceAcceptanceId || '')));
+    return normalizeRecords(records).find((record) => !superseded.has(String(record.id))) || {};
   }
 
   function canRequestRecheck(record: Recordable) {
     return (
       props.project.status === 'ACCEPTING' &&
+      applicationReady.value &&
+      !blockingRework.value &&
       acceptedManager.value &&
       hasPermission('project:acceptance:submit') &&
-      record.id === internal.id &&
+      Boolean(record.id) &&
+      [internal.id, customer.id].includes(record.id) &&
       resolveStatus(record) === 'COMPLETED' &&
       normalizeResult(record.result) === 'FAILED'
     );
   }
 
-  function openRecheck() {
+  function canRequestNormal(record: Recordable) {
+    return recordsReady.value && applicationReady.value && acceptedManager.value && canStartAcceptance(acceptedManager.value) &&
+      !blockingRework.value && ['IMPLEMENTING', 'DEBUGGING', 'PENDING_ACCEPT', 'ACCEPTING'].includes(String(props.project.status)) &&
+      (!record.id || resolveStatus(record) === 'NOT_STARTED');
+  }
+  const canApplyNormal = computed(() => [internal, customer].some(canRequestNormal));
+  let initialApplicationOpened = false;
+  watch(() => [loading.value, identityReady.value, recordsReady.value], () => {
+    if (!props.initialRecheckType || initialApplicationOpened || loading.value || !identityReady.value || !recordsReady.value) return;
+    initialApplicationOpened = true;
+    const type = props.initialRecheckType as AcceptanceType;
+    if (!['INTERNAL', 'CUSTOMER'].includes(type)) return;
+    const record = activeRecord(type);
+    if (String(record.id) !== props.initialAcceptanceId || !canRequestRecheck(record)) {
+      createMessage.warning('该提醒已处理或当前不可申请复验，请查看最新验收记录');
+      return;
+    }
+    openRecheck(type);
+  });
+  watch(() => [loading.value, identityReady.value, canApplyNormal.value], () => {
+    if (props.initialApply && !initialApplicationOpened && !loading.value && identityReady.value && canApplyNormal.value) {
+      initialApplicationOpened = true;
+      handleStartAcceptance();
+    }
+  });
+  function canSelectApplication(record: Recordable) {
+    return applicationMode.value === 'NORMAL' ? canRequestNormal(record) : canRequestRecheck(record);
+  }
+
+  function openRecheck(type?: AcceptanceType) {
+    applicationMode.value = 'WITHOUT_RECTIFICATION';
+    // 点击入口只打开选择框；身份、最新记录和返工互斥在确认提交时复核。
+    const available = acceptanceCards.value.filter((card) => canRequestRecheck(card.model)).map((card) => card.type);
+    if (!available.length) return;
+    recheckTypes.value = type && available.includes(type) ? [type] : available;
     recheckReason.value = '';
     recheckOpen.value = true;
   }
 
   async function submitRecheck() {
-    if (internalLoading.value || !canRequestRecheck(internal)) return;
+    if (recheckLoading.value || internalLoading.value || customerLoading.value || uploadBusy.value) return;
+    const selected = [...new Set(recheckTypes.value)];
+    if (!selected.length || selected.some((type) => !canSelectApplication(activeRecord(type))))
+      return createMessage.warning('请选择当前可申请的验收类型');
     const reason = recheckReason.value.trim();
-    if (!reason) return createMessage.warning('请填写重新内验申请原因');
-    internalLoading.value = true;
+    if (!reason || reason.length > 400) return createMessage.warning('请填写1至400字的申请原因');
+    recheckLoading.value = true;
+    let succeeded = false;
     try {
-      const result = await submitAcceptanceRecheck({ periodId: props.projectId, sourceAcceptanceId: String(internal.id), reason });
-      if (!result?.id) throw new Error('接口未返回新验收记录，请刷新确认，勿重复申请');
-      // 直接采用新记录 ID，不复制原失败结论和附件，也不改动外部验收草稿。
-      fillInternal(result);
-      internalRecords.value = [result, ...internalRecords.value.filter((item) => item.id !== result.id)];
+      const result = await applyProjectAcceptance({
+        periodId: props.projectId, acceptTypes: selected, reason, applyMode: applicationMode.value,
+      });
+      if (!Array.isArray(result) || selected.some((type) => !result.some((row) => row?.id && row.acceptType === type))) {
+        applicationReady.value = false;
+        throw new Error('申请响应未确认，请重新打开查询最新记录，勿重复申请');
+      }
+      for (const type of selected) {
+        const row = result.find((item) => item.acceptType === type);
+        (type === 'INTERNAL' ? fillInternal : fillCustomer)(row);
+        const rows = type === 'INTERNAL' ? internalRecords : customerRecords;
+        rows.value = [row, ...rows.value.filter((item) => item.id !== row.id)];
+      }
+      succeeded = true;
       recheckOpen.value = false;
-      createMessage.success('重新内部验收已开始');
+      historyCache.clear();
       refreshTodos(true).catch(() => undefined);
+      emit('changed');
+      createMessage.success(selected.includes('CUSTOMER') ? '申请成功，请填写外部验收内容' : '申请成功，等待运维负责人验收');
     } catch (error: any) {
-      createMessage.error(error?.message || '重新内验申请失败');
+      createMessage.error(error?.message || '验收申请失败，输入已保留');
     } finally {
-      internalLoading.value = false;
+      recheckLoading.value = false;
+      if (succeeded && selected.includes('CUSTOMER'))
+        setTimeout(() => document.getElementById('acceptance-CUSTOMER')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
     }
+  }
+
+  function openLatestRework() {
+    const cards = failedActionCards.value.filter((card) => canApplyRework(card.model));
+    const latest = normalizeRecords(cards.map((card) => card.model))[0];
+    const card = cards.find((item) => item.model.id === latest?.id);
+    if (card) void openRework(card.model, card.type);
   }
 
   async function loadManager() {
     const periodId = props.projectId;
     acceptedManager.value = false;
+    applicationReady.value = false;
     try {
-      let pageNo = 1;
-      while (true) {
-        const result = await getMembers({ periodId, pageNo, pageSize: 100 });
-        if (periodId !== props.projectId) return;
-        const records = Array.isArray(result) ? result : result?.records || [];
-        if (
-          records.some(
-            (item) =>
-              String(item.userId) === currentUserId.value &&
-              String(item.inviteStatus) === '1' &&
-              Number(item.delFlag || 0) === 0 &&
-              String(item.memberRole)
-                .split(',')
-                .map((role) => role.trim())
-                .includes('2')
-          )
-        ) {
-          acceptedManager.value = true;
-          return;
-        }
-        if (Array.isArray(result) || records.length < 100 || pageNo * 100 >= Number(result.total)) return;
-        pageNo++;
-      }
+      const access = await readProjectMembership(periodId, currentUserId.value);
+      if (periodId !== props.projectId) return;
+      acceptedManager.value = access.manager;
+      if (!access.manager) return;
+      const reworks = await readAcceptanceReworks(periodId);
+      if (periodId !== props.projectId) return;
+      applicationReworks.value = reworks;
+      applicationReady.value = true;
     } catch {
-      createMessage.warning('项目经理身份加载失败，暂无法申请重新内验，请刷新重试');
+      createMessage.warning('项目经理资格或返工状态加载失败，暂无法申请复验/返工，请刷新重试');
     }
   }
 
@@ -662,54 +842,70 @@
   }
 
   function fillCustomer(record: Recordable) {
-    Object.assign(customer, emptyCustomer(), record, { result: normalizeResult(record.result) });
+    Object.assign(customer, emptyCustomer(), record, { result: normalizeResult(record.result), acceptUnitName: record.acceptUnitName || undefined });
   }
 
-  async function handleStartAcceptance() {
-    if (startingAcceptance.value || !canStartAcceptance() || props.project.status !== 'PENDING_ACCEPT') return;
-    startingAcceptance.value = true;
-    try {
-      await changePeriodStatus({ periodId: props.projectId, status: 'PENDING_ACCEPT' });
-      createMessage.success('验收已启动');
-      await load();
-      refreshTodos(true).catch(() => undefined);
-      emit('changed');
-    } catch {
-      // 请求层已提示错误，保留待验收入口供重试。
-    } finally {
-      startingAcceptance.value = false;
-    }
+  function handleStartAcceptance() {
+    if (submitDisabled.value || !canApplyNormal.value) return;
+    applicationMode.value = 'NORMAL';
+    recheckTypes.value = acceptanceCards.value.filter((card) => canRequestNormal(card.model)).map((card) => card.type);
+    recheckReason.value = '';
+    recheckOpen.value = true;
   }
 
-  async function load() {
+  async function load(type?: AcceptanceType) {
     if (!props.projectId) return;
     loading.value = true;
     try {
       const [internalResult, customerResult]: any[] = await Promise.all([
-        getAcceptance({ periodId: props.projectId, acceptType: 'INTERNAL', pageNo: 1, pageSize: 100 }),
-        getAcceptance({ periodId: props.projectId, acceptType: 'CUSTOMER', pageNo: 1, pageSize: 100 }),
+        type === 'CUSTOMER'
+          ? internalRecords.value
+          : readAllAcceptancePages((pageNo) =>
+              getAcceptance({
+                periodId: props.projectId,
+                acceptType: 'INTERNAL',
+                pageNo,
+                pageSize: 100,
+              })
+            ),
+        type === 'INTERNAL'
+          ? customerRecords.value
+          : readAllAcceptancePages((pageNo) =>
+              getAcceptance({
+                periodId: props.projectId,
+                acceptType: 'CUSTOMER',
+                pageNo,
+                pageSize: 100,
+              })
+            ),
       ]);
       internalRecords.value = normalizeRecords(internalResult);
       customerRecords.value = normalizeRecords(customerResult);
-      fillInternal(chooseCurrent(internalRecords.value));
-      fillCustomer(chooseCurrent(customerRecords.value));
+      if (!type || type === 'INTERNAL') fillInternal(chooseCurrent(internalRecords.value));
+      if (!type || type === 'CUSTOMER') fillCustomer(chooseCurrent(customerRecords.value));
+      recordsReady.value = true;
+    } catch (error: any) {
+      if (!type) {
+        recordsReady.value = false;
+        internalRecords.value = [];
+        customerRecords.value = [];
+        fillInternal({});
+        fillCustomer({});
+      }
+      createMessage.error(error?.message || '验收记录加载失败，请重试');
+    } finally {
+      loading.value = false;
       if (props.initialReworkId && !openedInitialRework) {
         openedInitialRework = true;
         await nextTick();
         openReworkDrawer(true, { periodId: props.projectId, reworkId: props.initialReworkId, project: props.project });
       }
-    } catch (error: any) {
-      internalRecords.value = [];
-      customerRecords.value = [];
-      fillInternal({});
-      fillCustomer({});
-      createMessage.error(error?.message || '验收记录加载失败，请重试');
-    } finally {
-      loading.value = false;
     }
   }
 
-  function openRework(record: Recordable, type: AcceptanceType) {
+  async function openRework(record: Recordable, type: AcceptanceType) {
+    await loadManager();
+    if (!canApplyRework(record)) return;
     openReworkDrawer(true, {
       periodId: props.projectId,
       project: props.project,
@@ -720,15 +916,25 @@
 
   async function handleReworkChanged() {
     await load();
+    await reworkRecordsRef.value?.load();
+    refreshTodos(true).catch(() => undefined);
     emit('changed');
   }
 
   watch(
-    () => props.projectId,
+    () => [props.projectId, currentUserId.value, JSON.stringify(userStore.getIdentity), userStore.getToken, (userStore.getUserInfo as any).loginTenantId],
     () => {
+      historyOpen.value = false;
+      historySequence++;
+      historyCache.clear();
+      historyRows.value = [];
+      historyPage.value = 1;
+      historyTotal.value = 0;
+      reworkVisited.value = false;
       openedInitialRework = false;
       recheckOpen.value = false;
-      void loadManager();
+      applicationReady.value = true;
+      void loadIdentity();
       void load();
     },
     { immediate: true }
@@ -747,6 +953,11 @@
       &--single {
         grid-template-columns: minmax(0, 1fr);
       }
+    }
+    &__failure-actions {
+      display: grid;
+      gap: 12px;
+      margin-top: 16px;
     }
     &__history {
       margin-top: 16px;

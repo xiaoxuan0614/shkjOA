@@ -4,10 +4,21 @@ export function findArrivalPayment(records: unknown) {
   return records.find((item) => ['2', '到货款'].includes(String(item?.paymentNode ?? item?.node ?? '').trim()));
 }
 
+/** 项目类型使用字典显示值，避免假定后台字典编码。 */
+export function isPhysicalProject(record: { projectType?: unknown }, typeNames: Record<string, string>) {
+  const value = String(record.projectType ?? '').trim();
+  return ['硬件', '软硬一体'].includes(typeNames[value] || value);
+}
+
+export function isSoftwareProject(record: { projectType?: unknown }, typeNames: Record<string, string>) {
+  const value = String(record.projectType ?? '').trim();
+  return (typeNames[value] || value) === '软件';
+}
+
 export function isArrivalStage(record: { status?: unknown; arrivalStatus?: unknown }) {
   return (
     Number(record.arrivalStatus) !== 1 &&
-    ['PENDING_APPROVAL', 'IMPLEMENTING', 'DEBUGGING', 'DEBUG_COMPLETED'].includes(
+    ['IMPLEMENTING', 'DEBUGGING', 'DEBUG_COMPLETED'].includes(
       String(record.status ?? '')
         .trim()
         .toUpperCase()

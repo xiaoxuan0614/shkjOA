@@ -1,3 +1,4 @@
+import { quotationVersion, normalizeQuotationAccess } from './quotationGovernance';
 import { defHttp } from '/@/utils/http/axios';
 import { ContentTypeEnum } from '/@/enums/httpEnum';
 
@@ -5,9 +6,9 @@ export const QUOTATION_STATUS_DRAFT = '-1';
 export const QUOTATION_STATUS_REJECTED = '0';
 export const QUOTATION_STATUS_APPROVED = '1';
 export const QUOTATION_STATUS_SUBMITTED = '2';
-export const QUOTATION_STATUS_ADOPTED = '3';
+export const isQuotationAdopted = (record?: { adopted?: unknown }) => String(record?.adopted) === '1';
 export const QUOTATION_STATUS_VOIDED = '4';
-export const isQuotationEditable = (status: unknown) => ['-1', '0'].includes(String(status));
+export const isQuotationEditable = (status: unknown) => ['-1', '0', '1'].includes(String(status));
 
 /**
  * 计划方案管理 - 对接后端 /project/*(项目域)
@@ -59,6 +60,16 @@ export function normalizeQuotationStatus(status: unknown) {
   return String(status ?? QUOTATION_STATUS_DRAFT);
 }
 
+/** 名称直接传关键词；0 为有效筛选，空值才省略。 */
+export function quotationFilters(params: Recordable = {}) {
+  const filters: Recordable = {};
+  for (const key of ['projectName', 'status', 'adopted']) {
+    const value = params[key];
+    if (value != null && String(value).trim() !== '') filters[key] = typeof value === 'string' ? value.trim() : value;
+  }
+  return filters;
+}
+
 /** 报价管理直接使用后端分页，不再枚举分期、聚合或在当前页过滤。 */
 export async function quotationList(params: Recordable = {}) {
   const periodId = String(params.periodId ?? '').trim();
@@ -66,6 +77,7 @@ export async function quotationList(params: Recordable = {}) {
     pageNo: Math.max(1, Number(params.pageNo) || 1),
     pageSize: Math.max(1, Number(params.pageSize) || 10),
     ...(periodId ? { periodId } : {}),
+    ...quotationFilters(params),
   });
   return {
     ...result,
@@ -78,10 +90,16 @@ export async function quotationList(params: Recordable = {}) {
   };
 }
 
-/** 新增报价可选择全部项目分期；同一分期允许存在多份不同名称的候选清单。 */
-export const getQuotationPeriods = () => fetchAllPages((pageParams) => planProjectList(pageParams));
+/** 新增报价仅选择合同待提交、驳回、待审批或已撤回的分期。 */
+export const getQuotationPeriods = () => fetchAllPages((pageParams) => planProjectList({ ...pageParams, contractStatus: '-1,0,2,3' }));
 
 export const getMaterialCandidateList = (params) => defHttp.get({ url: Api.candidateList, params });
+/** 外层按分期分页，total 为分期数；不改变原候选单分页。 */
+export const quotationPeriodGroupPage = (params: Recordable = {}) =>
+  defHttp.get({
+    url: '/project/materialCandidate/periodGroupPage',
+    params: { pageNo: params.pageNo || 1, pageSize: params.pageSize || 10, ...quotationFilters(params) },
+  });
 export const getAllMaterialCandidates = (periodId: string) => fetchAllPages(getMaterialCandidateList, { periodId });
 export const getAllMaterialCandidateItems = (candidateId: string) => fetchAllPages(getMaterialCandidateItemList, { candidateId });
 
@@ -89,36 +107,58 @@ export const addMaterialCandidate = (params, showSuccessMessage = true) =>
   defHttp.post({ url: Api.candidateAdd, params }, { successMessageMode: showSuccessMessage ? 'success' : 'none' });
 
 export const editMaterialCandidate = (params, showSuccessMessage = true) =>
-  defHttp.post({ url: Api.candidateEdit, params }, { successMessageMode: showSuccessMessage ? 'success' : 'none' });
+  defHttp.post(
+    { url: Api.candidateEdit, params: { ...params, version: quotationVersion(params.version) } },
+    { successMessageMode: showSuccessMessage ? 'success' : 'none' }
+  );
 
 export const getMaterialCandidateItemList = (params) => defHttp.get({ url: Api.candidateItemList, params });
 
 export const addMaterialCandidateItems = (params, showSuccessMessage = true) =>
-  defHttp.post({ url: Api.candidateItemAddBatch, params }, { successMessageMode: showSuccessMessage ? 'success' : 'none' });
-
-export const editMaterialCandidateItems = (params, showSuccessMessage = true) =>
-  defHttp.post({ url: Api.candidateItemEditBatch, params }, { successMessageMode: showSuccessMessage ? 'success' : 'none' });
-
-export const updateMaterialCandidateStatus = (record: Recordable, status: string, showSuccessMessage = true) =>
-  editMaterialCandidate(
-    {
-      id: record.id,
-      periodId: record.periodId,
-      candidateName: record.candidateName,
-      status,
-    },
-    showSuccessMessage
+  defHttp.post(
+    { url: Api.candidateItemAddBatch, params: { ...params, version: quotationVersion(params.version) } },
+    { successMessageMode: showSuccessMessage ? 'success' : 'none' }
   );
 
-/** 当前候选清单未提供删除接口，删除操作使用后端作废状态并由报价列表隐藏。 */
-export const voidMaterialCandidate = (record: Recordable, showSuccessMessage = true) =>
+export const editMaterialCandidateItems = (params, showSuccessMessage = true) =>
+  defHttp.post(
+    { url: Api.candidateItemEditBatch, params: { ...params, version: quotationVersion(params.version) } },
+    { successMessageMode: showSuccessMessage ? 'success' : 'none' }
+  );
+
+const candidateBase = '/project/materialCandidate';
+const quietCandidate = { successMessageMode: 'none', errorMessageMode: 'none' } as const;
+export const getQuotationAccess = async (periodId: string) =>
+  normalizeQuotationAccess(await defHttp.get({ url: `${candidateBase}/permissions`, params: { periodId } }, quietCandidate));
+export const getQuotationGrants = (periodId: string) => defHttp.get({ url: `${candidateBase}/grants`, params: { periodId } }, quietCandidate);
+export const saveQuotationGrant = (params: Recordable) =>
+  defHttp.post({ url: `${candidateBase}/grant`, params: { ...params, version: quotationVersion(params.version) } }, quietCandidate);
+export const getQuotationHistory = (params: Recordable) => defHttp.get({ url: `${candidateBase}/history`, params }, quietCandidate);
+export async function getCandidateRecord(periodId: string, candidateId: string) {
+  const records = await getAllMaterialCandidates(periodId);
+  const record = records.find((item: any) => String(item.id) === String(candidateId));
+  if (!record) throw new Error('未找到报价单，请返回列表刷新');
+  quotationVersion(record.version);
+  return record;
+}
+export function candidateAction(action: 'submit' | 'approve' | 'withdraw' | 'void' | 'price', record: Recordable, fields: Recordable = {}) {
+  if (!record.id) throw new Error('缺少候选清单 ID');
+  return defHttp.post(
+    { url: `${candidateBase}/${action}`, params: { ...fields, candidateId: record.id, version: quotationVersion(record.version) } },
+    quietCandidate
+  );
+}
+export const reviseMaterialCandidate = (params: Recordable) =>
+  defHttp.post({ url: `${candidateBase}/revise`, params: { ...params, version: quotationVersion(params.version) } }, quietCandidate);
+export const checkCandidateExport = (record: Recordable) =>
+  defHttp.get({ url: `${candidateBase}/exportCheck`, params: { candidateId: record.id, version: quotationVersion(record.version) } }, quietCandidate);
+export const getCandidateExportData = (record: Recordable) =>
+  defHttp.get({ url: `${candidateBase}/exportData`, params: { candidateId: record.id, version: quotationVersion(record.version) } }, quietCandidate);
+
+/** 采用仍走主单编辑，必须带使用者看到的版本；冲突由后端拒绝。 */
+export const updateMaterialCandidateAdoption = (record: Recordable, adopted: 0 | 1, showSuccessMessage = true) =>
   editMaterialCandidate(
-    {
-      id: record.id,
-      periodId: record.periodId,
-      candidateName: record.candidateName,
-      status: QUOTATION_STATUS_VOIDED,
-    },
+    { id: record.id, periodId: record.periodId, candidateName: record.candidateName, version: quotationVersion(record.version), adopted },
     showSuccessMessage
   );
 
@@ -160,10 +200,8 @@ export const savePlan = (params, showSuccessMessage = true) => submitPlan(Api.sa
 export const editPlan = (params, showSuccessMessage = true) => submitPlan(Api.editPlan, params, showSuccessMessage);
 
 function submitPlan(url: string, data: Recordable, showSuccessMessage: boolean) {
-  const formData = new FormData();
-  formData.append('data', JSON.stringify(data));
   return defHttp.post(
-    { url, params: formData, headers: { 'Content-Type': ContentTypeEnum.FORM_DATA } },
+    { url, params: data, headers: { 'Content-Type': ContentTypeEnum.JSON } },
     { successMessageMode: showSuccessMessage ? 'success' : 'none' }
   );
 }

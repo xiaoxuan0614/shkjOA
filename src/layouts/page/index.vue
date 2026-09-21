@@ -14,9 +14,9 @@
       <!--        mode="out-in"-->
       <!--        appear-->
       <!--      >-->
-      <keep-alive v-if="openCache" :include="getCaches">
+      <keep-alive v-if="openCache" :key="cacheOwner" :include="getCaches" :max="30">
         <template v-if="Component">
-          <component :is="Component" :key="route.fullPath"/>
+          <component :is="tabPage(String(route.name || route.path))" :key="route.fullPath" :page="Component" :context="route" />
         </template>
         <EmptyPage v-else/>
       </keep-alive>
@@ -41,6 +41,8 @@
   import { getTransitionName } from './transition';
 
   import { useMultipleTabStore } from '/@/store/modules/multipleTab';
+  import { useUserStore } from '/@/store/modules/user';
+  import { createTabPage } from './tabPage';
 
   export default defineComponent({
     name: 'PageLayout',
@@ -48,6 +50,13 @@
     setup() {
       const { getShowMultipleTab } = useMultipleTabSetting();
       const tabStore = useMultipleTabStore();
+      const userStore = useUserStore();
+      const pages = new Map<string, ReturnType<typeof createTabPage>>();
+      const tabPage = (name: string) => {
+        if (!pages.has(name)) pages.set(name, createTabPage(name));
+        return pages.get(name);
+      };
+      const cacheOwner = computed(() => JSON.stringify([userStore.getToken, userStore.getUserInfo?.id, (userStore.getUserInfo as any)?.loginTenantId]));
 
       const { getOpenKeepAlive, getCanEmbedIFramePage } = useRootSetting();
 
@@ -62,6 +71,8 @@
         return tabStore.getCachedTabList;
       });
       return {
+        tabPage,
+        cacheOwner,
         getTransitionName,
         openCache,
         getEnableTransition,

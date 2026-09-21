@@ -2,17 +2,10 @@ import { FormSchema } from '/@/components/Form';
 import { getPositionByDepartId } from "./depart.api";
 import { useMessage } from "@/hooks/web/useMessage";
 import { BasicColumn } from "@/components/Table";
-import {
-  getDepartName,
-  getDepartPathName,
-  getDepartPathNameByOrgCode,
-  getMultiDepartPathName
-} from '@/utils/common/compUtils';
-import { h, ref } from 'vue';
+import { h } from 'vue';
 
 const { createMessage: $message } = useMessage();
 //部门名称
-const departNamePath = ref<Record<string, string>>({});
 
 // 部门基础表单
 export function useBasicFormSchema(treeData) {
@@ -45,16 +38,7 @@ export function useBasicFormSchema(treeData) {
         multiple: true,
         dropdownStyle: { maxHeight: '200px', overflow: 'auto' },
         tagRender: (options) => {
-          const { value, label, option } = options;
-          if (departNamePath.value[value]) {
-            return h(
-                'span', {  style: { marginLeft: '10px' } },
-                departNamePath.value[value]
-            );
-          }
-          getDepartPathNameByOrgCode('', label, option.id).then((data) => {
-            departNamePath.value[value] = data;
-          });
+          return h('span', { style: { marginLeft: '10px' } }, options.label || options.option?.title || '—');
         },
       },
     },
@@ -208,7 +192,7 @@ export const userColumns: BasicColumn[] = [
       if(!text){
         return '';
       }
-      return getDepartName(getDepartPathName(record.mainDepPostId_dictText,text,false));
+      return record.mainDepPostId_dictText || '—';
     },
     width: 200,
   },
@@ -219,7 +203,7 @@ export const userColumns: BasicColumn[] = [
       if(!text){
         return '';
       }
-      return getDepartName(getMultiDepartPathName(record.otherDepPostId_dictText,text));
+      return record.otherDepPostId_dictText || '—';
     },
     width: 200,
   },

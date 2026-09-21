@@ -9,7 +9,7 @@ import { useGo, useRedo } from '/@/hooks/web/usePage';
 import { Persistent } from '/@/utils/cache/persistent';
 
 import { PageEnum } from '/@/enums/pageEnum';
-import { PAGE_NOT_FOUND_ROUTE, REDIRECT_ROUTE } from '/@/router/routes/basic';
+import { REDIRECT_ROUTE } from '/@/router/routes/basic';
 import { getRawRoute } from '/@/utils';
 import { MULTIPLE_TABS_KEY } from '/@/enums/cacheEnum';
 
@@ -178,6 +178,11 @@ export const useMultipleTabStore = defineStore('app-multiple-tab', {
     resetState(): void {
       this.tabList = [];
       this.clearCacheTabs();
+      this.lastDragEndIndex = 0;
+      this.redirectPageParam = null;
+      // Clear persisted tabs immediately, including before a login redirect reloads the page.
+      Persistent.removeLocal(MULTIPLE_TABS_KEY, true);
+      Persistent.removeSession(MULTIPLE_TABS_KEY, true);
     },
     goToPage(router: Router) {
       const go = useGo(router);

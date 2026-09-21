@@ -3,7 +3,6 @@ import { FormSchema } from '/@/components/Table';
 import { getAllRolesListNoByTenant, getDepPostIdByDepId } from './user.api';
 import { rules } from '/@/utils/helper/validator';
 import { render } from '/@/utils/common/renderUtils';
-import { getDepartPathNameByOrgCode, getDepartName, getMultiDepartPathName, getDepartPathName } from '@/utils/common/compUtils';
 import { h } from 'vue';
 import { Tag } from 'ant-design-vue';
 import { createPasswordLengthRule } from '/@/utils/password';
@@ -58,45 +57,28 @@ export const columns: BasicColumn[] = [
     width: 150,
     resizable: true,
     dataIndex: 'belongDepIds',
-    customRender: ({ record, text }) => {
-      if (!text) {
-        return '';
-      }
-      return getDepartName(getMultiDepartPathName(record.orgCodeTxt, text));
-    },
+    customRender: ({ record }) => record.orgCodeTxt || '—',
   },
   {
     title: '负责部门',
     width: 150,
     resizable: true,
     dataIndex: 'departIds',
-    customRender: ({ record, text }) => {
-      if (!text) {
-        return '';
-      }
-      return getDepartName(getMultiDepartPathName(record.departIds_dictText, text));
-    },
+    customRender: ({ record }) => record.departIds_dictText || '—',
   },
   {
     title: '主岗位',
     width: 150,
     resizable: true,
     dataIndex: 'mainDepPostId',
-    customRender: ({ record, text }) => {
-      return getDepartName(getDepartPathName(record.mainDepPostId_dictText, text, false));
-    },
+    customRender: ({ record }) => record.mainDepPostId_dictText || '—',
   },
   {
     title: '兼职岗位',
     width: 150,
     resizable: true,
     dataIndex: 'otherDepPostId',
-    customRender: ({ record, text }) => {
-      if (!text) {
-        return '';
-      }
-      return getDepartName(getMultiDepartPathName(record.otherDepPostId_dictText, text));
-    },
+    customRender: ({ record }) => record.otherDepPostId_dictText || '—',
   },
   {
     title: '状态',
@@ -276,6 +258,7 @@ export const formSchema: FormSchema[] = [
     componentProps: ({ formActionType, formModel }) => {
       return {
         sync: false,
+        isCustomRenderTag: false,
         checkStrictly: true,
         defaultExpandLevel: 2,
 
@@ -318,7 +301,8 @@ export const formSchema: FormSchema[] = [
     componentProps: {
       rowKey: 'id',
       multiple: false,
-      izShowDepPath: true,
+      izShowDepPath: false,
+      isCustomRenderTag: false,
     },
     ifShow: ({ values }) => {
       if (!values.selecteddeparts) {
@@ -333,7 +317,8 @@ export const formSchema: FormSchema[] = [
     component: 'JSelectDepartPost',
     componentProps: {
       rowKey: 'id',
-      izShowDepPath: true,
+      izShowDepPath: false,
+      isCustomRenderTag: false,
     },
     ifShow: ({ values }) => {
       if (!values.selecteddeparts) {
@@ -365,7 +350,7 @@ export const formSchema: FormSchema[] = [
     component: 'Select',
     componentProps: {
       mode: 'multiple',
-      tagRender: ({ label, value, closable, onClose }) => {
+      tagRender: ({ label, closable, onClose }) => {
         // 计算显示文本：前面省略号 + 后面字符
         let displayLabel = label;
         if (displayLabel && label.length >= 20) {
@@ -590,19 +575,12 @@ async function removeDepPostByDepId(formModel, values, formActionType) {
  * @param options
  * @param updateSchema
  */
-async function updateDepartOption(options, updateSchema) {
+function updateDepartOption(options, updateSchema) {
   if (options && options.length > 0) {
-    // 并行处理所有异步操作
-    const updatedOptions = await Promise.all(
-      options.map(async (item) => {
-        const departPathName = await getDepartPathNameByOrgCode('', item.label, item.value);
-        return { ...item, label: departPathName };
-      })
-    );
     updateSchema([
       {
         field: 'departIds',
-        componentProps: { options: updatedOptions },
+        componentProps: { options },
       },
     ]);
   } else {

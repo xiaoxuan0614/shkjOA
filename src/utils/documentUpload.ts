@@ -13,16 +13,18 @@ export function isAllowedDocumentFile(file: { name?: string } | null | undefined
   return !!extension && ALLOWED_DOCUMENT_EXTENSIONS.has(extension);
 }
 
-/**
- * 项目域文档统一上传。
- * biz 按后端约定传项目分期 ID，便于服务端按分期归档文件。
- */
+/** 公共附件上传：biz 可选，成功后返回可供业务接口保存的路径。 */
+export async function uploadDocument(file: File, biz?: string): Promise<{ path: string; response: any }> {
+  const directory = String(biz || '').trim();
+  const response = await uploadFile({ file, ...(directory ? { data: { biz: directory } } : {}) }, undefined);
+  return { path: getUploadedDocumentPath(response), response };
+}
+
+/** 已有项目的附件按分期归档；新增项目请使用 uploadDocument(file, 'project')。 */
 export async function uploadProjectDocument(file: File, periodId?: string): Promise<{ path: string; response: any }> {
   const biz = String(periodId || '').trim();
   if (!biz) throw new Error('缺少项目分期 ID，无法上传文件');
-
-  const response = await uploadFile({ file, data: { biz } }, undefined);
-  return { path: getUploadedDocumentPath(response), response };
+  return uploadDocument(file, biz);
 }
 
 /** 校验统一上传接口响应，并固定从成功响应的 message 读取文件路径。 */

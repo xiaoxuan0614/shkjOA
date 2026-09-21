@@ -7,7 +7,6 @@
           <template #tableTitle>
             <a-button type="primary" preIcon="ant-design:plus-outlined" @click="handlePick">领料申请</a-button>
             <a-button type="primary" preIcon="ant-design:reload-outlined" @click="handleReturn">还料申请</a-button>
-            <a-button v-if="selectedRows.some(canApprove)" preIcon="ant-design:check-circle-outlined" @click="handleBatchApprove">批量审批</a-button>
             <a-button v-if="selectedKeys.length && hasExecutePermission()" @click="handleBatchOut">批量出库</a-button>
             <a-button v-if="selectedKeys.length && hasExecutePermission()" @click="handleBatchIn">批量入库</a-button>
             <a-button danger @click="handleBatchDelete">批量删除</a-button>
@@ -53,10 +52,6 @@
       </a-tab-pane>
     </a-tabs>
 
-    <!-- 审批弹窗(整单审批) -->
-    <ApproveModal @register="registerApproveModal" @success="handleSuccess" />
-    <!-- 整单批量审批弹窗 -->
-    <BatchApproveModal @register="registerBatchApproveModal" @success="handleSuccess" />
     <!-- 出入库执行弹窗(明细维度) -->
     <StockExecuteModal @register="registerStockExecuteModal" @success="handleSuccess" />
     <!-- 出入库台账详情弹窗(该条台账涉及物料的全部详情) -->
@@ -79,8 +74,6 @@
   import { list as listApply, queryItems, cancelApply, deleteApply, deleteBatchApply, executeApply } from './StockApply.api';
   import { list as listRecord } from './IoRecord.api';
   import { getCurrentUser, loadDictMap, loadMaterialMap, enrichMaterialInfo } from '../material.util';
-  import ApproveModal from './components/ApproveModal.vue';
-  import BatchApproveModal from './components/BatchApproveModal.vue';
   import StockExecuteModal from './components/StockExecuteModal.vue';
   import IoRecordDetailModal from './components/IoRecordDetailModal.vue';
   import ApplyDetailDrawer from '../components/ApplyDetailDrawer.vue';
@@ -98,7 +91,7 @@
     return getApprovalStatusMeta(record.status);
   }
 
-  const { prepareApprovalAccess, canApprove, canExecute, hasExecutePermission } = useStockAccess();
+  const { canExecute, hasExecutePermission } = useStockAccess();
   const router = useRouter();
   const { createMessage, createConfirm } = useMessage();
   const activeKey = ref('apply');
@@ -127,15 +120,7 @@
   const { tableContext: applyCtx } = useListPage({
     tableProps: {
       title: '出入库申请',
-      api: async (params) => {
-        const result = await listApply(params);
-        try {
-          await prepareApprovalAccess(Array.isArray(result) ? result : result?.records || []);
-        } catch {
-          createMessage.warning('项目经理身份加载失败，部分审批按钮暂不可用，请刷新');
-        }
-        return result;
-      },
+      api: listApply,
       columns: applyColumns,
       canResize: true,
       formConfig: {
@@ -179,10 +164,6 @@
     return res;
   }
 
-  // 审批弹窗(整单 通过/驳回)
-  const [registerApproveModal, { openModal }] = useModal();
-  // 整单批量审批弹窗
-  const [registerBatchApproveModal, { openModal: openBatchApproveModal }] = useModal();
   // 出入库执行弹窗(明细维度：勾选/部分出库/改数量/留痕/还料三层数量)
   const [registerStockExecuteModal, { openModal: openStockExecuteModal }] = useModal();
   // 申请明细抽屉(申请头 + 物料明细分页 + 审批记录分页)
@@ -215,17 +196,6 @@
   /** 台账行操作 */
   function getRecordActions(record) {
     return [{ label: '详情', onClick: handleRecordDetail.bind(null, record) }];
-  }
-
-  /** 审批：打开弹窗(整单 通过/驳回) */
-  function handleApprove(record: Recordable) {
-    if (!canApprove(record)) return createMessage.warning('当前申请无需审批或您无权审批');
-    openModal(true, { record });
-  }
-
-  /** 批量审批：勾选多条申请，整单批量 通过/驳回 */
-  function handleBatchApprove() {
-    openBatchApproveModal(true, { rows: selectedRows.value.filter(canApprove) });
   }
 
   /** 是否当前登录人自己的申请(按 applyUserId，回退按申请人姓名) */
@@ -346,8 +316,7 @@
     const approvalStatus = String(record.status ?? '');
 
     if (approvalStatus === APPROVAL_PENDING) {
-      // 仅待审批显示审批按钮
-      if (canApprove(record)) actions.push({ label: '审批', onClick: handleApprove.bind(null, record) });
+      // 审批统一在待办办理，此页仅保留申请人撤回。
       // 申请人：库管未出库前可撤回
       if (isMine) actions.push({ label: '撤回', onClick: handleWithdraw.bind(null, record) });
     } else if (approvalStatus === APPROVAL_APPROVED) {

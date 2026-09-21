@@ -1,5 +1,6 @@
 import { BasicColumn } from '/@/components/Table';
 import { FormSchema } from '/@/components/Table';
+import { projectDisplayName } from '../project/projectListFilters';
 import { loadDictOptions, loadProjectStatusOptions, loadProjectTypeOptions } from '../project/Project.data';
 
 /**
@@ -11,8 +12,7 @@ import { loadDictOptions, loadProjectStatusOptions, loadProjectTypeOptions } fro
  * 项目/分期列表列(projectPeriodList)
  */
 export const columns: BasicColumn[] = [
-  { title: '主项目名称', align: 'center', dataIndex: 'projectName' },
-  { title: '分期名称', align: 'center', dataIndex: 'periodName' },
+  { title: '项目名称', align: 'center', dataIndex: 'projectName', customRender: ({ record }) => projectDisplayName(record) },
   { title: '项目类型', align: 'center', dataIndex: 'projectType' },
   { title: '项目负责人', align: 'center', dataIndex: 'projectLeaderName' },
   { title: '状态', align: 'center', dataIndex: 'status' },
@@ -23,16 +23,10 @@ export const columns: BasicColumn[] = [
  */
 export const searchFormSchema: FormSchema[] = [
   {
-    label: '主项目名称',
+    label: '项目名称',
     field: 'projectName',
     component: 'Input',
     componentProps: { placeholder: '请输入主项目名称' },
-  },
-  {
-    label: '分期名称',
-    field: 'periodName',
-    component: 'Input',
-    componentProps: { placeholder: '请输入分期名称' },
   },
   {
     label: '项目类型',
@@ -57,15 +51,44 @@ export const loadQuotationStatusMap = async (): Promise<Record<string, { text: s
 };
 
 export const quotationColumns: BasicColumn[] = [
-  { title: '主项目名称', align: 'center', dataIndex: 'projectName', customRender: ({ text }) => text || '—' },
-  { title: '分期项目名称', align: 'center', dataIndex: 'periodName', customRender: ({ text }) => text || '—' },
+  { title: '项目名称', align: 'center', dataIndex: 'projectName', customRender: ({ record }) => projectDisplayName(record) },
   { title: '报价单名称', align: 'center', dataIndex: 'candidateName' },
   { title: '最后更新人', align: 'center', dataIndex: 'lastUpdatedBy', width: 130 },
-  { title: '状态', align: 'center', dataIndex: 'status', width: 100 },
+  { title: '审批状态', align: 'center', dataIndex: 'status', width: 100 },
+  { title: '采用状态', align: 'center', dataIndex: 'adopted', width: 100 },
 ];
 
 export const quotationSearchFormSchema: FormSchema[] = [
-  { label: '分期项目ID', field: 'periodId', component: 'Input', componentProps: { placeholder: '请输入分期项目ID' } },
+  { label: '项目名称', field: 'projectName', component: 'Input', componentProps: { placeholder: '请输入主项目名称关键词', allowClear: true } },
+  {
+    label: '审批状态',
+    field: 'status',
+    component: 'Select',
+    componentProps: {
+      allowClear: true,
+      placeholder: '全部审批状态',
+      options: [
+        { label: '草稿', value: '-1' },
+        { label: '驳回', value: '0' },
+        { label: '通过', value: '1' },
+        { label: '待处理', value: '2' },
+        { label: '已作废', value: '4' },
+      ],
+    },
+  },
+  {
+    label: '采用状态',
+    field: 'adopted',
+    component: 'Select',
+    componentProps: {
+      allowClear: true,
+      placeholder: '全部采用状态',
+      options: [
+        { label: '未采用', value: 0 },
+        { label: '已采用', value: 1 },
+      ],
+    },
+  },
 ];
 
 /** 列表只请求候选分页接口，按候选生命周期契约显示，不加载额外字典。 */
@@ -74,6 +97,5 @@ export const quotationListStatusMap: Record<string, { text: string; color: strin
   '0': { text: '驳回', color: 'error' },
   '1': { text: '通过', color: 'success' },
   '2': { text: '待处理', color: 'processing' },
-  '3': { text: '已采用', color: 'success' },
   '4': { text: '已作废', color: 'default' },
 };

@@ -17,7 +17,22 @@ enum Api {
 /**
  * 查询当前登录用户已确认参与的项目分期；无需传 userId。
  */
-export const getParticipatedProjects = () => defHttp.get({ url: Api.participatedProjects });
+export const RETURN_PERIOD_STATUSES = [
+  'IMPLEMENTING',
+  'DEBUGGING',
+  'DEBUG_COMPLETED',
+  'IMPLEMENT_COMPLETED',
+  'PENDING_ACCEPT',
+  'INTERNAL_ACCEPTING',
+  'ACCEPTING',
+  'REWORKING',
+  'WARRANTY',
+  'COMPLETED',
+  'CLOSED',
+];
+
+export const getParticipatedProjects = () =>
+  defHttp.get({ url: Api.participatedProjects, params: { periodStatus: RETURN_PERIOD_STATUSES.join(',') } });
 
 /**
  * 查询项目物料总账；数量均为物料基准单位。
@@ -35,11 +50,9 @@ export const getApplyById = (params) => defHttp.get({ url: Api.applyQueryById, p
  * 提交还料申请(入库申请)
  * @param params StockApply: { applyType:'IN', bizType:'RETURN', usageType:'PROJECT', periodId, itemList }
  */
-export const submitReturnApply = (params) =>
-  defHttp.post({ url: Api.applyAdd, params }, { successMessageMode: 'success' });
+export const submitReturnApply = (params) => defHttp.post({ url: Api.applyAdd, params }, { successMessageMode: 'success' });
 
 /**
  * 重新提交(撤回/驳回后修改，更新原单，状态回待审批)
  */
-export const updateReturnApply = (params) =>
-  defHttp.post({ url: Api.applyEdit, params }, { successMessageMode: 'success' });
+export const updateReturnApply = (params) => defHttp.post({ url: Api.applyEdit, params }, { successMessageMode: 'success' });

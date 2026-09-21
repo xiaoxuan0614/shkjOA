@@ -3,9 +3,7 @@
     <div class="aui-container">
       <div class="aui-form">
         <div class="aui-image">
-          <div class="aui-image-text">
-            <img :src="adTextImg" alt="" />
-          </div>
+          <LoginBrandPanel />
         </div>
         <div class="aui-formBox">
           <div class="aui-formWell">
@@ -95,11 +93,10 @@
 <script lang="ts" name="mini-forgotpad" setup>
   import { reactive, ref, toRaw, unref } from 'vue';
   import { useI18n } from '/@/hooks/web/useI18n';
-  import { SmsEnum, useFormRules, useFormValid, useLoginState } from '/@/views/sys/login/useLogin';
+  import { SmsEnum } from '/@/views/sys/login/useLogin';
   import { useMessage } from '/@/hooks/web/useMessage';
   import { getCaptcha, passwordChange, phoneVerify } from '/@/api/sys/user';
-  import logoImg from '/@/assets/loginmini/icon/jeecg_logo.png';
-  import adTextImg from '/@/assets/loginmini/icon/jeecg_ad_text.png';
+  import LoginBrandPanel from './LoginBrandPanel.vue';
   import successImg from '/@/assets/loginmini/icon/icon-success.png';
   import CaptchaModal from '@/components/jeecg/captcha/CaptchaModal.vue';
   import { useModal } from '@/components/Modal';
@@ -110,7 +107,6 @@
   //下一步控制
   const activeKey = ref<number>(1);
   const { t } = useI18n();
-  const { handleBackLogin } = useLoginState();
   const { notification, createMessage, createErrorModal } = useMessage();
   //是否显示获取验证码
   const showInterval = ref<boolean>(true);

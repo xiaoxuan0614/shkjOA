@@ -1,5 +1,7 @@
+import { uploadDocument, uploadProjectDocument } from '/@/utils/documentUpload';
 import { defHttp } from '/@/utils/http/axios';
 import { ContentTypeEnum } from '/@/enums/httpEnum';
+import { normalizeProjectListParams } from './projectListFilters';
 
 enum Api {
   // 项目管理(主项目 + 分期 合并行)
@@ -40,7 +42,7 @@ enum Api {
  * 项目管理-分页列表(主项目+分期 合并行)
  * @param params 搜索条件 + 分页
  */
-export const projectList = (params) => defHttp.get({ url: Api.list, params });
+export const projectList = (params) => defHttp.get({ url: Api.list, params: normalizeProjectListParams(params) });
 
 /**
  * 项目详情(新增页详情, 主项目+分期合并字段)
@@ -49,36 +51,22 @@ export const projectList = (params) => defHttp.get({ url: Api.list, params });
 export const projectDetail = (params, quiet = false) =>
   defHttp.get({ url: Api.detail, params }, quiet ? { successMessageMode: 'none', errorMessageMode: 'none' } : undefined);
 
-/**
- * 新增主项目及分期。
- * data 为业务 JSON 字符串，attachment 为可选附件；附件由后端保存并回写路径。
- */
-export const addProject = (data: Recordable, attachment?: File) => {
-  const formData = createProjectPeriodFormData(data, attachment);
-  return defHttp.post(
-    // defHttp 会把非 GET 的 params 搬到 body；直接传 data=FormData 会被其空对象判断误清空。
-    { url: Api.addProjectPeriod, params: formData, headers: { 'Content-Type': ContentTypeEnum.FORM_DATA } },
-    { successMessageMode: 'success' }
-  );
+/** 新增主项目及分期：先公共上传附件，再以 JSON 保存返回路径。 */
+export const addProject = async (data: Recordable, attachment?: File) => {
+  const params = { ...data };
+  // 新增前尚无分期 ID，使用公共上传接口约定的 project 业务目录。
+  if (attachment) params.attachmentFileId = (await uploadDocument(attachment, 'project')).path;
+  return defHttp.post({ url: Api.addProjectPeriod, params, headers: { 'Content-Type': ContentTypeEnum.JSON } }, { successMessageMode: 'success' });
 };
 
 /**
  * 修改主项目及分期；未传 attachment 时后端保留原附件。
  */
-export const editProject = (data: Recordable, attachment?: File) => {
-  const formData = createProjectPeriodFormData(data, attachment);
-  return defHttp.post(
-    { url: Api.editProjectPeriod, params: formData, headers: { 'Content-Type': ContentTypeEnum.FORM_DATA } },
-    { successMessageMode: 'success' }
-  );
+export const editProject = async (data: Recordable, attachment?: File) => {
+  const params = { ...data };
+  if (attachment) params.attachmentFileId = (await uploadProjectDocument(attachment, String(data.periodId))).path;
+  return defHttp.post({ url: Api.editProjectPeriod, params, headers: { 'Content-Type': ContentTypeEnum.JSON } }, { successMessageMode: 'success' });
 };
-
-function createProjectPeriodFormData(data: Recordable, attachment?: File) {
-  const formData = new FormData();
-  formData.append('data', JSON.stringify(data));
-  if (attachment) formData.append('attachment', attachment, attachment.name);
-  return formData;
-}
 
 /**
  * 删除分期

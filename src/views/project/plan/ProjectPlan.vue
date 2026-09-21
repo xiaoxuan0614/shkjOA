@@ -51,7 +51,7 @@
         </template>
       </a-result>
       <a-tabs v-else v-model:activeKey="activeKey">
-        <a-tab-pane key="file" tab="方案文件">
+        <a-tab-pane key="file" tab="方案文件" force-render>
           <PlanFileMgmt
             ref="fileRef"
             :editable="writeEnabled && tabEditing.file"
@@ -59,7 +59,7 @@
             @persisted-change="(persisted) => (tabEditing.file = !persisted)"
           />
         </a-tab-pane>
-        <a-tab-pane key="material" tab="用料计划">
+        <a-tab-pane key="material" tab="用料计划" force-render>
           <PlanMaterial
             ref="materialRef"
             :period-id="periodId"
@@ -67,7 +67,7 @@
             @persisted-change="handleMaterialPersistedChange"
           />
         </a-tab-pane>
-        <a-tab-pane key="person" tab="人员配置">
+        <a-tab-pane key="person" tab="人员配置" force-render>
           <PlanPerson
             ref="personRef"
             :editable="writeEnabled && !tabSaving.person"
@@ -77,7 +77,7 @@
             @members-change="handleMembersChange"
           />
         </a-tab-pane>
-        <a-tab-pane key="implement" tab="实施计划">
+        <a-tab-pane key="implement" tab="实施计划" force-render>
           <PlanImplement
             ref="implementRef"
             :editable="writeEnabled && tabEditing.implement && !tabSaving.implement"
@@ -85,7 +85,7 @@
             @persisted-change="handleImplementPersistedChange"
           />
         </a-tab-pane>
-        <a-tab-pane key="position" tab="位置信息">
+        <a-tab-pane key="position" tab="位置信息" force-render>
           <PlanPosition
             ref="positionRef"
             :editable="writeEnabled && tabEditing.position && !tabSaving.position"
@@ -93,7 +93,7 @@
             @persisted-change="(persisted) => (tabEditing.position = !persisted)"
           />
         </a-tab-pane>
-        <a-tab-pane key="payment" tab="回款计划">
+        <a-tab-pane key="payment" tab="回款计划" force-render>
           <PlanPayment ref="paymentRef" :period-id="periodId" :contract-record="contractRecord" :project-record="projectRecord" />
         </a-tab-pane>
       </a-tabs>
@@ -479,17 +479,7 @@
   } as const;
   type PlanTabKey = keyof typeof planTabLabels;
   const planTabKeys = Object.keys(planTabLabels) as PlanTabKey[];
-  const visitedTabs = reactive<Record<PlanTabKey, boolean>>({
-    file: true,
-    material: false,
-    person: false,
-    implement: false,
-    position: false,
-    payment: false,
-  });
-
   watch(activeKey, (key) => {
-    if (key in planTabLabels) visitedTabs[key as PlanTabKey] = true;
     // 首次进入由子页挂载时加载；已挂载页签再次激活仅刷新成员，保留工序/外协草稿。
     if (key === 'person') void personRef.value?.reloadPeople?.();
     if (key === 'implement') void implementRef.value?.reloadLeaders?.();
@@ -512,12 +502,6 @@
   }
 
   function validateBeforeSubmit() {
-    const unvisitedTab = planTabKeys.find((key) => !visitedTabs[key]);
-    if (unvisitedTab) {
-      focusTab(unvisitedTab);
-      return `请先检查「${planTabLabels[unvisitedTab]}」页签，确认加载结果后再提交`;
-    }
-
     for (const key of planTabKeys) {
       const state = getTabSubmissionState(key);
       if (!state) {
@@ -552,11 +536,6 @@
       }
     }
 
-    const fileState = getTabSubmissionState('file');
-    if (fileState?.hasData === false) {
-      focusTab('file');
-      return '请至少添加并保存一个方案文件';
-    }
     return '';
   }
 
@@ -636,7 +615,6 @@
     periodId,
     () => {
       activeKey.value = 'file';
-      Object.assign(visitedTabs, { file: true, material: false, person: false, implement: false, position: false, payment: false });
       Object.assign(tabEditing, { file: false, material: false, person: false, implement: false, position: false });
       Object.assign(tabSaving, { file: false, material: false, person: false, implement: false, position: false });
       rejectModalOpen.value = false;

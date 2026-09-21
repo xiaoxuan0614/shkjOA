@@ -49,6 +49,9 @@
                 @edit="handleEditProject"
               />
             </a-tab-pane>
+            <a-tab-pane key="quotation" tab="报价信息">
+              <DetailQuotation :key="projectId" :period-id="projectId" />
+            </a-tab-pane>
             <a-tab-pane v-if="visibleTabs.includes('contract')" key="contract" tab="合同信息">
               <DetailContract :project-id="projectId" :project="project" />
             </a-tab-pane>
@@ -105,6 +108,7 @@
   import { useUserStore } from '/@/store/modules/user';
   import DetailBasic from './components/DetailBasic.vue';
   import DetailContract from './components/DetailContract.vue';
+  import DetailQuotation from './components/DetailQuotation.vue';
   import DetailMember from './components/DetailMember.vue';
   import DetailPosition from './components/DetailPosition.vue';
   import DetailImplement from './components/DetailImplement.vue';

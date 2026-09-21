@@ -58,11 +58,11 @@ export const queryItems = (params) => defHttp.get({ url: Api.queryItems, params 
 export const queryApprovals = (params) => defHttp.get({ url: Api.queryApprovals, params });
 
 /**
- * 审批通过（整单审批：整单通过）
+ * 审批通过（整单审批：通过）
  * @param params StockApplyApproval:
  *   { applyId, approvalResult:'AGREE', approvalComment? }
  *   审批人由后端登录身份确定，不传 approvalUserId
- *   approvalResult AGREE 整单通过
+ *   approvalResult AGREE 通过
  *   approvalComment 审批备注
  */
 export const approveApply = (params) => defHttp.post({ url: Api.approve, params }, { successMessageMode: 'success' });

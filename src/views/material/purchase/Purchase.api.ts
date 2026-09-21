@@ -18,6 +18,7 @@ enum Api {
   supplierList = '/project/supplier/list',
   searchPeriod = '/project/period/searchByName',
   periodList = '/project/period/list',
+  projectPeriodList = '/project/project/projectPeriodList',
   inbound = '/project/purchaseOrder/inbound',
   status = '/project/purchaseOrder/status',
 }
@@ -60,6 +61,9 @@ export const searchProjectPeriod = (params) => defHttp.get({ url: Api.searchPeri
  * 项目分期分页列表(用于采购订单列表 periodId→periodName 解析)
  */
 export const listPeriod = (params) => defHttp.get({ url: Api.periodList, params });
+
+/** 采购项目选项：主项目与分期名称齐全，按分页加载当前账号可见项目。 */
+export const listPurchaseProjects = (params) => defHttp.get({ url: Api.projectPeriodList, params });
 
 /**
  * 采购入库：按实际入库数量生成库存入库台账（后端更新明细已入库数量并写台账）

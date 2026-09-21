@@ -11,6 +11,7 @@
   import { getDepartmentHead } from '../depart.api';
   import { computed, watch } from 'vue';
   const props = defineProps({
+    active: { type: Boolean, default: true },
     data: { require: true, type: Object },
   });
   // 当前部门id
@@ -29,15 +30,16 @@
         return Object.assign(params, { departId: departId.value });
       },
       showActionColumn: false,
-      immediate: !!departId.value,
+      immediate: false,
     },
   });
   // 注册 ListTable
   const [registerTable, { reload }] = tableContext;
 
   watch(
-    () => props.data,
-    () => reload()
+    () => [departId.value, props.active],
+    () => { if (props.active && departId.value) reload(); },
+    { immediate: true }
   );
 </script>
 

@@ -7,7 +7,7 @@ const dashboardRoute = {
   path: '/dashboard',
   name: 'Dashboard',
   component: 'LAYOUT',
-  redirect: PageEnum.BASE_HOME,
+  redirect: PageEnum.DASHBOARD_ANALYSIS,
   meta: {
     title: 'routes.dashboard.dashboard',
     hideChildrenInMenu: true,
@@ -605,6 +605,7 @@ export default [
           // 物料管理(goods)按钮权限
           'mtl:goods:add',
           'mtl:goods:edit',
+          'mtl:goods:price',
           'mtl:goods:delete',
           'mtl:goods:deleteBatch',
           'mtl:goods:io',
@@ -622,6 +623,7 @@ export default [
           'project:warranty',
           // 合同签订(提交) / 审批；合同撤回与重提按原提交人身份控制
           'project:contract',
+          'project:contract:view',
           'project:contract:approve',
           // 计划提交 / 计划审批(待审批)
           'project:plan:audit',
@@ -631,6 +633,12 @@ export default [
           'plan:quotation:lock',
           'plan:quotation:unlock',
           'plan:quotation:delete',
+          'plan:quotation:submit',
+          'plan:quotation:withdraw',
+          'plan:quotation:technicalApprove',
+          'plan:quotation:price',
+          'plan:quotation:grant',
+          'plan:quotation:export',
         ],
       });
     },

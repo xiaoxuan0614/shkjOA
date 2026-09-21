@@ -32,7 +32,7 @@
             <a-space v-if="contractAttachments.length" direction="vertical" size="small">
               <a-button
                 v-for="file in contractAttachments"
-                :key="file.id || file.fileId"
+                :key="file.fileId"
                 type="link"
                 size="small"
                 preIcon="ant-design:eye-outlined"
@@ -81,6 +81,7 @@
 </template>
 
 <script lang="ts" setup>
+  import { expandContractAttachments } from '../../contract/contractAttachments';
   import { computed, ref, watch } from 'vue';
   import { getContractDetail, getFiles } from '../ProjectDetail.api';
   import { loadDictOptions } from '../../Project.data';
@@ -144,14 +145,16 @@
       const files = (Array.isArray(filePage) ? filePage : filePage?.records || []).filter(
         (item: Recordable) => String(item.fileType || '') === 'CONTRACT_ATTACHMENT' && item.fileId
       );
-      contractAttachments.value = files.length
-        ? files
-        : [
-            { fileId: detail.contractFile?.fileId || detail.contractFileId, fileName: detail.contractFile?.fileName || detail.contractFileName },
-            { fileId: detail.materialFile?.fileId || detail.materialFileId, fileName: detail.materialFile?.fileName || detail.materialFileName },
-          ]
-            .filter((item) => item.fileId)
-            .map((item) => ({ ...item, fileName: item.fileName || getFileName(item.fileId, '合同附件') }));
+      contractAttachments.value = expandContractAttachments(
+        files.length && !detail?.contractFileId
+          ? files
+          : [
+              { fileId: detail.contractFileId || detail.contractFile?.fileId, fileName: detail.contractFile?.fileName || detail.contractFileName },
+              { fileId: detail.materialFile?.fileId || detail.materialFileId, fileName: detail.materialFile?.fileName || detail.materialFileName },
+            ]
+              .filter((item) => item.fileId)
+              .map((item) => ({ ...item, fileName: item.fileName || getFileName(item.fileId, '合同附件') }))
+      );
       contractTypeMap.value = toOptionMap(contractTypeResult.status === 'fulfilled' ? contractTypeResult.value : []);
       paymentNodeMap.value = toOptionMap(paymentNodeResult.status === 'fulfilled' ? paymentNodeResult.value : []);
       userOptions.value = userResult.status === 'fulfilled' ? userResult.value : [];

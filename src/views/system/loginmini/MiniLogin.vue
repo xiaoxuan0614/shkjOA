@@ -1,28 +1,31 @@
 <template>
   <div :class="prefixCls" class="login-background-img">
-    <AppLocalePicker class="absolute top-4 right-4 enter-x xl:text-gray-600" :showText="false"/>
+    <AppLocalePicker class="absolute top-4 right-4 enter-x xl:text-gray-600" :showText="false" />
     <AppDarkModeToggle class="absolute top-3 right-7 enter-x" />
-    <div class="aui-logo" v-if="!getIsMobile">
-      <div>
-        <h3>
-          <img :src="logoImg" alt="jeecg" />
-        </h3>
+    <div class="aui-logo login-desktop-brand" v-if="!getIsMobile">
+      <div class="login-brand" :aria-label="title">
+        <img class="login-brand__logo" :src="logoUrl" alt="首汇科技 Logo" />
+        <span class="login-brand__name">{{ title }}</span>
       </div>
     </div>
     <div v-else class="aui-phone-logo">
-      <img :src="logoImg" alt="jeecg" />
+      <div class="login-brand" :aria-label="title">
+        <img class="login-brand__logo" :src="logoUrl" alt="首汇科技 Logo" />
+        <span class="login-brand__name">{{ title }}</span>
+      </div>
     </div>
     <div v-show="type === 'login'">
       <div class="aui-content">
         <div class="aui-container">
           <div class="aui-form">
             <div class="aui-image">
-              <div class="aui-image-text">
-                <img :src="adTextImg" />
-              </div>
+              <LoginBrandPanel />
             </div>
             <div class="aui-formBox">
               <div class="aui-formWell">
+                <header class="login-welcome">
+                  <h2>欢迎登录</h2>
+                </header>
                 <div class="aui-flex aui-form-nav investment_title">
                   <div class="aui-flex-box" :class="activeIndex === 'accountLogin' ? 'activeNav on' : ''" @click="loginClick('accountLogin')"
                     >{{ t('sys.login.signInFormTitle') }}
@@ -31,8 +34,8 @@
                     >{{ t('sys.login.mobileSignInFormTitle') }}
                   </div>
                 </div>
-                <div class="aui-form-box" style="height: 240px">
-                  <a-form ref="loginRef" :model="formData" v-if="activeIndex === 'accountLogin'" @keyup.enter.native="loginHandleClick">
+                <div class="aui-form-box" style="min-height: 240px">
+                  <a-form ref="loginRef" :model="formData" v-if="activeIndex === 'accountLogin'" @keyup.enter="loginHandleClick">
                     <div class="aui-account">
                       <div class="aui-inputClear">
                         <i class="icon icon-code"></i>
@@ -43,7 +46,7 @@
                       <div class="aui-inputClear">
                         <i class="icon icon-password"></i>
                         <a-form-item>
-                          <a-input class="fix-auto-fill" type="password" :placeholder="t('sys.login.password')" v-model:value="formData.password" />
+                          <a-input-password class="fix-auto-fill" :bordered="false" :placeholder="t('sys.login.password')" v-model:value="formData.password" />
                         </a-form-item>
                       </div>
                       <div class="aui-inputClear">
@@ -59,7 +62,13 @@
                       <div class="aui-inputClear" v-if="showDepart">
                         <i class="icon icon-depart"></i>
                         <div class="JLoginSelectDept">
-                          <a-select allow-clear style="width: 100%" :bordered="false" v-model:value="formData.loginOrgCode" :placeholder="t('sys.login.loginOrgCode')">
+                          <a-select
+                            allow-clear
+                            style="width: 100%"
+                            :bordered="false"
+                            v-model:value="formData.loginOrgCode"
+                            :placeholder="t('sys.login.loginOrgCode')"
+                          >
                             <template #suffixIcon>
                               <Icon icon="ant-design:gold-outline" />
                             </template>
@@ -81,7 +90,7 @@
                       </div>
                     </div>
                   </a-form>
-                  <a-form v-else ref="phoneFormRef" :model="phoneFormData" @keyup.enter.native="loginHandleClick">
+                  <a-form v-else ref="phoneFormRef" :model="phoneFormData" @keyup.enter="loginHandleClick">
                     <div class="aui-account phone">
                       <div class="aui-inputClear phoneClear">
                         <a-input class="fix-auto-fill" :placeholder="t('sys.login.mobile')" v-model:value="phoneFormData.mobile" />
@@ -97,7 +106,13 @@
                       </div>
                       <div class="aui-inputClear" v-if="showDepart">
                         <div class="JLoginSelectDept">
-                          <a-select allow-clear style="width: 100%" :bordered="false" v-model:value="phoneFormData.loginOrgCode" :placeholder="t('sys.login.loginOrgCode')">
+                          <a-select
+                            allow-clear
+                            style="width: 100%"
+                            :bordered="false"
+                            v-model:value="phoneFormData.loginOrgCode"
+                            :placeholder="t('sys.login.loginOrgCode')"
+                          >
                             <template #suffixIcon>
                               <Icon icon="ant-design:gold-outline" />
                             </template>
@@ -113,7 +128,8 @@
                 <div class="aui-formButton">
                   <div class="aui-flex">
                     <a-button :loading="loginLoading" class="aui-link-login" type="primary" @click="loginHandleClick">
-                      {{ t('sys.login.loginButton') }}</a-button>
+                      {{ t('sys.login.loginButton') }}</a-button
+                    >
                   </div>
                 </div>
               </div>
@@ -138,27 +154,27 @@
   import { useI18n } from '/@/hooks/web/useI18n';
   import { SmsEnum } from '/@/views/sys/login/useLogin';
   const MiniForgotpad = defineAsyncComponent(() => import('./MiniForgotpad.vue'));
-  import logoImg from '/@/assets/loginmini/icon/jeecg_logo.png';
-  import adTextImg from '/@/assets/loginmini/icon/jeecg_ad_text.png';
+  import LoginBrandPanel from './LoginBrandPanel.vue';
+  import '/@/assets/loginmini/style/reference-login.less';
   import { AppLocalePicker, AppDarkModeToggle } from '/@/components/Application';
-  import { useLocaleStore } from '/@/store/modules/locale';
+  import { useGlobSetting } from '/@/hooks/setting';
   import { createLocalStorage } from '/@/utils/cache';
-  import { useDesign } from "/@/hooks/web/useDesign";
-  import { useAppInject } from "/@/hooks/web/useAppInject";
+  import { useDesign } from '/@/hooks/web/useDesign';
+  import { useAppInject } from '/@/hooks/web/useAppInject';
   import '/@/utils/iconfont2';
   import CaptchaModal from '@/components/jeecg/captcha/CaptchaModal.vue';
-  import { useModal } from "@/components/Modal";
-  import { ExceptionEnum } from "@/enums/exceptionEnum";
+  import { useModal } from '@/components/Modal';
+  import { ExceptionEnum } from '@/enums/exceptionEnum';
   import { encryptAESCBC } from '/@/utils/cipher';
-  import { defHttp } from "@/utils/http/axios";
+  import { defHttp } from '@/utils/http/axios';
 
   const { prefixCls } = useDesign('mini-login');
   const { notification, createMessage } = useMessage();
   const userStore = useUserStore();
   const { t } = useI18n();
+  const { title } = useGlobSetting();
+  const logoUrl = `${import.meta.env.BASE_URL}logo.png?v=20260916`;
   const $ls = createLocalStorage();
-  const localeStore = useLocaleStore();
-  const showLocale = localeStore.getShowPicker;
   const randCodeData = reactive<any>({
     randCodeImage: '',
     requestCodeSuccess: false,
@@ -202,47 +218,45 @@
       type: Boolean,
     },
   });
- //**********************查询部门逻辑begin**********************************************
+  //**********************查询部门逻辑begin**********************************************
   //用户部门
   const departList = ref([]);
   //部门显示
-  const showDepart = computed(()=>{
-    return departList.value.length > 1
-  })
+  const showDepart = computed(() => {
+    return departList.value.length > 1;
+  });
   //获取部门缩写
-  const getShortDeptName = computed(()=>{
+  const getShortDeptName = computed(() => {
     return (deptName) => {
       if (!deptName) return '';
       if (deptName.length > 18) {
-        return '...' + deptName.substring(deptName.length-18, deptName.length) ;
+        return '...' + deptName.substring(deptName.length - 18, deptName.length);
       }
       return deptName;
     };
-  })
+  });
   //监听验证码和输入框的修改
   watch(
-      () => [formData.inputCode, phoneFormData.smscode],
-      () => {
-        if ((formData.inputCode && formData.inputCode.length == 4)
-            || (phoneFormData.smscode && phoneFormData.smscode.length == 6)) {
-            checkAccount()
-        }
-      },
+    () => [formData.inputCode, phoneFormData.smscode],
+    () => {
+      if ((formData.inputCode && formData.inputCode.length == 4) || (phoneFormData.smscode && phoneFormData.smscode.length == 6)) {
+        checkAccount();
+      }
+    }
   );
   /**
    * 监听账号变化，清除部门信息
    */
   watch(
-      () => [formData.username,phoneFormData.mobile,activeIndex.value],
-      () => {
-        formData.loginOrgCode = null;
-        phoneFormData.loginOrgCode = null;
-        departList.value = [];
-        if ((formData.inputCode && formData.inputCode.length == 4)
-            || (phoneFormData.smscode && phoneFormData.smscode.length == 6)) {
-          checkAccount()
-        }
+    () => [formData.username, phoneFormData.mobile, activeIndex.value],
+    () => {
+      formData.loginOrgCode = null;
+      phoneFormData.loginOrgCode = null;
+      departList.value = [];
+      if ((formData.inputCode && formData.inputCode.length == 4) || (phoneFormData.smscode && phoneFormData.smscode.length == 6)) {
+        checkAccount();
       }
+    }
   );
 
   //初始化数据
@@ -254,29 +268,32 @@
       // 验证条件提取
       const isValidAccount = loginType === 'account' && formData.username && formData.password;
       const isValidPhone = loginType == 'phone' && phoneFormData.mobile && phoneFormData.smscode;
-      let finalFormData = loginType == 'phone' ? {...phoneFormData} : {...formData};
+      let finalFormData = loginType == 'phone' ? { ...phoneFormData } : { ...formData };
       if (!isValidAccount && !isValidPhone) {
         return;
       }
       //查询部门信息前，优先进行账户校验
       if (departList.value && departList.value.length == 0) {
-        let params = {...finalFormData, loginType: activeIndex.value === 'accountLogin' ? 'account' : 'phone'};
+        let params = { ...finalFormData, loginType: activeIndex.value === 'accountLogin' ? 'account' : 'phone' };
         if (loginType == 'account') {
           params['password'] = encryptAESCBC(formData.password);
           params['checkKey'] = randCodeData.checkKey;
         }
-        const res = await defHttp.post({
-          url: '/sys/loginGetUserDeparts',
-          params: {...params}
-        }, {isTransformResponse: false});
+        const res = await defHttp.post(
+          {
+            url: '/sys/loginGetUserDeparts',
+            params: { ...params },
+          },
+          { isTransformResponse: false }
+        );
         if (res.success && res.result) {
-          let {departs,currentOrgCode} = res.result;
+          let { departs, currentOrgCode } = res.result;
           // 判断当前部门是否在所属的部门列表中
           if (departs && departs.length > 0) {
             // 代码逻辑说明: JHHB-790 用户部门变更，会出现这个情况（因为之前设置的这里只切换部门，过滤了公司和岗位信息）
-            const hasCurrentDepart = departs.some(item => item.orgCode == currentOrgCode);
-            formData.loginOrgCode = hasCurrentDepart?currentOrgCode:null;
-            phoneFormData.loginOrgCode = hasCurrentDepart?currentOrgCode:null;
+            const hasCurrentDepart = departs.some((item) => item.orgCode == currentOrgCode);
+            formData.loginOrgCode = hasCurrentDepart ? currentOrgCode : null;
+            phoneFormData.loginOrgCode = hasCurrentDepart ? currentOrgCode : null;
             departList.value = departs.map((item) => {
               return {
                 label: item.departName,
@@ -290,9 +307,9 @@
           //createMessage.warn(res.message);
         }
       }
-    },500)
+    }, 500);
   }
- //**********************查询部门逻辑end*************************************************
+  //**********************查询部门逻辑end*************************************************
   /**
    * 获取验证码
    */
@@ -357,9 +374,9 @@
         });
         // 登录成功后处理记住用户名
         if (rememberMe.value && formData.username) {
-          $ls.set(REMEMBER_USERNAME_KEY, formData.username)
+          $ls.set(REMEMBER_USERNAME_KEY, formData.username);
         } else {
-          $ls.remove(REMEMBER_USERNAME_KEY)
+          $ls.remove(REMEMBER_USERNAME_KEY);
         }
       }
     } catch (error) {
@@ -421,8 +438,8 @@
       return;
     }
     // 代码逻辑说明: 【issues/8567】严重：修改密码存在水平越权问题：登录应该用登录模板不应该用忘记密码的模板---
-    const result = await getCaptcha({ mobile: phoneFormData.mobile, smsmode: SmsEnum.LOGIN }).catch((res) =>{
-      if(res.code === ExceptionEnum.PHONE_SMS_FAIL_CODE){
+    const result = await getCaptcha({ mobile: phoneFormData.mobile, smsmode: SmsEnum.LOGIN }).catch((res) => {
+      if (res.code === ExceptionEnum.PHONE_SMS_FAIL_CODE) {
         openCaptchaModal(true, {});
       }
     });
@@ -469,7 +486,7 @@
    */
   function handleSuccess(value) {
     Object.assign(formData, value);
-    Object.assign(phoneFormData, { mobile: "", smscode: "" });
+    Object.assign(phoneFormData, { mobile: '', smscode: '' });
     type.value = 'login';
     activeIndex.value = 'accountLogin';
     handleChangeCheckCode();
@@ -516,11 +533,11 @@
     color: #aaa !important;
   }
 
-  :deep(.jeecg-dark-switch){
-    position:absolute;
+  :deep(.jeecg-dark-switch) {
+    position: absolute;
     margin-right: 10px;
   }
-  .aui-link-login{
+  .aui-link-login {
     height: 42px;
     padding: 10px 15px;
     font-size: 14px;
@@ -530,18 +547,48 @@
     flex: 1;
     color: #fff;
   }
-  .aui-phone-logo{
+  .aui-phone-logo {
     position: absolute;
-    margin-left: 10px;
-    width: 60px;
-    top:2px;
+    top: 14px;
+    left: 18px;
     z-index: 4;
   }
-  .top-3{
+  .login-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    color: #123a5b;
+  }
+  .login-brand__logo {
+    width: 34px;
+    height: 34px;
+    object-fit: contain;
+    flex-shrink: 0;
+  }
+  .login-brand__mark {
+    display: grid;
+    width: 34px;
+    height: 34px;
+    place-items: center;
+    border-radius: 10px;
+    background: #1268a5;
+    color: #fff;
+    font-size: 17px;
+    font-weight: 700;
+  }
+  .login-brand__name {
+    max-width: 300px;
+    overflow: hidden;
+    font-size: 17px;
+    font-weight: 650;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .top-3 {
     top: 0.45rem;
   }
   .JLoginSelectDept {
-    margin:5px auto;
+    margin: 5px auto;
     :deep(.ant-select-selection-placeholder) {
       font-size: 14px;
       color: #9a9a9a;
@@ -550,86 +597,89 @@
 </style>
 
 <style lang="less">
-@prefix-cls: ~'@{namespace}-mini-login';
-@dark-bg: #293146;
+  @prefix-cls: ~'@{namespace}-mini-login';
+  @dark-bg: #293146;
 
-html[data-theme='dark'] {
-  .@{prefix-cls} {
-    background-color: @dark-bg !important;
-    background-image: none;
-
-    &::before {
-      background-image: url(/@/assets/svg/login-bg-dark.svg);
-    }
-    .aui-inputClear{
-      background-color: #232a3b !important;
-    }
-    .ant-input,
-    .ant-input-password {
-      background-color: #232a3b !important;
-    }
-
-    .ant-btn:not(.ant-btn-link):not(.ant-btn-primary) {
-      border: 1px solid #4a5569 !important;
-    }
-
-    &-form {
-      background: @dark-bg !important;
-    }
-
-    .app-iconify {
-      color: #fff !important;
-    }
-    .aui-inputClear input,.aui-input-line input,.aui-choice{
-      color: #c9d1d9 !important;
-    }
-
-    .aui-formBox{
+  html[data-theme='dark'] {
+    .@{prefix-cls} {
       background-color: @dark-bg !important;
-    }
-    .aui-third-text span{
-      background-color: @dark-bg !important;
-    }
-    .aui-form-nav .aui-flex-box{
-      color: #c9d1d9 !important;
-    }
+      background-image: none;
+      .aui-inputClear {
+        background-color: #232a3b !important;
+      }
+      .ant-input,
+      .ant-input-password {
+        background-color: #232a3b !important;
+      }
 
-    .aui-formButton .aui-linek-code{
-      background:  @dark-bg !important;
-      color: white !important;
-    }
-    .aui-code-line{
-      border-left: none !important;
-    }
-    .ant-checkbox-inner,.aui-success h3{
-      border-color: #c9d1d9;
-    }
-    // 代码逻辑说明: 【QQYUN-6363】这个样式代码有问题，不在里面，导致表达式有问题------------
-    &-sign-in-way {
-      .anticon {
-        font-size: 22px !important;
-        color: #888 !important;
-        cursor: pointer !important;
+      .ant-btn:not(.ant-btn-link):not(.ant-btn-primary) {
+        border: 1px solid #4a5569 !important;
+      }
 
-        &:hover {
-          color: @primary-color !important;
+      &-form {
+        background: @dark-bg !important;
+      }
+
+      .app-iconify {
+        color: #fff !important;
+      }
+      .aui-inputClear input,
+      .aui-input-line input,
+      .aui-choice {
+        color: #c9d1d9 !important;
+      }
+
+      .aui-formBox {
+        background-color: @dark-bg !important;
+      }
+      .aui-third-text span {
+        background-color: @dark-bg !important;
+      }
+      .aui-form-nav .aui-flex-box {
+        color: #c9d1d9 !important;
+      }
+
+      .login-brand {
+        color: #f2f6fc;
+      }
+
+      .aui-formButton .aui-linek-code {
+        background: @dark-bg !important;
+        color: white !important;
+      }
+      .aui-code-line {
+        border-left: none !important;
+      }
+      .ant-checkbox-inner,
+      .aui-success h3 {
+        border-color: #c9d1d9;
+      }
+      // 代码逻辑说明: 【QQYUN-6363】这个样式代码有问题，不在里面，导致表达式有问题------------
+      &-sign-in-way {
+        .anticon {
+          font-size: 22px !important;
+          color: #888 !important;
+          cursor: pointer !important;
+
+          &:hover {
+            color: @primary-color !important;
+          }
         }
       }
     }
-  }
 
-  input.fix-auto-fill,
-  .fix-auto-fill input {
-    -webkit-text-fill-color: #c9d1d9 !important;
-    box-shadow: inherit !important;
-  }
+    input.fix-auto-fill,
+    .fix-auto-fill input {
+      -webkit-text-fill-color: #c9d1d9 !important;
+      box-shadow: inherit !important;
+    }
 
-  .ant-divider-inner-text {
-    font-size: 12px !important;
-    color: @text-color-secondary !important;
+    .ant-divider-inner-text {
+      font-size: 12px !important;
+      color: @text-color-secondary !important;
+    }
+    .aui-third-login a {
+      background: transparent;
+    }
   }
-  .aui-third-login a{
-    background: transparent;
-  }
-}
 </style>

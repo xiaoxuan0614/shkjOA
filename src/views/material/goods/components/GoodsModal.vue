@@ -234,8 +234,7 @@
           ...rest,
           // 物料编码后端生成：为空则不传
           materialCode: rest.materialCode || undefined,
-          // 基准单价/初始库存：未填默认 0（对齐后端「没写默认就是 0」），确保始终随请求上送
-          unitPrice: rest.unitPrice ?? 0,
+          // 基本信息不提交价格；初始库存未填默认 0。
           stockQty: rest.stockQty ?? 0,
           unit: baseUnit?.unitName, // 主表基准单位冗余字段(第一个单位)
           unitList: unitListPayload,

@@ -2,6 +2,7 @@ import { BasicColumn } from '/@/components/Table';
 import { FormSchema } from '/@/components/Table';
 import { initDictOptions } from '/@/utils/dict/index';
 import { getApprovalStatusMeta } from '/@/utils/approvalStatus';
+import { projectDisplayName } from './projectListFilters';
 
 export const PROJECT_ATTACHMENT_ACCEPT = '.doc,.docx,.xls,.xlsx,.ppt,.pptx,.pdf,image/*';
 const PROJECT_ATTACHMENT_DOCUMENT_EXTENSIONS = new Set(['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'pdf']);
@@ -204,16 +205,10 @@ export const statusColorMap: Recordable = {
  */
 export const columns: BasicColumn[] = [
   {
-    title: '主项目名称',
+    title: '项目名称',
     align: 'center',
     dataIndex: 'projectName',
-    customRender: ({ text }) => text || '—',
-  },
-  {
-    title: '分期名称',
-    align: 'center',
-    dataIndex: 'periodName',
-    customRender: ({ text }) => text || '—',
+    customRender: ({ record }) => projectDisplayName(record),
   },
   {
     title: '项目类型',
@@ -269,16 +264,16 @@ export const columns: BasicColumn[] = [
  */
 export const searchFormSchema: FormSchema[] = [
   {
-    label: '主项目名称',
+    label: '项目名称',
     field: 'projectName',
     component: 'Input',
-    componentProps: { placeholder: '请输入主项目名称' },
+    componentProps: { placeholder: '请输入主项目名称关键词', allowClear: true },
   },
   {
-    label: '分期名称',
-    field: 'periodName',
+    label: '项目经理',
+    field: 'projectManagerName',
     component: 'Input',
-    componentProps: { placeholder: '请输入分期名称' },
+    componentProps: { placeholder: '请输入项目经理姓名', allowClear: true },
   },
   {
     label: '客户名称',
@@ -290,7 +285,7 @@ export const searchFormSchema: FormSchema[] = [
     label: '项目类型',
     field: 'projectType',
     component: 'ApiSelect',
-    componentProps: { api: loadProjectTypeOptions, placeholder: '请选择项目类型', allowClear: true },
+    componentProps: { api: loadProjectTypeOptions, placeholder: '全部项目类型', allowClear: true, mode: 'multiple', maxTagCount: 'responsive' },
   },
   {
     label: '项目状态',
@@ -298,6 +293,8 @@ export const searchFormSchema: FormSchema[] = [
     component: 'ApiSelect',
     componentProps: {
       api: loadProjectStatusOptions,
+      mode: 'multiple',
+      maxTagCount: 'responsive',
       placeholder: '全部项目状态',
       allowClear: true,
       showSearch: true,
@@ -310,6 +307,8 @@ export const searchFormSchema: FormSchema[] = [
     component: 'Select',
     componentProps: {
       placeholder: '全部到货状态',
+      mode: 'multiple',
+      maxTagCount: 'responsive',
       allowClear: true,
       options: [
         { label: '未到货', value: 0 },
@@ -323,6 +322,8 @@ export const searchFormSchema: FormSchema[] = [
     component: 'Select',
     componentProps: {
       placeholder: '全部合同状态',
+      mode: 'multiple',
+      maxTagCount: 'responsive',
       allowClear: true,
       options: ['-1', '0', '1', '2', '3'].map((value) => ({ value, label: getApprovalStatusMeta(value).text })),
     },
@@ -350,15 +351,8 @@ export const projectFormSchema: FormSchema[] = [
     label: '主项目名称',
     field: 'projectName',
     component: 'Input',
-    componentProps: { placeholder: '新建主项目时请输入主项目名称' },
-    // 已挂到某主项目下时由所选主项目带出(禁用); 已创建后不可改主项目名称
-    dynamicDisabled: ({ model }) => !!model.id || !!model.projectId,
-    dynamicRules: ({ model }) => {
-      if (!model.projectId) {
-        return [{ required: true, message: '请输入主项目名称!' }];
-      }
-      return [];
-    },
+    componentProps: { placeholder: '请输入主项目名称' },
+    dynamicRules: () => [{ required: true, whitespace: true, message: '请输入主项目名称!' }],
   },
   {
     label: '分期名称',

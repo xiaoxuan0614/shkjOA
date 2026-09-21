@@ -12,6 +12,9 @@
           <div class="todo-center-card__row">
             <a-tag class="todo-center-card__type" :color="todoTypeColor(item.todoType)">{{ todoTypeText(item.todoType) }}</a-tag>
             <span class="todo-center-card__summary">{{ item.summary || '—' }}</span>
+            <span class="todo-center-card__applicant"
+              >申请人：{{ item.applyUserName?.trim() || item.realName?.trim() || item.createBy?.trim() || '—' }}</span
+            >
             <span class="todo-center-card__time">{{ item.createTime || item.updateTime || '—' }}</span>
           </div>
           <template #actions><a-button type="link" @click="actionHostRef?.openTodo(item)">查看详情</a-button></template>
@@ -74,6 +77,12 @@
       color: #595959;
       white-space: nowrap;
     }
+    &__applicant {
+      flex: 0 1 180px;
+      min-width: 0;
+      color: #595959;
+      overflow-wrap: anywhere;
+    }
     :deep(.ant-card-body) {
       padding-top: 4px;
     }
@@ -90,6 +99,9 @@
 
     .todo-center-card__time {
       width: 100%;
+    }
+    .todo-center-card__applicant {
+      flex-basis: 100%;
     }
   }
 </style>

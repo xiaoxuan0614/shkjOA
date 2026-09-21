@@ -12,22 +12,25 @@
   </BasicDrawer>
 </template>
 <script lang="ts" setup>
-  import { defineComponent, ref, computed, unref, useAttrs } from 'vue';
+  import { ref, computed, unref } from 'vue';
   import { BasicForm, useForm } from '/@/components/Form/index';
   import { formSchema } from './user.data';
+  import { userResponsibleDepartments, userDepartmentIds } from './userDepartment';
   import { BasicDrawer, useDrawerInner } from '/@/components/Drawer';
   import { saveOrUpdateUser, getUserRoles, getUserDepartList, getAllRolesListNoByTenant } from './user.api';
   import { useDrawerAdaptiveWidth } from '/@/hooks/jeecg/useAdaptiveWidth';
+  import { loadUserDrawerRecord } from './userDrawerLoader';
+  import { useMessage } from '/@/hooks/web/useMessage';
 
   // 声明Emits
   const emit = defineEmits(['success', 'register']);
-  const attrs = useAttrs();
   const isUpdate = ref(true);
-  const rowId = ref('');
+  const ready = ref(false);
+  const { createMessage } = useMessage();
   const departOptions = ref([]);
   let isFormDepartUser = false;
   //表单配置
-  const [registerForm, { setProps, resetFields, setFieldsValue, validate, updateSchema }] = useForm({
+  const [registerForm, { setProps, resetFields, setFieldsValue, getFieldsValue, validate, updateSchema }] = useForm({
     labelWidth: 90,
     schemas: formSchema,
     showActionButtonGroup: false,
@@ -36,36 +39,24 @@
   const showFooter = ref(true);
   //表单赋值
   const [registerDrawer, { setDrawerProps, closeDrawer }] = useDrawerInner(async (data) => {
+    ready.value = false;
+    data = { ...data, record: { ...data?.record } };
     await resetFields();
     showFooter.value = data?.showFooter ?? true;
     setDrawerProps({ confirmLoading: false, showFooter: showFooter.value });
     isUpdate.value = !!data?.isUpdate;
     if (unref(isUpdate)) {
-      rowId.value = data.record.id;
-
-      //查角色/赋值/try catch 处理，不然编辑有问题
       try {
-        const userRoles = await getUserRoles({ userid: data.record.id });
-        if (userRoles && userRoles.length > 0) {
-          data.record.selectedroles = userRoles;
-        }
-      } catch (error) {}
-
-      //查所属部门/赋值
-      const userDepart = await getUserDepartList({ userId: data.record.id });
-      if (userDepart && userDepart.length > 0) {
-        data.record.selecteddeparts = userDepart;
-        let selectDepartKeys = Array.from(userDepart, ({ key }) => key);
-        data.record.selecteddeparts = selectDepartKeys.join(',');
-        departOptions.value = userDepart.map((item) => {
-          return { label: item.title, value: item.key };
-        });
+        const loaded = await loadUserDrawerRecord(data.record, getUserRoles, getUserDepartList);
+        data.record = loaded.record;
+        departOptions.value = loaded.options;
+      } catch {
+        createMessage.error('用户关联信息加载失败，请关闭后重试，暂不可保存');
+        setProps({ disabled: true });
+        return;
       }
-      //负责部门/赋值
-      data.record.departIds && !Array.isArray(data.record.departIds) && (data.record.departIds = data.record.departIds.split(','));
-      // 代码逻辑说明: [issues/772]避免空值显示异常------------
-      data.record.departIds =  (!data.record.departIds || data.record.departIds == '') ? [] : data.record.departIds;
-      data.record.sort = data.record.sort ? data.record.sort: 1000; 
+    } else {
+      departOptions.value = [];
     }
     //处理角色用户列表情况(和角色列表有关系)
     data.selectedroles && (await setFieldsValue({ selectedroles: data.selectedroles }));
@@ -73,7 +64,7 @@
     isFormDepartUser = data?.departDisabled === true ? true : false;
     // -update-end--author:liaozhiyang---date:20240702---for：【TV360X-1737】部门用户编辑接口，增加参数updateFromPage:"deptUsers"
     //编辑时隐藏密码/角色列表隐藏角色信息/我的部门时隐藏所属部门
-    updateSchema([
+    await updateSchema([
       {
         field: 'password',
         // 【QQYUN-8324】
@@ -82,10 +73,6 @@
       {
         field: 'confirmPassword',
         ifShow: !unref(isUpdate),
-      },
-      {
-        field: 'selectedroles',
-        show: !data.isRole,
       },
       {
         field: 'departIds',
@@ -97,7 +84,7 @@
       },
       {
         field: 'selectedroles',
-        show: !data?.departDisabled,
+        show: !data.isRole && !data?.departDisabled,
         componentProps:{
           api: getAllRolesListNoByTenant
         }
@@ -105,7 +92,7 @@
     ]);
     // 无论新增还是编辑，都可以设置表单值
     if (typeof data.record === 'object') {
-      setFieldsValue({
+      await setFieldsValue({
         ...data.record,
       });
     }
@@ -113,7 +100,7 @@
     // 代码逻辑说明: VUEN-1117【issue】0523周开源问题
     setProps({ disabled: !showFooter.value });
     if(unref(isUpdate)){
-      updateSchema([
+      await updateSchema([
         //修改主岗位和兼职岗位的参数
         {
           field: 'mainDepPostId',
@@ -126,12 +113,13 @@
       ]);
     }
     //部门管理，新增用户，在岗位下添加人员的时候默认当前岗位为主岗位
-    updateSchema([
+    await updateSchema([
       {
         field: 'mainDepPostId',
         defaultValue: data?.mainDepPostId || '',
       }
-    ])
+    ]);
+    ready.value = true;
   });
   //获取标题
   const getTitle = computed(() => {
@@ -146,10 +134,17 @@
 
   //提交事件
   async function handleSubmit() {
+    if (!ready.value || !showFooter.value) return;
     try {
       let values = await validate();
       setDrawerProps({ confirmLoading: true });
-      values.userIdentity === 1 && (values.departIds = '');
+      const formValues = getFieldsValue();
+      const selectedDepartments = values.selecteddeparts ?? formValues.selecteddeparts;
+      // 隐藏部门选择且无表单值时不猜测清空，避免误删部门关系。
+      if (selectedDepartments !== undefined) {
+        values.selecteddeparts = userDepartmentIds(selectedDepartments);
+      }
+      values.departIds = userResponsibleDepartments(values.userIdentity ?? formValues.userIdentity, values.departIds ?? formValues.departIds);
       let isUpdateVal = unref(isUpdate);
       // -update-begin--author:liaozhiyang---date:20240702---for：【TV360X-1737】部门用户编辑接口，增加参数updateFromPage:"deptUsers"
       let params = values;

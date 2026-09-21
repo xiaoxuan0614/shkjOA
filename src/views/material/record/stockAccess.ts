@@ -8,6 +8,7 @@ export const STOCK_APPROVE_PERMISSION = 'mtl:apply:approve';
 export const STOCK_EXECUTE_PERMISSION = 'mtl:goods:io';
 
 export const isProjectOutbound = (record: Recordable) => record.applyType === 'OUT' && record.usageType === 'PROJECT';
+export const isProjectMaterialApply = (record: Recordable) => record.usageType === 'PROJECT' && ['OUT', 'IN'].includes(record.applyType);
 
 export function getStockStatusMeta(record: Recordable) {
   return getApprovalStatusMeta(record.status);
@@ -25,7 +26,7 @@ export function useStockAccess() {
     const periods = [
       ...new Set(
         records
-          .filter((record) => isProjectOutbound(record) && String(record.status) === APPROVAL_PENDING)
+          .filter((record) => isProjectMaterialApply(record) && String(record.status) === APPROVAL_PENDING)
           .map((record) => String(record.periodId || ''))
           .filter(Boolean)
       ),
@@ -41,6 +42,7 @@ export function useStockAccess() {
             members.some(
               (item) =>
                 String(item.userId) === userId &&
+                (!item.periodId || String(item.periodId) === periodId) &&
                 String(item.inviteStatus) === '1' &&
                 Number(item.delFlag || 0) === 0 &&
                 String(item.memberRole)
@@ -61,8 +63,8 @@ export function useStockAccess() {
   }
   function canApprove(record: Recordable) {
     if (String(record.status) !== APPROVAL_PENDING) return false;
-    if (isProjectOutbound(record)) return managedPeriods.has(String(record.periodId || ''));
-    // 入库保持原审批流程，限定库管操作权限。
+    if (isProjectMaterialApply(record)) return managedPeriods.has(String(record.periodId || ''));
+    // 非项目还料的其他入库保持原库管审批流程。
     if (record.applyType === 'IN') return hasExecutePermission();
     if (record.applyType !== 'OUT' || !['MAINTENANCE', 'LABOR_PROTECTION'].includes(record.usageType)) return false;
     if (!hasPermission(STOCK_APPROVE_PERMISSION)) return false;

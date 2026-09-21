@@ -122,28 +122,35 @@
           </template>
           <template #contractAttachment>
             <div class="contract-page__attachment-upload">
-              <a-upload
+              <input
+                ref="contractAttachmentInput"
+                type="file"
+                hidden
                 :accept="DOCUMENT_UPLOAD_ACCEPT"
-                :before-upload="handleContractAttachmentUpload"
-                :show-upload-list="false"
-                :multiple="false"
                 :disabled="submitting || attachmentUploading || contractAttachments.length >= CONTRACT_ATTACHMENT_LIMIT"
-              >
+                @change="handleContractAttachmentSelection"
+              />
                 <a-button
                   :loading="attachmentUploading"
                   :disabled="submitting || attachmentUploading || contractAttachments.length >= CONTRACT_ATTACHMENT_LIMIT"
+                  @click="openContractAttachmentPicker"
                 >
-                <Icon icon="ant-design:cloud-upload-outlined" />
+                  <Icon icon="ant-design:cloud-upload-outlined" />
                   上传合同附件（{{ contractAttachments.length }}/{{ CONTRACT_ATTACHMENT_LIMIT }}）
                 </a-button>
-              </a-upload>
               <div class="contract-page__attachment-hint">请逐个上传，至少 1 个、最多 3 个；上传成功后可立即预览。</div>
               <div v-if="contractAttachments.length" class="contract-page__attachment-list">
                 <div v-for="file in contractAttachments" :key="file.uid" class="contract-page__attachment-item">
                   <span class="contract-page__attachment-name" :title="file.fileName">{{ file.fileName }}</span>
                   <a-space size="small">
                     <a-button type="link" size="small" @click="previewFileInModal(file.fileId, file.fileName)">预览</a-button>
-                    <a-button type="link" danger size="small" :disabled="submitting || attachmentUploading" @click="removeContractAttachment(file.uid)">
+                    <a-button
+                      type="link"
+                      danger
+                      size="small"
+                      :disabled="submitting || attachmentUploading"
+                      @click="removeContractAttachment(file.uid)"
+                    >
                       删除
                     </a-button>
                   </a-space>
@@ -333,13 +340,13 @@
       mode="quotation"
       paginated
       :editable="quotationEditing && !quotationSaving"
+      :combined-material-identity="!quotationEditing"
     />
   </a-modal>
 </template>
 
 <script lang="ts" setup>
   import { ref, computed, nextTick, onMounted } from 'vue';
-  import { Upload } from 'ant-design-vue';
   import Big from 'big.js';
   import { useRoute, useRouter } from 'vue-router';
   import { BasicForm, useForm } from '/@/components/Form/index';
@@ -348,6 +355,7 @@
   import { useMessage } from '/@/hooks/web/useMessage';
   import { usePermission } from '/@/hooks/web/usePermission';
   import { useUserStore } from '/@/store/modules/user';
+  import { useSessionDraft } from '/@/hooks/web/useSessionDraft';
   import { DOCUMENT_UPLOAD_ACCEPT, isAllowedDocumentFile, uploadProjectDocument } from '/@/utils/documentUpload';
   import { previewFileInModal } from '/@/utils/filePreview';
   import {
@@ -359,15 +367,18 @@
   import { changePeriodStatus, projectDetail } from '../Project.api';
   import { loadDictOptions } from '../Project.data';
   import PlanProjectInfo from '../plan/PlanProjectInfo.vue';
-  import { addProjectFiles, deleteFile, getFiles } from '../detail/ProjectDetail.api';
+  import { getFiles } from '../detail/ProjectDetail.api';
+  import { expandContractAttachments } from './contractAttachments';
   import MaterialPlanTable from '/@/views/plan/components/MaterialPlanTable.vue';
   import {
     getAllMaterialCandidates,
-    editMaterialCandidateItems,
-    updateMaterialCandidateStatus,
+    reviseMaterialCandidate,
+    getQuotationAccess,
+    updateMaterialCandidateAdoption,
     QUOTATION_STATUS_APPROVED,
-    QUOTATION_STATUS_ADOPTED,
+    isQuotationAdopted,
   } from '/@/views/plan/Plan.api';
+  import { assertQuotationVersion, noQuotationAccess, quotationCapabilities } from '/@/views/plan/quotationGovernance';
   import { loadUserOptions, type UserOption } from '/@/views/resource/userOptions';
   import {
     getApprovalStatusMeta,
@@ -412,8 +423,8 @@
     fileName: string;
   };
   const contractAttachments = ref<ContractAttachment[]>([]);
-  const originalContractAttachments = ref<ContractAttachment[]>([]);
   const attachmentUploading = ref(false);
+  const contractAttachmentInput = ref<HTMLInputElement | null>(null);
   const materialCandidateId = ref<string>();
   const contractCandidates = ref<Recordable[]>([]);
   const candidatesLoading = ref(false);
@@ -422,21 +433,26 @@
   const quotationEditing = ref(false);
   const quotationSaving = ref(false);
   const quotationTable = ref();
+  const quotationAccess = ref({ ...noQuotationAccess });
+  const quotationSnapshot = ref<Recordable>({});
   const canReleaseQuotation = computed(
     () =>
       canEditContract.value &&
+      quotationCapabilities(selectedCandidate.value, quotationAccess.value, userStore.getUserInfo, hasPermission).edit &&
       (isApprovalRejected(info.value.status) || isApprovalWithdrawn(info.value.status)) &&
-      String(selectedCandidate.value?.status) === QUOTATION_STATUS_ADOPTED
+      isQuotationAdopted(selectedCandidate.value)
   );
   async function releaseQuotation() {
     if (!canReleaseQuotation.value || quotationSaving.value) return;
     quotationSaving.value = true;
     try {
+      const seen = { ...selectedCandidate.value };
       await loadContractCandidates();
+      assertQuotationVersion(seen, selectedCandidate.value);
       if (candidatesFailed.value || !canReleaseQuotation.value) throw new Error('报价状态已变化，请刷新');
-      await updateMaterialCandidateStatus(selectedCandidate.value!, QUOTATION_STATUS_APPROVED, false);
+      await updateMaterialCandidateAdoption(selectedCandidate.value!, 0, false);
       await loadContractCandidates();
-      createMessage.success('报价已解锁，可在合同中修改调整');
+      createMessage.success('报价已解除采用，可按报价授权修改');
     } catch (error: any) {
       createMessage.error(error?.message || '解锁失败');
     } finally {
@@ -446,11 +462,16 @@
   const selectedCandidate = computed(() => contractCandidates.value.find((item) => String(item.id) === materialCandidateId.value));
   const contractCandidateOptions = computed(() =>
     contractCandidates.value
-      .filter((item) => [QUOTATION_STATUS_APPROVED, QUOTATION_STATUS_ADOPTED].includes(String(item.status)))
+      .filter((item) => String(item.status) === QUOTATION_STATUS_APPROVED)
       .map((item) => ({ value: String(item.id), label: item.candidateName }))
   );
   const canAdjustQuotation = computed(
-    () => !!selectedCandidate.value && String(selectedCandidate.value.status) === QUOTATION_STATUS_APPROVED && (!readonly.value || editing.value)
+    () =>
+      !!selectedCandidate.value &&
+      quotationCapabilities(selectedCandidate.value, quotationAccess.value, userStore.getUserInfo, hasPermission).structure &&
+      String(selectedCandidate.value.status) === QUOTATION_STATUS_APPROVED &&
+      !isQuotationAdopted(selectedCandidate.value) &&
+      (!readonly.value || editing.value)
   );
 
   function filterQuotationByName(input: string, option: { label?: unknown }) {
@@ -462,14 +483,14 @@
   async function handleQuotationSelection(value?: string) {
     if (submitting.value || quotationSaving.value || candidatesLoading.value) return;
     if (value === materialCandidateId.value) return;
-    if (String(selectedCandidate.value?.status) === QUOTATION_STATUS_ADOPTED) {
+    if (isQuotationAdopted(selectedCandidate.value)) {
       if (!canReleaseQuotation.value) {
         createMessage.warning('已采用报价须在合同驳回或撤回后解除采用，才能取消或更换');
         return;
       }
       quotationSaving.value = true;
       try {
-        await updateMaterialCandidateStatus(selectedCandidate.value!, QUOTATION_STATUS_APPROVED, false);
+        await updateMaterialCandidateAdoption(selectedCandidate.value!, 0, false);
         await loadContractCandidates();
         if (candidatesFailed.value) return;
       } catch (error: any) {
@@ -486,8 +507,11 @@
     candidatesLoading.value = true;
     candidatesFailed.value = false;
     try {
-      contractCandidates.value = await getAllMaterialCandidates(periodId.value);
-      const adopted = contractCandidates.value.filter((item) => String(item.status) === QUOTATION_STATUS_ADOPTED);
+      quotationAccess.value = { ...noQuotationAccess };
+      const [candidates, access] = await Promise.all([getAllMaterialCandidates(periodId.value), getQuotationAccess(periodId.value)]);
+      contractCandidates.value = candidates;
+      quotationAccess.value = access;
+      const adopted = contractCandidates.value.filter((item) => isQuotationAdopted(item));
       if (adopted.length > 1) throw new Error('当前分期存在多张已采用报价，请联系管理员核对');
       if (restoreSelection && adopted.length) materialCandidateId.value = String(adopted[0].id);
     } catch (error: any) {
@@ -502,6 +526,7 @@
     await loadContractCandidates();
     if (candidatesFailed.value || !selectedCandidate.value) return;
     if (edit && !canAdjustQuotation.value) return createMessage.warning('当前报价不可修改');
+    quotationSnapshot.value = { ...selectedCandidate.value };
     quotationEditing.value = edit;
     quotationOpen.value = true;
   }
@@ -518,9 +543,11 @@
       if (!records?.length) throw new Error('报价至少需要一条物料');
       await loadContractCandidates();
       if (candidatesFailed.value || !canAdjustQuotation.value) throw new Error('报价状态已变化，请重新打开');
-      await editMaterialCandidateItems({ candidateId: materialCandidateId.value, records }, false);
+      assertQuotationVersion(quotationSnapshot.value, selectedCandidate.value);
+      await reviseMaterialCandidate({ candidateId: materialCandidateId.value, candidateName: quotationSnapshot.value.candidateName, version: quotationSnapshot.value.version, records });
+      await loadContractCandidates();
       quotationOpen.value = false;
-      createMessage.success('报价调整已保存，请继续提交合同');
+      createMessage.success('报价调整已保存；计价基础变更需重新审批后才能用于合同');
     } catch (error: any) {
       createMessage.error(error?.message || '报价调整保存失败');
     } finally {
@@ -775,6 +802,13 @@
   });
 
   onMounted(async () => {
+    const entryPermission = pageMode.value === 'create' ? 'project:contract' : 'project:contract:view';
+    const approvalEntry = pageMode.value === 'view' && hasPermission('project:contract:approve');
+    if (!hasPermission(entryPermission) && !approvalEntry) {
+      createMessage.warning('无合同信息访问权限');
+      await router.replace('/project/list');
+      return;
+    }
     if (periodId.value) void loadContractCandidates(true);
     if (pageMode.value !== 'create' && !periodId.value) {
       createMessage.error('查看或编辑合同必须提供项目分期 ID');
@@ -790,11 +824,19 @@
       paybackNodeOptions.value = nodes || [];
       await loadProjectRecord();
       await initializeCreateMode();
+      await restoreContractDraft();
       return;
     }
 
     // 详情接口一次返回合同、两个文件记录与回款计划。
     await loadExistingContract();
+    // 审批权限仅为待审批合同提供入口，不替代普通合同查看权限。
+    if (!contractLoadFailed.value && !hasPermission('project:contract:view') && !canAuditContract.value) {
+      info.value = {};
+      createMessage.warning('合同已不在待审批状态，无法通过审批入口查看');
+      await router.replace('/project/list');
+      return;
+    }
     if (!contractLoadFailed.value) {
       await loadProjectRecord();
     }
@@ -816,6 +858,7 @@
       }
       await fillContractForm();
     }
+    await restoreContractDraft();
   });
 
   /** 加载全量用户(销售负责人下拉) */
@@ -867,7 +910,6 @@
     contractId.value = '';
     info.value = {};
     contractAttachments.value = [];
-    originalContractAttachments.value = [];
     paybackRows.value = [];
     paybackErrors.value = {};
     await setFieldsValue({
@@ -937,7 +979,7 @@
     const fileId = String(record?.fileId || record?.url || '').trim();
     if (!fileId) return undefined;
     return {
-      uid: String(record?.id || `contract-attachment-${index}-${fileId}`),
+      uid: `contract-attachment-${record?.id || index}-${fileId}`,
       ...(record?.id ? { id: String(record.id) } : {}),
       fileId,
       fileName: String(record?.fileName || fileId.split('/').pop() || `合同附件${index + 1}`),
@@ -948,13 +990,12 @@
   async function loadContractAttachments(detail: { contract?: Recordable; contractFile?: Recordable; materialFile?: Recordable }) {
     const result: any = await getFiles({ periodId: periodId.value, pageNo: 1, pageSize: 100 });
     const records = Array.isArray(result) ? result : result?.records || [];
-    const unified = records
-      .filter((record: Recordable) => String(record.fileType || '') === CONTRACT_ATTACHMENT_FILE_TYPE)
+    const unified = expandContractAttachments(records.filter((record: Recordable) => String(record.fileType || '') === CONTRACT_ATTACHMENT_FILE_TYPE))
       .map(attachmentFromRecord)
       .filter(Boolean) as ContractAttachment[];
 
     const contract = detail.contract || {};
-    const legacyRecords = [
+    const legacyRecords = expandContractAttachments([
       {
         fileId: contract.contractFileId || detail.contractFile?.fileId || contract.contractFilePath,
         fileName: detail.contractFile?.fileName || contract.contractFileName,
@@ -963,24 +1004,37 @@
         fileId: contract.materialFileId || detail.materialFile?.fileId || contract.materialListFileId || contract.materialListFilePath,
         fileName: detail.materialFile?.fileName || contract.materialFileName || contract.materialListFileName,
       },
-    ]
+    ])
       .map(attachmentFromRecord)
       .filter(Boolean) as ContractAttachment[];
 
-    const next = unified.length ? unified : legacyRecords;
+    const next = contract.contractFileId ? legacyRecords : unified.length ? unified : legacyRecords;
     contractAttachments.value = next.map((item) => ({ ...item }));
-    originalContractAttachments.value = next.map((item) => ({ ...item }));
+  }
+
+  function openContractAttachmentPicker() {
+    if (submitting.value || attachmentUploading.value || contractAttachments.value.length >= CONTRACT_ATTACHMENT_LIMIT) return;
+    contractAttachmentInput.value?.click();
+  }
+
+  async function handleContractAttachmentSelection(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    // 清空选择值，取消或上传失败后可重新选择同一个文件。
+    input.value = '';
+    if (!file || submitting.value) return;
+    await handleContractAttachmentUpload(file);
   }
 
   async function handleContractAttachmentUpload(file: File) {
     if (!isAllowedDocumentFile(file)) {
       createMessage.warning('仅支持 PDF、Word、Excel、PPT 文件');
-      return Upload.LIST_IGNORE;
+      return;
     }
-    if (attachmentUploading.value) return Upload.LIST_IGNORE;
+    if (attachmentUploading.value) return;
     if (contractAttachments.value.length >= CONTRACT_ATTACHMENT_LIMIT) {
       createMessage.warning(`合同附件最多上传 ${CONTRACT_ATTACHMENT_LIMIT} 个`);
-      return Upload.LIST_IGNORE;
+      return;
     }
     attachmentUploading.value = true;
     try {
@@ -996,39 +1050,10 @@
     } finally {
       attachmentUploading.value = false;
     }
-    return Upload.LIST_IGNORE;
   }
 
   function removeContractAttachment(uid: string) {
     contractAttachments.value = contractAttachments.value.filter((item) => item.uid !== uid);
-  }
-
-  /** 合同保存后同步附件关联；上传文件路径已由统一上传接口提前取得。 */
-  async function persistContractAttachments() {
-    const additions = contractAttachments.value.filter((item) => !item.id);
-    const retainedIds = new Set(contractAttachments.value.map((item) => item.id).filter(Boolean));
-    const deletedIds = originalContractAttachments.value.map((item) => item.id).filter((id): id is string => !!id && !retainedIds.has(id));
-
-    let syncError: any;
-    try {
-      if (additions.length) {
-        await addProjectFiles({
-          periodId: periodId.value,
-          records: additions.map((item) => ({
-            fileType: CONTRACT_ATTACHMENT_FILE_TYPE,
-            fileId: item.fileId,
-            fileName: item.fileName,
-          })),
-        });
-      }
-      if (deletedIds.length) await deleteFile({ ids: deletedIds.join(',') });
-    } catch (error) {
-      syncError = error;
-    } finally {
-      // 即使部分同步失败也回读服务端状态，防止重试时把已成功新增的路径再次写入。
-      await loadContractAttachments({ contract: info.value });
-    }
-    if (syncError) throw syncError;
   }
 
   /** 从查看模式进入编辑，按最新接口约定仅保留分期与项目入口参数。 */
@@ -1236,6 +1261,32 @@
     'salesUserName',
     'remark',
   ];
+  const contractDraft = useSessionDraft<any>(`contract:${periodId.value}:${contractId.value || 'new'}`, () => {
+    if (!editing.value || submitting.value || contractLoadFailed.value || paybackLoadFailed.value) return undefined;
+    const form = getFieldsValue();
+    return {
+      baseline: JSON.stringify(originalContract.value),
+      form: Object.fromEntries(editableContractFields.map((field) => [field, form[field]])),
+      attachments: contractAttachments.value,
+      candidateId: materialCandidateId.value,
+      payments: paybackRows.value.map((row) => ({ id: row.id, node: row.node, ratio: row.ratio, remark: row.remark, plannedDate: row.plannedDate, rollbackTime: row.rollbackTime })),
+    };
+  });
+  async function restoreContractDraft() {
+    if (!contractDraft.isAlive() || !editing.value) return;
+    const saved = contractDraft.read();
+    if (saved?.form && saved.baseline === JSON.stringify(originalContract.value)) {
+      await setFieldsValue(Object.fromEntries(editableContractFields.map((field) => [field, saved.form[field]])));
+      if (Array.isArray(saved.attachments)) contractAttachments.value = saved.attachments;
+      materialCandidateId.value = saved.candidateId || undefined;
+      if (Array.isArray(saved.payments)) paybackRows.value = saved.payments.map((row: any) => ({ ...paybackRows.value.find((item) => row.id && item.id === row.id), ...row, _key: ++paybackSeed }));
+      recalculateAllPaybackAmounts(saved.form.contractAmount);
+    } else if (saved) {
+      contractDraft.clear();
+      createMessage.warning('合同服务端内容已变化，未覆盖旧草稿，请核对最新合同');
+    }
+    contractDraft.enable();
+  }
 
   function normalizeContractField(field: string, value: unknown) {
     if (field === 'contractAmount' || field === 'warrantyPeriod') {
@@ -1268,7 +1319,7 @@
     return { ...changed, ...buildSalesFields(values) };
   }
 
-  /** 合同与回款先组合保存，再把已上传成功的 1～3 个文件路径同步到项目文件。 */
+  /** 新增和编辑均以 JSON 提交已上传路径，由业务接口关联附件。 */
   async function handleSubmit() {
     if (submitting.value) return;
     submitting.value = true;
@@ -1288,7 +1339,7 @@
           candidatesFailed.value ||
           requestedCandidateId !== materialCandidateId.value ||
           !selectedCandidate.value ||
-          ![QUOTATION_STATUS_APPROVED, QUOTATION_STATUS_ADOPTED].includes(String(selectedCandidate.value.status))
+          String(selectedCandidate.value.status) !== QUOTATION_STATUS_APPROVED
         ) {
           throw new Error('报价状态已变化，请重新确认关联报价');
         }
@@ -1309,10 +1360,12 @@
           ...(requestedCandidateId ? { materialCandidateId: requestedCandidateId } : {}),
           contract: {
             ...payload,
+            contractFileId: contractAttachments.value.map((file) => file.fileId).join(','),
             // 通用数值审批约定：-1 待提交、0 驳回、1 审核通过、2 待审批、3 已撤回。
             status: '2',
             approvalReason: '',
           },
+          contractFile: { fileName: contractAttachments.value.map((file) => file.fileName).join(',') },
           records: buildPaybackRecords(false, values.contractAmount),
         });
         const savedContract = result?.contract;
@@ -1322,20 +1375,17 @@
       } else {
         const result: any = await editContractWithPaymentRecords({
           ...(requestedCandidateId ? { materialCandidateId: requestedCandidateId } : {}),
-          contract: buildChangedContract(values),
+          contract: { ...buildChangedContract(values), contractFileId: contractAttachments.value.map((file) => file.fileId).join(',') },
           records: buildPaybackRecords(true, values.contractAmount),
         });
         info.value = { ...info.value, ...(result?.contract || buildChangedContract(values)), status: '2', approvalReason: '' };
       }
 
       info.value.status = '2';
-      try {
-        await persistContractAttachments();
-      } catch (error: any) {
-        createMessage.error(error?.message ? `合同已保存，但附件关联失败：${error.message}` : '合同已保存，但附件关联失败，请在当前页面重试');
-        return;
-      }
       createMessage.success(wasNewContract ? '合同已提交，等待审批' : '合同与回款计划已修改并重新提交审批');
+      contractDraft.clear();
+      readonly.value = true;
+      editing.value = false;
       router.push('/project/list');
     } catch (error: any) {
       if (error?.errorFields) return Promise.reject(error.errorFields);

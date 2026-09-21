@@ -4,9 +4,11 @@
 }
 
 .aui-container {
-  max-width: 1000px;
+  max-width: 1040px;
   margin: 0 auto;
-  box-shadow: 0 4px 8px 1px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+  border-radius: 16px;
+  box-shadow: 0 20px 58px rgba(30, 76, 111, 0.2);
   position: fixed;
   top: 50%;
   left: 50%;
@@ -21,7 +23,8 @@
 
 .aui-form {
   width: 100%;
-  background: #eee;
+  min-height: 510px;
+  background: #fff;
   display: -webkit-box;
   display: -moz-box;
   display: -ms-flexbox;
@@ -30,35 +33,35 @@
 }
 
 .aui-image {
-  padding: 180px 80px;
-  flex-basis: 60%;
-  -webkit-flex-basis: 60%;
-  background-color: #0198cd;
-  background-image: url(../icon/jeecg_ad.png);
-  background-size: cover;
+  flex-basis: 56%;
+  -webkit-flex-basis: 56%;
+  background: #125b8f;
 }
 
 .aui-image-text {
-  top: 50%;
-  left: 50%;
   width: 100%;
 }
 
 .aui-formBox {
-  flex-basis: 40%;
-  -webkit-flex-basis: 40%;
+  display: flex;
+  flex-basis: 44%;
+  -webkit-flex-basis: 44%;
+  align-items: center;
   box-sizing: border-box;
-  padding: 30px 20px;
+  padding: 44px 34px;
   background: #fff;
-  box-shadow: 2px 9px 49px -17px rgba(0, 0, 0, 0.1);
+}
+
+.aui-formWell {
+  width: 100%;
 }
 
 .aui-logo {
-  width: 180px;
-  height: 80px;
+  width: auto;
+  height: auto;
   position: absolute;
-  top: 2%;
-  left: 8%;
+  top: 24px;
+  left: 32px;
   z-index: 4;
 }
 
@@ -604,12 +607,14 @@
 
 @media only screen and (max-width: 767px) {
   .aui-logo {
-    top: 3%;
+    top: 16px;
+    left: 20px;
   }
 }
 
 @media screen and (max-width: 300px) {
   .aui-logo {
-    top: 3%;
+    top: 12px;
+    left: 16px;
   }
 }

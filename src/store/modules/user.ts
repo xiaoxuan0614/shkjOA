@@ -5,18 +5,19 @@ import { store } from '/@/store';
 import { RoleEnum } from '/@/enums/roleEnum';
 import { PageEnum } from '/@/enums/pageEnum';
 import { ROLES_KEY, TOKEN_KEY, USER_INFO_KEY, LOGIN_INFO_KEY, DB_DICT_DATA_KEY } from '/@/enums/cacheEnum';
-import { getAuthCache, setAuthCache, removeAuthCache } from '/@/utils/auth';
+import { getAuthCache, setAuthCache } from '/@/utils/auth';
 import { GetUserInfoModel, LoginParams } from '/@/api/sys/model/userModel';
 import { doLogout, getUserInfo, loginApi, phoneLoginApi } from '/@/api/sys/user';
 import { useI18n } from '/@/hooks/web/useI18n';
 import { useMessage } from '/@/hooks/web/useMessage';
 import { router } from '/@/router';
-import { usePermissionStore } from '/@/store/modules/permission';
-import { RouteRecordRaw } from 'vue-router';
-import { PAGE_NOT_FOUND_ROUTE } from '/@/router/routes/basic';
+import { useMultipleTabStore } from '/@/store/modules/multipleTab';
 import { isArray } from '/@/utils/is';
 import { useGlobSetting } from '/@/hooks/setting';
 import { JDragConfigEnum } from '/@/enums/jeecgEnum';
+import { normalizeIdentity } from '/@/utils/loginIdentity';
+import { clearProjectCreateDrafts } from '/@/utils/projectCreateDraft';
+import { clearSessionDrafts } from '/@/utils/sessionDraftStorage';
 interface dictType {
   [key: string]: any;
 }
@@ -48,6 +49,11 @@ export const useUserStore = defineStore('app-user', {
     loginInfo: null,
   }),
   getters: {
+    getIdentity(): ReturnType<typeof normalizeIdentity> {
+      const user: any = this.getUserInfo;
+      const departs: any[] = this.getLoginInfo.departs || [];
+      return normalizeIdentity({ ...user, belongDepIds: user.belongDepIds ?? departs.map(row => row.id) }, this.getRoleList || []);
+    },
     getUserInfo(): UserInfo {
       if(this.userInfo == null){
         this.userInfo = getAuthCache<UserInfo>(USER_INFO_KEY)!=null ? getAuthCache<UserInfo>(USER_INFO_KEY) : null;
@@ -75,6 +81,10 @@ export const useUserStore = defineStore('app-user', {
   },
   actions: {
     setToken(info: string | undefined) {
+      if ((info || '') !== this.getToken) {
+        clearProjectCreateDrafts();
+        clearSessionDrafts();
+      }
       this.token = info ? info : ''; // for null or undefined value
       setAuthCache(TOKEN_KEY, info);
     },
@@ -142,6 +152,8 @@ export const useUserStore = defineStore('app-user', {
       if (!this.getToken) return null;
       //获取用户信息
       const userInfo = await this.getUserInfoAction();
+      // A successful authentication starts a fresh tab session, even after session timeout.
+      useMultipleTabStore().resetState();
       const sessionTimeout = this.sessionTimeout;
       if (sessionTimeout) {
         this.setSessionTimeout(false);
@@ -162,7 +174,7 @@ export const useUserStore = defineStore('app-user', {
         localStorage.setItem(JDragConfigEnum.DRAG_BASE_URL, useGlobSetting().domainUrl);
 
         // 代码逻辑说明: 修复登录成功后，没有正确重定向的问题
-        let redirect = router.currentRoute.value?.query?.redirect as string;
+        const redirect = router.currentRoute.value?.query?.redirect as string;
         // 判断是否有 redirect 重定向地址
         // 代码逻辑说明: 【QQYUN-5195】登录之后直接刷新页面导致没有进入创建组织页面------------
         if (redirect && goHome) {
@@ -247,6 +259,7 @@ export const useUserStore = defineStore('app-user', {
       setAuthCache(TOKEN_KEY, null);
       this.setSessionTimeout(false);
       this.setUserInfo(null);
+      this.setRoleList([]);
       this.setLoginInfo(null);
       // 代码逻辑说明: 【TV360X-23】退出登录后会提示「Token时效，请重新登录」
       setTimeout(() => {

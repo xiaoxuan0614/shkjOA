@@ -102,6 +102,7 @@
 <script lang="ts" setup>
   import { computed, ref, onMounted } from 'vue';
   import { useRouter, useRoute } from 'vue-router';
+  import { useTabs } from '/@/hooks/web/useTabs';
   import { BasicForm, useForm } from '/@/components/Form/index';
   import { useDrawer } from '/@/components/Drawer';
   import { useMessage } from '/@/hooks/web/useMessage';
@@ -120,13 +121,21 @@
   import { MATERIAL_USAGE_TYPE } from '../material.constants';
   import MaterialSelectDrawer from '../apply/components/MaterialSelectDrawer.vue';
   import { validateEditableRows } from '/@/components/EditableTable';
+  import { PageEnum } from '/@/enums/pageEnum';
+  import { useSessionDraft } from '/@/hooks/web/useSessionDraft';
 
   const router = useRouter();
   const route = useRoute();
+  const { close: closeTab } = useTabs();
+  async function leaveCompletedForm() {
+    const completedRoute = { ...route };
+    await router.push(returnPath.value);
+    await closeTab(completedRoute);
+  }
   const { createMessage } = useMessage();
 
   // 注册表单
-  const [registerForm, { setFieldsValue, validate, updateSchema }] = useForm({
+  const [registerForm, { setFieldsValue, getFieldsValue, resetFields, validate, updateSchema }] = useForm({
     labelWidth: 100,
     schemas: pickFormSchema,
     showActionButtonGroup: false,
@@ -142,7 +151,7 @@
   const reworkId = ref(String(route.query.reworkId || ''));
   const returnPath = computed(() => {
     const from = Array.isArray(route.query.from) ? route.query.from[0] : route.query.from;
-    return typeof from === 'string' && from.startsWith('/') && !from.startsWith('//') ? from : '/dashboard/analysis';
+    return typeof from === 'string' && from.startsWith('/') && !from.startsWith('//') ? from : PageEnum.BASE_HOME;
   });
   const returnToRecord = computed(() => returnPath.value === '/material/record');
 
@@ -178,6 +187,59 @@
   ]);
 
   const detailList = ref<any[]>([]);
+  let pickBaseline = '';
+  const draft = useSessionDraft<any>(`material-pick:${applyId || 'new'}:${reworkId.value}`, () => ({
+    baseline: pickBaseline, usageType: usageType.value, periodId: selectedPeriodId.value,
+    form: { remark: getFieldsValue().remark, repairOrderNo: getFieldsValue().repairOrderNo },
+    rows: detailList.value.map((row) => ({ id: row.id, unitQty: row.unitQty, unitName: row.unitName })),
+  }));
+  async function restorePickDraft() {
+    if (!draft.isAlive()) return;
+    const saved = draft.read();
+    if (saved && Array.isArray(saved.rows)) {
+      if (editMode && (!pickBaseline || saved.baseline !== pickBaseline)) {
+        createMessage.warning('领料单已变化，未恢复旧草稿');
+      } else {
+        if (!editMode) {
+          if (!isReworkMode.value) {
+            if (!Object.values(MATERIAL_USAGE_TYPE).includes(saved.usageType)) throw new Error('草稿用料类型无效');
+            await onUsageTypeChange(saved.usageType);
+            if (saved.usageType === MATERIAL_USAGE_TYPE.PROJECT && saved.periodId) {
+              if (!projectOptions.value.some((item) => String(item.value) === String(saved.periodId))) throw new Error('草稿项目已不可选，请重新选择');
+              selectedPeriodId.value = String(saved.periodId);
+            }
+            await setFieldsValue({ usageType: usageType.value, periodId: selectedPeriodId.value || undefined });
+          }
+          const materialMap = await loadMaterialMap({ force: true });
+          let available: any[] = Object.values(materialMap);
+          if (isReworkMode.value) available = await getAvailableReworkMaterials();
+          else if (isProjectMode.value) available = (selectedPeriodId.value ? await loadAllProjectMaterialAccounts(selectedPeriodId.value) : [])
+            .filter((row) => Number(row.availableApplyQty) > 0)
+            .map((row) => ({ ...materialMap[String(row.materialId)], ...row, id: row.materialId }));
+          else if (usageType.value === MATERIAL_USAGE_TYPE.LABOR_PROTECTION) {
+            const categories = await loadDictMap('material_category');
+            const matches = Object.entries(categories).filter(([, item]: any) => String(item.text).trim() === '劳保用品');
+            if (matches.length !== 1) throw new Error('劳保物料类别已变化，请重新选料');
+            available = available.filter((row) => String(row.materialCategory) === matches[0][0]);
+          }
+          if (!draft.isAlive()) return;
+          detailList.value = [];
+          const picked = available.filter((row) => saved.rows.some((item: any) => String(item.id) === String(row.id)));
+          if (picked.length) handleDrawerSuccess(picked);
+          if (picked.length !== saved.rows.length) createMessage.warning('部分草稿物料已不可申请，请核对清单');
+        }
+        await setFieldsValue(saved.form || {});
+        for (const row of detailList.value) {
+          const input = saved.rows.find((item: any) => String(item.id) === String(row.id));
+          if (input) {
+            row.unitQty = input.unitQty;
+            if (!isProjectMode.value && row.unitOptions?.some((option: any) => option.value === input.unitName)) row.unitName = input.unitName;
+          }
+        }
+      }
+    }
+    draft.enable();
+  }
   let detailKeySeed = 0;
 
   /** 库存展示：接口 currentStockQty + baseUnitName（如 1个） */
@@ -269,6 +331,11 @@
         syncProjectFields();
       } else if (isReworkMode.value) {
         await addAvailableReworkMaterials();
+      }
+      if (!editMode || pickBaseline) {
+        try { await restorePickDraft(); }
+        catch (error: any) { createMessage.warning(error?.message || '领料草稿恢复失败，请重新核对'); }
+        finally { draft.enable(); }
       }
     } catch (error: any) {
       createMessage.error(error?.message || '领料申请初始化失败，请返回后重试');
@@ -408,7 +475,9 @@
           availableApplyQty: Math.max(Number(account.availableApplyQty ?? it.availableApplyQty) || 0, 0),
         };
       });
+      pickBaseline = JSON.stringify(res);
     } catch (e) {
+      pickBaseline = '';
       createMessage.error('申请加载失败');
     }
   }
@@ -468,7 +537,7 @@
         currentStockQty: m.currentStockQty ?? m.stockQty, // 库存(接口 currentStockQty)
         baseUnitName: m.baseUnitName ?? m.unit, // 基准单位名
         availableApplyQty: isProjectMode.value ? Math.max(Number(m.availableApplyQty) || 0, 0) : undefined,
-        unitQty: isProjectMode.value ? Math.min(1, Math.max(Number(m.availableApplyQty) || 0, 0)) : 1,
+        unitQty: isProjectMode.value ? Math.max(Number(m.availableApplyQty) || 0, 0) : 1,
         unitName: m.unit || m.baseUnitName, // 项目用料固定计划单位，其余默认基准单位
         unitOptions: (m.unitList || []).map((u: any) => ({ label: u.unitName, value: u.unitName })),
       });
@@ -550,7 +619,10 @@
         await submitPickApply(data);
         createMessage.success('领料申请提交成功');
       }
-      router.push(returnPath.value);
+      draft.clear();
+      await resetFields();
+      detailList.value = [];
+      await leaveCompletedForm();
     } finally {
       submitLoading.value = false;
     }
@@ -558,7 +630,10 @@
 
   /** 取消 */
   function handleCancel() {
-    router.push(returnPath.value);
+    draft.clear();
+    void resetFields();
+    detailList.value = [];
+    void leaveCompletedForm();
   }
 </script>
 

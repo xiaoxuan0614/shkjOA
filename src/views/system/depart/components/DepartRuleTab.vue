@@ -61,6 +61,7 @@
 
   const { prefixCls } = useDesign('j-depart-form-content');
   const props = defineProps({
+    active: { type: Boolean, default: true },
     data: { type: Object, default: () => ({}) },
   });
   // 当前选中的部门ID，可能会为空，代表未选择部门
@@ -95,7 +96,9 @@
       }
     }
   });
-  watch(departId, () => loadDepartPermission(), { immediate: true });
+  watch(() => [departId.value, props.active], () => {
+    if (props.active && departId.value) void loadDepartPermission();
+  }, { immediate: true });
 
   async function loadData(options: any = {}) {
     try {

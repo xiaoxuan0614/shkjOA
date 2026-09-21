@@ -9,6 +9,8 @@ export interface SystemTodo extends Recordable {
   todoType: string;
   title: string;
   summary?: string | null;
+  applyUserName?: string | null;
+  realName?: string | null;
   scope: string;
   actionKey: string;
   actionParams: Recordable | string;
@@ -34,12 +36,18 @@ export const TODO_TYPE_DICT_CODE = 'todo_type';
 const TODO_TYPE_FALLBACKS: Record<string, TodoTypeMeta> = {
   PROJECT_MEMBER_INVITATION: { text: '项目成员邀请', color: '#13c2c2' },
   PROJECT_PLAN_APPROVAL: { text: '项目计划方案审批', color: '#1677ff' },
+  PROJECT_CANDIDATE_APPROVAL: { text: '报价审批', color: '#722ed1' },
   PROJECT_CONTRACT_APPROVAL: { text: '项目合同审批', color: '#722ed1' },
   PROJECT_MATERIAL_APPLY_APPROVAL: { text: '项目用料申请审批', color: '#fa8c16' },
   PROJECT_DELAY_APPROVAL: { text: '项目延期审批', color: '#faad14' },
   PROJECT_REWORK_APPROVAL: { text: '项目返工审批', color: '#fa541c' },
+  PROJECT_ACCEPTANCE_FAILED: { text: '验收驳回提醒', color: '#ff4d4f' },
+  PROJECT_ACCEPTANCE_FAILED_HANDLE: { text: '验收驳回提醒', color: '#ff4d4f' },
+  PROJECT_ACCEPTANCE_PENDING: { text: '待验收', color: '#1677ff' },
   PROJECT_INTERNAL_ACCEPTANCE: { text: '项目内部验收', color: '#08979c' },
   PROJECT_EXTERNAL_ACCEPTANCE: { text: '项目外部验收', color: '#531dab' },
+  STOCK_IN_APPROVAL: { text: '入库申请审批', color: '#2f54eb' },
+  STOCK_IN_EXECUTE: { text: '入库执行待办，等待库管入库', color: '#52c41a' },
   STOCK_OUT_APPROVAL: { text: '出库申请审批', color: '#2f54eb' },
   STOCK_OUT_EXECUTE: { text: '出库执行待办，等待库管出库', color: '#52c41a' },
 };

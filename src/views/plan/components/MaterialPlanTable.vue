@@ -1,10 +1,16 @@
 <template>
   <div class="material-plan-table">
     <div v-if="showToolbar" class="material-plan-table__toolbar">
-      <a-button type="primary" preIcon="ant-design:plus-outlined" :disabled="!editable || contractLoading" @click="openMaterialDrawer">
+      <a-button
+        type="primary"
+        preIcon="ant-design:plus-outlined"
+        :disabled="!editable || !structureEditable || contractLoading"
+        @click="openMaterialDrawer"
+      >
         选择物料
       </a-button>
       <span v-if="editable" class="material-plan-table__hint"> 从物料库选择后会自动带出物料编码，可继续填写{{ quantityText }}、单位和备注。 </span>
+      <span v-else-if="pricingEditable" class="material-plan-table__hint">定价时仅可修改提价比例、终价，其他内容只读。</span>
       <span v-else class="material-plan-table__hint">{{ mode === 'quotation' ? '报价已锁定或当前账号无编辑权限' : '清单已锁定' }}，仅支持查看。</span>
     </div>
 
@@ -14,7 +20,7 @@
       :row-key="(record) => record._key"
       :pagination="tablePagination"
       :loading="loading"
-      :scroll="{ x: 1180 }"
+      :scroll="{ x: tableScrollX }"
       size="middle"
       bordered
     >
@@ -28,12 +34,42 @@
         </span>
       </template>
       <template #bodyCell="{ column, record }">
-        <template v-if="column.key === 'plannedQty'">
+        <template v-if="column.key === 'materialIdentity'">
+          <div
+            class="material-plan-table__material-identity"
+            :aria-label="`${materialDisplayName(record)}，物料编码 ${record.materialCode || '无'}`"
+          >
+            <span class="material-plan-table__material-name">{{ materialDisplayName(record) }}</span>
+            <span class="material-plan-table__material-code" aria-hidden="true">{{ record.materialCode || '—' }}</span>
+          </div>
+        </template>
+        <template v-else-if="['basePrice', 'markupRate', 'finalPrice'].includes(column.key)">
+          <a-input-number
+            v-if="column.key === 'basePrice' || pricingEditable"
+            :value="record[column.key]"
+            :disabled="busy || (column.key === 'basePrice' && !basePriceEditable)"
+            :min="0"
+            :max="9999999999"
+            :precision="column.key === 'markupRate' ? 4 : quantityAndCostPrecision"
+            :addon-after="column.key === 'markupRate' ? '%' : undefined"
+            string-mode
+            :aria-label="`${record.materialName} ${column.title}`"
+            placeholder="请输入"
+            style="width: 100%"
+            @change="(value) => changeQuotePrice(record, column.key, value)"
+            @blur="changeQuotePrice(record, column.key, record[column.key], true)"
+          />
+          <span v-else>{{ record[column.key] ?? '—' }}</span>
+          <div v-if="record._priceError?.key === column.key" role="alert" class="material-plan-table__price-error">{{
+            record._priceError.message
+          }}</div>
+        </template>
+        <template v-else-if="column.key === 'plannedQty'">
           <a-input-number
             v-model:value="record.plannedQty"
             :min="contractMinimum(record)"
-            :precision="2"
-            :disabled="!editable || contractLoading"
+            :precision="quantityAndCostPrecision"
+            :disabled="!editable || !structureEditable || contractLoading"
             placeholder="请输入"
             style="width: 100%"
           />
@@ -43,7 +79,7 @@
             v-model:value="record._unitValue"
             :options="record._unitOptions"
             :loading="record._unitLoading"
-            :disabled="!editable || contractLoading || record._unitLoading || !!contractItem(record)"
+            :disabled="!editable || !structureEditable || contractLoading || record._unitLoading || !!contractItem(record)"
             placeholder="请选择单位"
             style="width: 100%"
           />
@@ -57,8 +93,10 @@
           />
         </template>
         <template v-else-if="column.key === 'action'">
-          <span v-if="contractItem(record)">合同物料，不可移除</span>
-          <a-popconfirm v-else-if="editable && !contractLoading" title="确定移除该物料吗？" @confirm="removeRow(record._key)">
+          <a-tooltip v-if="contractItem(record)" title="合同物料，不可移除">
+            <span><a-button type="link" size="small" danger disabled>移除</a-button></span>
+          </a-tooltip>
+          <a-popconfirm v-else-if="editable && structureEditable && !contractLoading" title="确定移除该物料吗？" @confirm="removeRow(record._key)">
             <a-button type="link" size="small" danger>移除</a-button>
           </a-popconfirm>
           <span v-else>—</span>
@@ -68,7 +106,7 @@
 
     <div v-if="rows.length" class="material-plan-table__summary"> 共 {{ rows.length }} 种物料，{{ quantityText }}合计 {{ totalQty }} </div>
     <MaterialSelectDrawer
-      v-if="editable && showToolbar"
+      v-if="editable && structureEditable && showToolbar"
       :show-selected-materials="mode === 'plan' || mode === 'quotation'"
       :show-select-all="mode === 'quotation'"
       :code-tooltip="mode === 'quotation'"
@@ -80,6 +118,7 @@
 
 <script lang="ts" setup>
   import { computed, ref, watch } from 'vue';
+  import { hasPrice, decimalPrice, quotationPricePayload, quotationSnapshot, guidancePrice } from '../quotationPricing';
   import { useDrawer } from '/@/components/Drawer';
   import { useMessage } from '/@/hooks/web/useMessage';
   import MaterialSelectDrawer from '/@/views/material/apply/components/MaterialSelectDrawer.vue';
@@ -94,21 +133,34 @@
       contractLoading?: boolean;
       candidateId?: string;
       editable?: boolean;
+      busy?: boolean;
+      quotePricing?: boolean;
+      pricingEditable?: boolean;
+      basePriceEditable?: boolean;
+      costVisible?: boolean;
+      snapshotOnly?: boolean;
+      priceVisible?: boolean;
+      structureEditable?: boolean;
       mode?: 'plan' | 'quotation' | 'supplement' | 'rework';
       showToolbar?: boolean;
       showAction?: boolean;
       showRemark?: boolean;
       paginated?: boolean;
+      combinedMaterialIdentity?: boolean;
     }>(),
     {
       contractItems: () => [],
       contractLoading: false,
       editable: true,
+      structureEditable: true,
+      priceVisible: false,
+      basePriceEditable: false,
       mode: 'plan',
       showToolbar: true,
       showAction: true,
       showRemark: true,
       paginated: false,
+      combinedMaterialIdentity: false,
     }
   );
 
@@ -149,6 +201,13 @@
   let keySeed = 0;
   let loadSequence = 0;
   let materialMapPrimed = false;
+  const quantityAndCostPrecision = 2;
+
+  function materialDisplayName(record: any) {
+    const name = record.materialName || '—';
+    const brand = String(record.brand ?? '').trim();
+    return props.mode === 'quotation' && brand ? `${name}（${brand}）` : name;
+  }
 
   const quantityText = computed(() => {
     if (props.mode === 'quotation') return '数量';
@@ -157,15 +216,30 @@
     return '计划数量';
   });
 
+  const tableScrollX = computed(() => {
+    if (props.quotePricing) return props.combinedMaterialIdentity ? 1650 : 1800;
+    return props.combinedMaterialIdentity ? 1050 : 1180;
+  });
+
   const columns = computed(() => [
-    { title: '物料编码', dataIndex: 'materialCode', key: 'materialCode', width: 150, fixed: 'left' },
-    { title: '物料类别', dataIndex: 'materialCategory', key: 'materialCategory', width: 120 },
-    { title: '物料名称', dataIndex: 'materialName', key: 'materialName', width: 180 },
-    { title: '品牌', dataIndex: 'brand', key: 'brand', width: 120 },
-    { title: '型号', dataIndex: 'model', key: 'model', width: 140 },
-    { title: '单位', dataIndex: 'unit', key: 'unit', width: 120, align: 'center', required: props.editable },
-    { title: quantityText.value, key: 'plannedQty', width: 130, required: props.editable },
-    ...(props.showRemark ? [{ title: '备注', key: 'remark', width: 220 }] : []),
+    ...(props.combinedMaterialIdentity
+      ? [{ title: '物料名称', key: 'materialIdentity', width: 130, fixed: 'left' }]
+      : [{ title: '物料编码', dataIndex: 'materialCode', key: 'materialCode', width: 130, fixed: 'left' }]),
+    ...(!props.combinedMaterialIdentity ? [{ title: '物料名称', dataIndex: 'materialName', key: 'materialName', width: 130 }] : []),
+    ...(!(props.mode === 'quotation' && props.combinedMaterialIdentity) ? [{ title: '品牌', dataIndex: 'brand', key: 'brand', width: 60 }] : []),
+    { title: '型号', dataIndex: 'model', key: 'model', width: 80 },
+    { title: '单位', dataIndex: 'unit', key: 'unit', width: 50, align: 'center', required: props.editable },
+    { title: quantityText.value, key: 'plannedQty', width: 50, required: props.editable },
+    ...(props.mode === 'quotation' && props.quotePricing && (props.costVisible || props.priceVisible || props.basePriceEditable)
+      ? [{ title: '成本价', key: 'basePrice', width: 50, required: props.basePriceEditable }]
+      : []),
+    ...(props.mode === 'quotation' && props.quotePricing && props.priceVisible
+      ? [
+          { title: '指导比例', key: 'markupRate', width: 50 },
+          { title: '指导价', key: 'finalPrice', width: 50 },
+        ]
+      : []),
+    ...(props.showRemark ? [{ title: '备注', key: 'remark', width: 120 }] : []),
     ...(props.showAction ? [{ title: '操作', key: 'action', width: 80, align: 'center', fixed: 'right' }] : []),
   ]);
 
@@ -181,6 +255,7 @@
         unitValue: item._unitValue == null ? '' : String(item._unitValue),
         plannedQty: item.plannedQty == null || item.plannedQty === '' ? null : Number(item.plannedQty),
         remark: String(item.remark || ''),
+        ...(props.mode === 'quotation' ? { basePrice: item.basePrice, markupRate: item.markupRate, finalPrice: item.finalPrice } : {}),
       }))
     );
   }
@@ -188,6 +263,7 @@
   const dirty = computed(() => serializeRows(rows.value) !== persistedSnapshot.value);
 
   function openMaterialDrawer() {
+    if (!props.editable || !props.structureEditable) return;
     if (loading.value) {
       createMessage.warning('用料清单仍在加载，请稍后再选择物料');
       return;
@@ -254,6 +330,11 @@
         props.mode === 'quotation'
           ? getAllMaterialCandidateItems(props.candidateId!)
           : getPlanMaterialList({ periodId: props.periodId, pageNo: 1, pageSize: 1000 });
+      if (props.snapshotOnly) {
+        const result = await listRequest;
+        await hydrateRows(result?.records || result || [], requestSequence, {});
+        return;
+      }
       // 首载时让清单和物料主数据并发；当前组件生命周期内只强制刷新一次，后续回查复用模块缓存。
       const shouldRefreshMaterialMap = !materialMapPrimed;
       materialMapPrimed = true;
@@ -276,10 +357,22 @@
     const materialMap = providedMaterialMap || (await loadMaterialMap());
     if (requestSequence && requestSequence !== loadSequence) return;
     rows.value = list.map((item: any) => {
+      const pricingDefaults: Record<string, any> = {};
+      // 只在市场定价时初始化，不覆盖已经保存的比例或手动指导价。
+      if (props.pricingEditable) {
+        const rate = hasPrice(item.markupRate) ? item.markupRate : item.guideMarkupRate;
+        if (hasPrice(rate)) pricingDefaults.markupRate = rate;
+        if (!hasPrice(item.finalPrice) && hasPrice(item.basePrice) && hasPrice(rate)) {
+          try { pricingDefaults.finalPrice = guidancePrice(item.basePrice, rate); }
+          catch (error: any) { pricingDefaults._priceError = { key: 'markupRate', message: error.message }; }
+        }
+      }
       const material = materialMap[String(item.materialId || '')] || {};
       const unitOptions = createUnitOptions(material, item.unitId, item.unit);
       return {
         ...item,
+        ...pricingDefaults,
+        _quotationSnapshot: quotationSnapshot(item),
         _key: ++keySeed,
         materialCode: material.materialCode || item.materialCode || '—',
         _unitValue: getDefaultUnit(material, unitOptions, item.unitId, item.unit),
@@ -307,6 +400,7 @@
   }
 
   async function handleSelected(selected: any[]) {
+    if (!props.editable || !props.structureEditable) return;
     for (const selectedMaterial of selected || []) {
       const material = { ...selectedMaterial };
       if (rows.value.some((item) => String(item.materialId) === String(material.id))) {
@@ -327,11 +421,12 @@
         _unitOptions: [],
         _unitLoading: true,
         plannedQty: 1,
+        ...(props.mode === 'quotation' && props.basePriceEditable ? { basePrice: material.costPrice ?? 0 } : {}),
         remark: '',
       };
       rows.value.push(row);
       try {
-        const materialMap = material.unitList?.length ? undefined : await loadMaterialMap();
+        const materialMap = props.mode === 'quotation' || material.unitList?.length ? undefined : await loadMaterialMap();
         const detail = materialMap?.[String(material.id || '')] || material;
         row._unitOptions = createUnitOptions(detail, material.unitId, material.unit);
         row._unitValue = getDefaultUnit(detail, row._unitOptions, material.unitId, material.unit);
@@ -368,7 +463,7 @@
 
   function removeRow(key: number) {
     const row = rows.value.find((item) => item._key === key);
-    if (!props.editable || props.contractLoading || (row && contractItem(row))) return;
+    if (!props.editable || !props.structureEditable || props.contractLoading || (row && contractItem(row))) return;
     rows.value = rows.value.filter((item) => item._key !== key);
   }
 
@@ -443,6 +538,9 @@
       selectorLabel: '物料',
       optionLabel: (value) => rows.value.find((item) => String(item.materialId) === String(value))?.materialName || String(value),
       rules: [
+        ...(props.mode === 'quotation' && props.basePriceEditable
+          ? [{ field: 'basePrice', label: '成本价', required: true }]
+          : []),
         { field: '_unitValue', label: '单位', required: true },
         {
           field: 'plannedQty',
@@ -463,6 +561,8 @@
         quantity: Number(item.plannedQty),
         unitId: item._unitValue,
         remark: item.remark,
+        ...(props.basePriceEditable ? quotationPricePayload({ basePrice: item.basePrice }) : {}),
+        ...(props.pricingEditable ? quotationPricePayload({ markupRate: item.markupRate, finalPrice: item.finalPrice }) : {}),
       }));
     }
     if (props.mode === 'plan' || props.mode === 'rework') {
@@ -517,6 +617,28 @@
   }
 
   defineExpose({
+    async restoreQuotationDraft(records: any[]) {
+      if (props.mode !== 'quotation' || !props.editable) return;
+      const serverSnapshot = persistedSnapshot.value;
+      await hydrateRows(records.map((row) => ({ ...row, quantity: row.plannedQty, unitId: row._unitValue || row.unitId })));
+      persistedSnapshot.value = serverSnapshot;
+    },
+    getQuotationReviewData(latest: any[]) {
+      const edited = getData();
+      if (!edited.length || latest.length !== rows.value.length) throw new Error('报价明细为空或已变化，请刷新后审批');
+      return latest.map((item) => {
+        const row = rows.value.find((value) => String(value.id) === String(item.id));
+        if (!row || row._quotationSnapshot !== quotationSnapshot(item)) throw new Error('报价明细已被修改，请刷新后审批');
+        return {
+          id: item.id,
+          materialId: item.materialId,
+          quantity: item.quantity,
+          unitId: item.unitId,
+          remark: item.remark,
+          ...quotationPricePayload(row, true),
+        };
+      });
+    },
     getData,
     getRows: () => rows.value,
     importRows,
@@ -529,10 +651,52 @@
   });
 
   watch(() => [props.periodId, props.candidateId, props.mode], load, { immediate: true });
+
+  function changeQuotePrice(row: any, key: string, value: any, showError = false) {
+    if (key === 'basePrice' ? !props.basePriceEditable : !props.priceVisible || !props.pricingEditable) return;
+    row._priceError = undefined;
+    row[key] = hasPrice(value) ? value : null;
+    if (!hasPrice(value)) return;
+    try {
+      decimalPrice(value, key === 'basePrice' ? '成本价' : key === 'markupRate' ? '提价比例' : '终价', key === 'markupRate' ? 4 : 2);
+      if (key === 'markupRate' && props.pricingEditable) row.finalPrice = guidancePrice(row.basePrice, value);
+    } catch (error: any) {
+      if (showError) row._priceError = { key, message: error.message };
+    }
+  }
 </script>
 
 <style lang="less" scoped>
   .material-plan-table {
+    &__price-error {
+      color: @error-color;
+      font-size: 12px;
+      margin-top: 4px;
+    }
+
+    &__material-identity {
+      min-width: 0;
+      line-height: 1.35;
+    }
+
+    &__material-name,
+    &__material-code {
+      display: block;
+      overflow-wrap: anywhere;
+    }
+
+    &__material-name {
+      color: @text-color;
+      font-weight: 500;
+    }
+
+    &__material-code {
+      margin-top: 2px;
+      color: @text-color-secondary;
+      font-size: 12px;
+      line-height: 1.3;
+      font-variant-numeric: tabular-nums;
+    }
     &__toolbar {
       display: flex;
       align-items: center;

@@ -51,7 +51,7 @@
   import { useMessage } from '/@/hooks/web/useMessage';
   import { loadMaterialMap } from '/@/views/material/material.util';
   import MaterialPlanTable from '/@/views/plan/components/MaterialPlanTable.vue';
-  import { getAllMaterialCandidates, getAllMaterialCandidateItems, QUOTATION_STATUS_ADOPTED } from '/@/views/plan/Plan.api';
+  import { getAllMaterialCandidates, getAllMaterialCandidateItems, isQuotationAdopted } from '/@/views/plan/Plan.api';
   import { parseMaterialPlanExcel } from '/@/views/plan/materialExcel';
 
   const props = defineProps<{
@@ -86,7 +86,7 @@
     try {
       const candidates = await getAllMaterialCandidates(periodId);
       if (periodId !== props.periodId) return;
-      const adopted = candidates.filter((item) => String(item.status) === QUOTATION_STATUS_ADOPTED);
+      const adopted = candidates.filter((item) => isQuotationAdopted(item));
       if (adopted.length > 1) throw new Error('当前分期存在多张已采用报价，无法自动带入');
       if (!adopted.length) return;
       const items = await getAllMaterialCandidateItems(String(adopted[0].id));

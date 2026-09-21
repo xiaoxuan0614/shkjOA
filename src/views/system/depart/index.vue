@@ -5,7 +5,7 @@
     </a-col>
     <a-col :xl="14" :lg="24" :md="24" style="margin-bottom: 10px">
       <div style="height: 100%;" :class="[`${prefixCls}`]">
-        <a-tabs v-show="departData != null" defaultActiveKey="base-info">
+        <a-tabs v-if="departData?.id" v-model:activeKey="activeTab">
           <a-tab-pane tab="基本信息" key="base-info" forceRender style="position: relative">
             <div style="padding: 20px">
               <DepartFormTab :data="departData" :rootTreeData="rootTreeData" @success="onSuccess" />
@@ -13,24 +13,24 @@
           </a-tab-pane>
           <a-tab-pane tab="部门权限" key="role-info">
             <div style="padding: 0 20px 20px">
-              <DepartRuleTab :data="departData" />
+              <DepartRuleTab :data="departData" :active="activeTab === 'role-info'" />
             </div>
           </a-tab-pane>
           <a-tab-pane tab="职级汇报关系" key="rank">
             <div style="padding: 0 20px 20px">
-              <DepartRankRelation :data="departData" />
+              <DepartRankRelation :data="departData" :active="activeTab === 'rank'" />
             </div>
           </a-tab-pane>
           <a-tab-pane tab="用户列表" key="user">
             <div style="padding: 0 20px 20px">
-              <DepartUserList :data="departData" :key="reRender"></DepartUserList>
+              <DepartUserList :data="departData" :active="activeTab === 'user'" :key="reRender"></DepartUserList>
             </div>
           </a-tab-pane>
           <a-tab-pane tab="部门负责人" key="departmentHead">
-            <DepartmentHeadList :data="departData"></DepartmentHeadList>
+            <DepartmentHeadList :data="departData" :active="activeTab === 'departmentHead'"></DepartmentHeadList>
           </a-tab-pane>
         </a-tabs>
-        <div v-show="departData == null" style="padding-top: 40px">
+        <div v-if="!departData?.id" style="padding-top: 40px">
           <a-empty description="尚未选择部门" />
         </div>
       </div>
@@ -55,7 +55,8 @@
   const leftTree = ref();
 
   // 当前选中的部门信息
-  const departData = ref({});
+  const departData = ref<Record<string, any> | null>(null);
+  const activeTab = ref('base-info');
   const rootTreeData = ref<any[]>([]);
   const reRender = ref(-1);
 

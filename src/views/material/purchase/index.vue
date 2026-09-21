@@ -35,7 +35,8 @@
   import { useListPage } from '/@/hooks/system/useListPage';
   import { useMessage } from '/@/hooks/web/useMessage';
   import { purchaseColumns, searchFormSchema } from './Purchase.data';
-  import { list, listPeriod, changeStatus, getSuppliers, searchProjectPeriod } from './Purchase.api';
+  import { list, listPurchaseProjects, changeStatus, getSuppliers, searchProjectPeriod } from './Purchase.api';
+  import { loadPurchaseProjects } from './purchaseProjectOptions';
   import { loadDictMap } from '../material.util';
   import { ensureSupplierOptions, ensurePeriodOptions } from '../material.options';
   import PurchaseModal from './PurchaseModal.vue';
@@ -97,15 +98,14 @@
   const [registerDetailDrawer, { openDrawer: openDetailDrawer }] = useDrawer();
 
   // 分期映射：列表 periodId → periodName 解析（后端列表/详情只回 periodId 时兜底）
-  const periodMap = ref<Record<string, string>>({});
+  const periodMap = ref<Record<string, { projectName: string; periodName: string }>>({});
   let periodMapLoaded = false;
   async function ensurePeriodMap() {
     if (periodMapLoaded) return;
-    periodMapLoaded = true;
     try {
-      const res: any = await listPeriod({ pageNo: 1, pageSize: 1000 });
-      const recs = res?.records || res || [];
-      periodMap.value = Object.fromEntries(recs.map((p: any) => [p.periodId || p.id, p.periodName]));
+      const recs = await loadPurchaseProjects(listPurchaseProjects);
+      periodMap.value = Object.fromEntries(recs.map((p) => [p.value, { projectName: p.projectName, periodName: p.periodName }]));
+      periodMapLoaded = true;
     } catch (e) {
       // 失败不阻塞列表，仅 periodName 留空
     }
@@ -117,7 +117,9 @@
     const res: any = await list(params);
     const records = res?.records || (Array.isArray(res) ? res : []);
     (records || []).forEach((r: any) => {
-      if (!r.periodName) r.periodName = periodMap.value[r.periodId] || '';
+      const names = periodMap.value[r.periodId];
+      if (!r.periodName) r.periodName = names?.periodName || '';
+      if (!r.projectName) r.projectName = names?.projectName || '';
     });
     return res;
   }

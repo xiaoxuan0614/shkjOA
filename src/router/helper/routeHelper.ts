@@ -84,6 +84,11 @@ function asyncImportRoute(routes: AppRouteRecordRaw[] | undefined) {
     if (component) {
       // 后台菜单表单没有 currentActiveMenu 字段；已知隐藏业务页由前端补齐侧栏激活菜单。
       const normalizedComponent = String(component).replace(/^\//, '').replace(/\.(vue|tsx)$/i, '');
+      // 独立录入页需跨页签保留编辑状态；不全局缓存审批弹窗或密码表单。
+      if (['project/apply/ProjectApply', 'project/contract/index', 'project/plan/ProjectPlan', 'plan/material-draft/editor', 'material/apply/MaterialApply', 'material/pick/index', 'material/return/index'].includes(normalizedComponent)) {
+        item.meta.ignoreKeepAlive = false;
+        item.meta.keepAlive = true;
+      }
       if (normalizedComponent === 'plan/material-draft/editor') {
         item.meta = { ...item.meta, currentActiveMenu: '/plan/material-draft' };
       }

@@ -1,5 +1,5 @@
 <template>
-  <BasicModal v-bind="$attrs" @register="register" :title="modalTitle" :width="820" @ok="handleSubmit">
+  <BasicModal v-bind="$attrs" @register="register" :title="modalTitle" :width="820" @ok="handleSubmit" @visible-change="onVisibleChange">
     <BasicForm @register="registerForm" />
 
     <!-- 采购明细 -->
@@ -45,9 +45,10 @@
   import { useDrawer } from '/@/components/Drawer';
   import { useMessage } from '/@/hooks/web/useMessage';
   import { purchaseFormSchema } from './Purchase.data';
-  import { addOrder, editOrder, getSuppliers, searchProjectPeriod, queryOrderById } from './Purchase.api';
+  import { addOrder, editOrder, getSuppliers, listPurchaseProjects, queryOrderById } from './Purchase.api';
   import MaterialSelectDrawer from '../apply/components/MaterialSelectDrawer.vue';
-  import { ensureSupplierOptions, ensurePeriodOptions } from '../material.options';
+  import { ensureSupplierOptions } from '../material.options';
+  import { purchaseProjectOption, filterPurchaseProject, loadPurchaseProjects } from './purchaseProjectOptions';
   import { validateEditableRows } from '/@/components/EditableTable';
 
   const { createMessage } = useMessage();
@@ -90,26 +91,33 @@
     baseColProps: { span: 12 },
   });
 
-  // 项目分期下拉(远程模糊搜索 /project/period/searchByName，防抖 300ms)
+  // 本次打开首次展开加载全部分页，搜索在完整名称上本地匹配。
   const projectOptions = ref<any[]>([]);
   const projectIdRef = ref('');
-  const onProjectSearch = useDebounceFn(async (keyword: string) => {
-    if (!keyword) {
-      // 空关键词回到预载的项目分期首页
-      projectOptions.value = [...(await ensurePeriodOptions())];
-      return;
+  const projectLoading = ref(false);
+  const projectLoaded = ref(false);
+  let projectSequence = 0;
+  function onVisibleChange(visible: boolean) {
+    if (!visible) projectSequence++;
+  }
+  async function onProjectOpen(open: boolean) {
+    if (!open || projectLoading.value || projectLoaded.value) return;
+    const sequence = projectSequence;
+    projectLoading.value = true;
+    try {
+      const options = await loadPurchaseProjects(listPurchaseProjects, () => sequence === projectSequence);
+      if (sequence !== projectSequence) return;
+      const current = projectOptions.value.filter(item => !options.some(option => option.value === item.value));
+      projectOptions.value = [...current, ...options];
+      projectLoaded.value = true;
+    } catch {
+      if (sequence === projectSequence) createMessage.error('项目加载失败，请重新展开重试');
+    } finally {
+      if (sequence === projectSequence) projectLoading.value = false;
     }
-    const data: any = await searchProjectPeriod({ keyword, pageNo: 1, pageSize: 20 });
-    projectOptions.value = (data?.records || data || []).map((r: any) => ({
-      label: r.periodName,
-      value: r.periodId || r.periodNo,
-      projectId: r.projectId,
-      projectName: r.projectName,
-      periodName: r.periodName,
-    }));
-  }, 300);
+  }
 
-  function onProjectSelect(periodId: string, option: any) {
+  function onProjectSelect(_periodId: string, option: any) {
     projectIdRef.value = option?.projectId || '';
     setFieldsValue({ projectName: option?.projectName || '' });
   }
@@ -180,11 +188,14 @@
     detailList.value = [];
     supplierIdRef.value = '';
     projectIdRef.value = '';
+    projectSequence++;
+    projectOptions.value = [];
+    projectLoaded.value = false;
+    projectLoading.value = false;
     // 下拉数据在主页面渲染时已预载(第 1 页 10 条)，打开直接读缓存，不再请求/等待
-    const [suppliers, periods] = await Promise.all([ensureSupplierOptions(), ensurePeriodOptions()]);
+    const suppliers = await ensureSupplierOptions();
     supplierAll.value = suppliers;
     supplierOptions.value = [...suppliers]; // 打开即展示预载的供应商首页
-    projectOptions.value = periods; // 打开即展示预载的项目分期首页
     resetFields().catch(() => {});
     updateSchema([
       {
@@ -193,7 +204,11 @@
       },
       {
         field: 'periodId',
-        componentProps: { options: projectOptions, onSearch: onProjectSearch, onSelect: onProjectSelect },
+        componentProps: () => ({
+          options: projectOptions.value, loading: projectLoading.value, filterOption: filterPurchaseProject,
+          onDropdownVisibleChange: onProjectOpen, onChange: onProjectSelect,
+          notFoundContent: projectLoading.value ? '正在加载项目…' : '暂无匹配项目',
+        }),
       },
     ]);
 
@@ -206,7 +221,7 @@
         editOrderNo.value = detail.orderNo || editOrderNo.value;
         // 分期选项注入当前项，保证 value 能回显名称
         projectOptions.value = detail.periodId
-          ? [{ label: detail.periodName || detail.periodId, value: detail.periodId, projectId: detail.projectId, projectName: detail.projectName }]
+          ? [purchaseProjectOption(detail)]
           : [];
         supplierIdRef.value = detail.supplierId || '';
         projectIdRef.value = detail.projectId || '';

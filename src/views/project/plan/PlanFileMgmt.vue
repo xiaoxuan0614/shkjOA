@@ -2,7 +2,7 @@
   <div class="plan-file-mgmt">
     <div class="plan-file-mgmt__toolbar">
       <a-button type="primary" preIcon="ant-design:plus-outlined" :disabled="!canWrite" @click="addRow">添加</a-button>
-      <span class="plan-file-mgmt__tip">支持 PDF、Word、Excel、PPT；方案名称、类型和文件均为必填</span>
+      <span class="plan-file-mgmt__tip">方案记录及文件均选填；添加记录时名称、类型必填。支持 PDF、Word、Excel、PPT</span>
     </div>
 
     <a-table
@@ -67,7 +67,7 @@
   import { computed, ref, onMounted, watch } from 'vue';
   import { Upload } from 'ant-design-vue';
   import { useMessage } from '/@/hooks/web/useMessage';
-  import { DOCUMENT_UPLOAD_ACCEPT, isAllowedDocumentFile } from '/@/utils/documentUpload';
+  import { DOCUMENT_UPLOAD_ACCEPT, isAllowedDocumentFile, uploadProjectDocument } from '/@/utils/documentUpload';
   import { getFileAccessHttpUrl } from '/@/utils/common/compUtils';
   import { previewFileInModal } from '/@/utils/filePreview';
   import { loadDictOptions } from '../Project.data';
@@ -142,6 +142,7 @@
       planName: record.planName ?? fileName,
       planType: record.fileType ?? record.planType,
       planFileId: fileId,
+      _savedFileId: fileId,
       _key: key,
       _dirty: false,
       _locked: !!record.id,
@@ -297,7 +298,8 @@
   function validateRow(record: any) {
     if (!record.planName) throw new Error('请填写方案名称');
     if (!record.planType) throw new Error('请选择方案类型');
-    if (!record.planFileId && !record._pendingFile) throw new Error(`请上传方案「${record.planName}」的文件`);
+    if (record._savedFileId && !record.planFileId && !record._pendingFile)
+      throw new Error(`方案「${record.planName}」原附件仅支持替换，请选择新文件`);
   }
 
   function planPayload(record: any) {
@@ -305,7 +307,8 @@
       ...(record.id ? { id: record.id } : {}),
       planName: record.planName,
       planType: record.planType,
-      status: record.status || 'DRAFT',
+      ...(!record.id ? { status: '-1' } : {}),
+      ...(record.planFileId ? { planFileId: record.planFileId } : {}),
       remark: record.remark,
     };
   }
@@ -315,7 +318,6 @@
     if (!props.editable || saving.value) throw new Error('方案文件当前不可保存');
     const periodId = props.periodId;
     if (!periodId) throw new Error('缺少项目分期 ID');
-    if (!list.value.length) throw new Error('请至少添加一个方案文件');
     list.value.forEach(validateRow);
     saving.value = true;
     const isCurrent = () => periodId === props.periodId;
@@ -331,7 +333,11 @@
         if (!row) break;
         row._saving = true;
         try {
-          await editProjectPlan({ ...planPayload(row), periodId }, row._pendingFile);
+          if (row._pendingFile) {
+            row.planFileId = (await uploadProjectDocument(row._pendingFile, periodId)).path;
+            row._pendingFile = undefined;
+          }
+          await editProjectPlan({ ...planPayload(row), periodId });
           row._dirty = false;
           row._pendingFile = undefined;
           await refreshSaved();
@@ -345,9 +351,15 @@
       if (additions.length) {
         additions.forEach((row) => (row._saving = true));
         try {
+          for (const row of additions) {
+            if (!row._pendingFile) continue;
+            const { path } = await uploadProjectDocument(row._pendingFile, periodId);
+            row.planFileId = path;
+            row._pendingFile = undefined;
+          }
           await addProjectPlansBatch(
             periodId,
-            additions.map((row) => ({ plan: planPayload(row), attachment: row._pendingFile }))
+            additions.map((row) => ({ plan: planPayload(row) }))
           );
           await refreshSaved();
         } finally {

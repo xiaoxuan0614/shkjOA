@@ -1,0 +1,236 @@
+/* Login-only visual treatment based on the supplied blue security reference. */
+.login-background-img.login-background-img {
+  min-height: 100vh;
+  overflow-x: hidden;
+  background: #fff !important;
+  position: relative;
+  isolation: isolate;
+  &::before,
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: -1;
+  }
+  &::before {
+    background: #f5f7fc;
+    clip-path: polygon(0 0, 78% 0, 100% 15%, 100% 100%, 0 100%);
+  }
+  &::after {
+    background: #edf3ff;
+    clip-path: polygon(0 62%, 41% 32%, 88% 68%, 55% 100%, 0 100%);
+  }
+
+  .login-desktop-brand {
+    display: none;
+  }
+  .aui-content {
+    display: flex;
+    align-items: center;
+    min-height: 100vh;
+    padding: 64px 40px;
+  }
+  .aui-container {
+    position: relative;
+    top: auto;
+    left: auto;
+    width: 100%;
+    max-width: 920px;
+    margin: 0 auto;
+    overflow: visible;
+    border-radius: 0;
+    box-shadow: none;
+    transform: none;
+  }
+  .aui-form {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 80px;
+    min-height: 0;
+    background: transparent;
+  }
+  .aui-image {
+    flex: 1 1 480px;
+    min-width: 0;
+    background: transparent;
+  }
+  .aui-formBox {
+    flex: 0 0 350px;
+    align-self: center;
+    min-height: 490px;
+    padding: 42px 36px;
+    border-radius: 8px;
+    background: #fff;
+    box-shadow: 0 12px 40px rgba(68, 103, 166, 0.035);
+  }
+  .login-welcome {
+    margin-bottom: 26px;
+    text-align: center;
+    p {
+      margin: 0 0 5px;
+      color: #717680;
+      font-size: 14px;
+      font-weight: 600;
+    }
+    h2 {
+      margin: 0;
+      color: #252b39;
+      font-size: 18px;
+      font-weight: 600;
+    }
+  }
+  .aui-form-nav {
+    justify-content: center;
+    gap: 24px;
+    padding-bottom: 6px;
+    text-align: left;
+  }
+  .aui-form-nav .aui-flex-box {
+    flex: none;
+    color: #697780;
+    font-size: 14px;
+  }
+  .aui-form-nav .activeNav {
+    color: #137ecc;
+  }
+  .activeNav::after {
+    left: 15px;
+    bottom: -7px;
+    background: #109eff;
+    height: 2px;
+  }
+  .aui-inputClear {
+    margin-top: 16px;
+    padding-left: 20px;
+    border: 0;
+    border-bottom: 1px solid #e1e6ed;
+    border-radius: 0;
+    background: transparent;
+    transition: border-color 150ms ease;
+    .icon {
+      display: block;
+      opacity: 0.55;
+    }
+    input {
+      padding: 12px 4px;
+      caret-color: #109eff;
+    }
+    input::placeholder {
+      color: #687985;
+    }
+    &:hover,
+    &:focus-within {
+      border-color: #109eff;
+    }
+    &:has(.aui-code) {
+      padding-right: 120px;
+    }
+  }
+  .aui-code {
+    bottom: 5px;
+  }
+  .aui-inputClear .ant-input-password {
+    padding: 0 4px;
+    background: transparent;
+    box-shadow: none;
+  }
+  .aui-inputClear .ant-input-password .ant-input-suffix {
+    margin-left: 8px;
+  }
+  .aui-forget a,
+  .aui-code a {
+    color: #137ecc;
+  }
+  .aui-choice .ant-checkbox-wrapper {
+    color: #687781;
+    font-size: 12px;
+  }
+  .ant-checkbox-checked .ant-checkbox-inner {
+    background-color: #109eff;
+    border-color: #109eff;
+  }
+  .aui-link-login.ant-btn-primary {
+    height: 42px;
+    padding: 8px 15px;
+    border-color: #109eff;
+    border-radius: 2px;
+    background: #109eff;
+    box-shadow: none;
+    &:hover {
+      background: #0789e0;
+      border-color: #0789e0;
+    }
+  }
+  a:focus-visible,
+  button:focus-visible {
+    outline: 2px solid #109eff;
+    outline-offset: 4px;
+  }
+  ::selection {
+    background: #d6eaff;
+    color: #254678;
+  }
+  .aui-phone-logo .login-brand {
+    color: #1678b9;
+  }
+  .aui-phone-logo .login-brand__mark {
+    background: #109eff;
+  }
+  .aui-phone-logo .login-brand__name {
+    max-width: 230px;
+    font-size: 18px;
+  }
+}
+
+html[data-theme='dark'] .login-background-img.login-background-img {
+  .login-welcome h2 {
+    color: #e8f5f4;
+  }
+  .login-welcome p,
+  .aui-form-nav .aui-flex-box {
+    color: #b6c9cd;
+  }
+  .aui-form-nav .activeNav,
+  .aui-forget a,
+  .aui-code a {
+    color: #72d8ce;
+  }
+}
+
+@media (max-width: 1050px) and (min-width: 769px) {
+  .login-background-img.login-background-img .aui-form {
+    gap: 36px;
+  }
+  .login-background-img.login-background-img .aui-formBox {
+    flex-basis: 360px;
+    padding: 38px 30px;
+  }
+}
+@media (max-width: 768px) {
+  .login-background-img.login-background-img {
+    .aui-content {
+      padding: 90px 20px 36px;
+    }
+    .aui-container {
+      width: 100%;
+      max-width: 420px;
+      margin: 0 auto;
+    }
+    .aui-image {
+      display: none;
+    }
+    .aui-form {
+      display: block;
+    }
+    .aui-formBox {
+      min-height: 490px;
+      padding: 36px 28px;
+    }
+    .aui-phone-logo {
+      top: 24px;
+      left: 20px;
+    }
+  }
+}

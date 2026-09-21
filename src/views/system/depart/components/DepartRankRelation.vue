@@ -24,6 +24,7 @@
   import { getRankRelation } from '../depart.api';
 
   const props = defineProps({
+    active: { type: Boolean, default: true },
     data: { type: Object, default: () => ({}) },
   });
   // 当前选中的部门ID，可能会为空，代表未选择部门
@@ -38,7 +39,9 @@
   //所有的部门id
   const departIds = ref<any[]>([]);
 
-  watch(departId, (val) => loadData(val), { immediate: true });
+  watch(() => [departId.value, props.active], () => {
+    if (props.active && departId.value) void loadData(departId.value);
+  }, { immediate: true });
 
   async function loadData(val) {
     try {

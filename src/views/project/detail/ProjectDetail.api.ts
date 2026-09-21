@@ -127,6 +127,7 @@ export const getImplementLog = (params) => defHttp.get({ url: Api.implementLog, 
  * 内部/外部验收记录 tab(分页)，acceptType 显式传 INTERNAL 或 CUSTOMER。
  */
 export const getAcceptance = (params) => defHttp.get({ url: Api.acceptance, params });
+export const getAcceptanceById = (id: string) => defHttp.get({ url: '/project/acceptance/queryById', params: { id } }, quietFeedback);
 
 /**
  * 保存当前内部/外部验收记录资料；记录由 submit 接口创建，不允许前端新增或删除。
@@ -151,6 +152,8 @@ export const completeProjectAcceptance = (params: {
   acceptEndDate?: string;
   result: 'PASSED' | 'FAILED';
   acceptUnitLeader?: string;
+  /** 暂定客户职能字段，待后端实现；与系统权限角色无关。 */
+  acceptUnitName?: string;
   acceptUnitPhone?: string;
   completionReportFileId?: string;
   acceptanceFormFileId?: string;
@@ -172,7 +175,18 @@ export const addProjectRework = (params: Recordable) => defHttp.post({ url: Api.
 export const editProjectRework = (params: Recordable) => defHttp.post({ url: Api.reworkEdit, params }, quietFeedback);
 
 /** 提交、撤回返工申请；version 取详情最新值。 */
-export const submitProjectRework = (params: { reworkId: string; version: number }) => defHttp.post({ url: Api.reworkSubmit, params }, quietFeedback);
+export const submitProjectRework = (params: {
+  periodId: string;
+  sourceAcceptanceId: string;
+  reason: string;
+  process: Recordable[];
+  materials?: Recordable[];
+  outsources?: Recordable[];
+  id?: string;
+  version?: number;
+  description?: string;
+  expectedAcceptanceDate?: string | null;
+}) => defHttp.post({ url: Api.reworkSubmit, params }, quietFeedback);
 export const withdrawProjectRework = (params: { reworkId: string; version: number }) =>
   defHttp.post({ url: Api.reworkWithdraw, params }, quietFeedback);
 
@@ -216,6 +230,10 @@ export const getMaterialAccounts = (params) => defHttp.get({ url: Api.materialAc
  */
 export const getActivities = (params) => defHttp.get({ url: Api.activity, params });
 
-/** 项目经理申请免整改复验；来源验收类型由后端确定。 */
-export const submitAcceptanceRecheck = (params: { periodId: string; sourceAcceptanceId: string; reason: string }) =>
-  defHttp.post({ url: '/project/acceptance/submit', params }, quietFeedback);
+/** 内外验统一申请，来源和施工轮次由后端确定；两种类型一次事务提交。 */
+export const applyProjectAcceptance = (params: {
+  periodId: string;
+  acceptTypes: ('INTERNAL' | 'CUSTOMER')[];
+  reason: string;
+  applyMode: 'NORMAL' | 'WITHOUT_RECTIFICATION';
+}) => defHttp.post({ url: '/project/acceptance/apply', params }, quietFeedback);

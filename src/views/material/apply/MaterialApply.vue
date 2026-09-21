@@ -54,12 +54,13 @@
   import MaterialSelectDrawer from './components/MaterialSelectDrawer.vue';
   import { loadUnitOptions } from '../material.util';
   import { validateEditableRows } from '/@/components/EditableTable';
+  import { useSessionDraft } from '/@/hooks/web/useSessionDraft';
 
   const router = useRouter();
   const { createMessage } = useMessage();
 
   // 注册表单
-  const [registerForm, { getFieldsValue, resetFields, validate }] = useForm({
+  const [registerForm, { getFieldsValue, setFieldsValue, resetFields, validate }] = useForm({
     labelWidth: 100,
     schemas: applyFormSchema,
     showActionButtonGroup: false,
@@ -83,6 +84,10 @@
 
   // 明细数据(本地数组)
   const detailList = ref<any[]>([]);
+  const draft = useSessionDraft<any>('material-apply:new', () => ({
+    form: getFieldsValue(),
+    rows: detailList.value.map(({ stockQty: _stockQty, currentStockQty: _currentStockQty, ...row }) => row),
+  }));
 
   /** 库存展示：接口 currentStockQty + baseUnitName（如 1个） */
   function formatStock(r: any) {
@@ -96,6 +101,13 @@
   const unitOptions = ref<{ label: string; value: string }[]>([]);
   onMounted(async () => {
     unitOptions.value = await loadUnitOptions();
+    if (!draft.isAlive()) return;
+    const saved = draft.read();
+    if (saved?.form && Array.isArray(saved.rows)) {
+      await setFieldsValue(saved.form);
+      detailList.value = saved.rows.map((row: any) => ({ ...row, _key: ++detailKeySeed }));
+    }
+    draft.enable();
   });
 
   // 自增key, 用于唯一标识明细行
@@ -189,6 +201,9 @@
     const data = await buildSubmitData();
     if (!data) return;
     await saveApply(data);
+    draft.clear();
+    await resetFields();
+    detailList.value = [];
     createMessage.success('保存成功');
     router.push('/material/list');
   }
@@ -200,16 +215,21 @@
     const data = await buildSubmitData();
     if (!data) return;
     await submitApply(data);
+    draft.clear();
     createMessage.success('发起申请成功');
     // 清空表单和明细
     await resetFields();
     detailList.value = [];
+    draft.enable();
   }
 
   /**
    * 取消: 返回列表
    */
   function handleCancel() {
+    draft.clear();
+    void resetFields();
+    detailList.value = [];
     router.push('/material/list');
   }
 </script>

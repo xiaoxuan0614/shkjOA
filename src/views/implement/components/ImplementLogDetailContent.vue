@@ -61,20 +61,37 @@
             />
           </div>
 
-          <div v-if="getPhotos().length" class="implement-detail__section">
+          <div v-if="photoUrls.length" class="implement-detail__section">
             <div class="implement-detail__section-title">现场照片</div>
             <a-image-preview-group>
               <div class="implement-detail__photos">
                 <a-image
-                  v-for="(img, index) in getPhotos()"
+                  v-for="(img, index) in photoUrls"
                   :key="`${img}-${index}`"
                   :src="img"
+                  :alt="`现场照片${index + 1}`"
                   :width="104"
                   :height="104"
                   class="implement-detail__photo"
                 />
               </div>
             </a-image-preview-group>
+          </div>
+
+          <div v-if="videoUrls.length" class="implement-detail__section">
+            <div class="implement-detail__section-title">现场视频</div>
+            <div class="implement-detail__photos">
+              <video
+                v-for="(url, index) in videoUrls"
+                :key="url"
+                :src="url"
+                controls
+                playsinline
+                preload="none"
+                :aria-label="`现场视频${index + 1}`"
+                style="width: 320px; max-width: 100%; height: 180px"
+              />
+            </div>
           </div>
 
           <div class="implement-detail__section">
@@ -108,6 +125,7 @@
 <script lang="ts" setup>
   import { computed, onMounted, onBeforeUnmount, ref } from 'vue';
   import { getFileAccessHttpUrl } from '/@/utils/common/compUtils';
+  import { logMediaUrl, isLogVideo } from '/@/utils/logMedia';
   import { implementProcessDetail, implementProjectDetail, logDetail } from '../Implement.api';
   import { loadProjectWorkTypeOptions } from '../../project/Project.data';
   import { getPlanMembers, getPlanOutsources } from '../../project/plan/Plan.api';
@@ -263,8 +281,11 @@
           .split(',')
           .map((item) => item.trim())
           .filter(Boolean);
-    return paths.map((path) => (/^(https?:|blob:|data:)/i.test(String(path)) ? String(path) : getFileAccessHttpUrl(String(path))));
+    return paths.map((path) => logMediaUrl(path, getFileAccessHttpUrl)).filter(Boolean);
   }
+
+  const photoUrls = computed(() => getPhotos().filter((url) => !isLogVideo(url)));
+  const videoUrls = computed(() => getPhotos().filter(isLogVideo));
 
   onMounted(load);
 </script>

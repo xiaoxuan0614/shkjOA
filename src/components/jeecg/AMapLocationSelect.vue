@@ -59,8 +59,14 @@
       :okButtonProps="{ disabled: disabled || !lastPoi }"
       @ok="handleConfirm"
       @visible-change="(visible) => (modalVisible = visible)"
+      @full-screen="(fullScreen) => (modalFullScreen = fullScreen)"
+      @height-change="(height) => (modalBodyHeight = height)"
     >
-      <div class="amap-location-select__map">
+      <div
+        class="amap-location-select__map"
+        :class="{ 'amap-location-select__map--fullscreen': modalFullScreen }"
+        :style="modalFullScreen && modalBodyHeight > 0 ? { height: `${modalBodyHeight}px` } : undefined"
+      >
         <!-- a-form-item-rest: 阻断外层 Form.Item 收集弹窗内搜索组件，避免 id 冲突/双字段告警 -->
         <a-form-item-rest>
           <AMapLocationMap
@@ -225,6 +231,8 @@
   const modalTitle = ref('地图选点');
   // 仅在弹窗打开时挂载地图，关闭即卸载，避免隐藏地图继续请求瓦片。
   const modalVisible = ref(false);
+  const modalFullScreen = ref(false);
+  const modalBodyHeight = ref(0);
   const modalLng = ref<number | null>(null);
   const modalLat = ref<number | null>(null);
   const modalAddress = ref('');
@@ -307,6 +315,26 @@
 
     &__map {
       padding-top: 4px;
+
+      &--fullscreen {
+        box-sizing: border-box;
+
+        :deep(.amap-location-map) {
+          display: flex;
+          flex-direction: column;
+          height: 100%;
+          min-height: 0;
+        }
+
+        :deep(.amap-location-map__wrap) {
+          flex: 1 1 0;
+          min-height: 0;
+        }
+
+        :deep(.amap-location-map__bar) {
+          flex-shrink: 0;
+        }
+      }
     }
   }
 </style>

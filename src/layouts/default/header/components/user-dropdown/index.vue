@@ -15,7 +15,6 @@
         <MenuDivider v-if="getShowDoc" />
         <MenuItem itemKey="account" :text="t('layout.header.dropdownItemSwitchAccount')" icon="ant-design:setting-outlined" />
         <MenuItem itemKey="password" :text="t('layout.header.dropdownItemSwitchPassword')" icon="ant-design:edit-outlined" />
-        <MenuItem itemKey="depart" :text="t('layout.header.dropdownItemSwitchDepart')" icon="ant-design:cluster-outlined" />
         <MenuItem itemKey="cache" :text="t('layout.header.dropdownItemRefreshCache')" icon="ion:sync-outline" />
         <!-- <MenuItem
             v-if="getUseLockPage"
@@ -28,7 +27,6 @@
     </template>
   </Dropdown>
   <LockAction v-if="lockActionVisible" ref="lockActionRef" @register="register" />
-  <DepartSelect ref="loginSelectRef" />
   <UpdatePassword v-if="passwordVisible" ref="updatePasswordRef" />
 </template>
 <script lang="ts">
@@ -59,7 +57,7 @@
   import { getRefPromise } from '/@/utils/index';
   import { refreshDragCache } from "@/api/common/api";
 
-  type MenuEvent = 'logout' | 'doc' | 'lock' | 'cache' | 'depart' | 'defaultHomePage' | 'password' | 'account';
+  type MenuEvent = 'logout' | 'doc' | 'lock' | 'cache' | 'defaultHomePage' | 'password' | 'account';
   const { createMessage } = useMessage();
   export default defineComponent({
     name: 'UserDropdown',
@@ -69,7 +67,6 @@
       MenuItem: createAsyncComponent(() => import('./DropMenuItem.vue')),
       MenuDivider: Menu.Divider,
       LockAction: createAsyncComponent(() => import('../lock/LockModal.vue')),
-      DepartSelect: createAsyncComponent(() => import('./DepartSelect.vue')),
       UpdatePassword: createAsyncComponent(() => import('./UpdatePassword.vue')),
     },
     props: {
@@ -100,10 +97,6 @@
       });
 
       const [register, { openModal }] = useModal();
-      /**
-       * 多部门弹窗逻辑
-       */
-      const loginSelectRef = ref();
       // 代码逻辑说明: 【QQYUN-6333】空路由问题—首次访问资源太大
       async function handleLock() {
         await getRefPromise(lockActionRef);
@@ -135,10 +128,6 @@
           createMessage.error(t('layout.header.refreshCacheFailure'));
         }
       }
-      // 切换部门
-      function updateCurrentDepart() {
-        loginSelectRef.value.show();
-      }
       // 修改密码
       const updatePasswordRef = ref();
       // 代码逻辑说明: 【QQYUN-6333】空路由问题—首次访问资源太大
@@ -161,9 +150,6 @@
           case 'cache':
             clearCache();
             break;
-          case 'depart':
-            updateCurrentDepart();
-            break;
           case 'password':
             updatePassword();
             break;
@@ -183,7 +169,6 @@
         getShowDoc,
         register,
         getUseLockPage,
-        loginSelectRef,
         updatePasswordRef,
         passwordVisible,
         lockActionVisible,

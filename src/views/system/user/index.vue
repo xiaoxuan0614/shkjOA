@@ -185,6 +185,10 @@
    * 打开修改密码弹窗
    */
   function handleChangePassword(username) {
+    if (username === 'admin') {
+      createMessage.warning('管理员账号不允许在用户管理中修改密码');
+      return;
+    }
     openPasswordModal(true, { username });
   }
   /**
@@ -271,6 +275,7 @@
       },
       {
         label: '密码',
+        disabled: record.username === 'admin',
         //auth: 'user:changepwd',
         onClick: handleChangePassword.bind(null, record.username),
       },

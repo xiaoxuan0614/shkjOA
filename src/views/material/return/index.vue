@@ -18,6 +18,7 @@
         <a-button v-if="editMode" type="link" @click="handleCancel">返回列表</a-button>
       </div>
       <a-alert type="info" show-icon message="当前还料接口仅支持项目；维修、劳保还料待接口支持后开放。" class="mb-4" />
+      <div class="mb-4">选择已参与且计划审批通过后的项目，按整个分期的剩余物料申请还料，无需由原领料人操作。</div>
       <BasicForm @register="registerForm" />
     </div>
 
@@ -68,20 +69,36 @@
 <script lang="ts" setup>
   import { computed, ref, onMounted } from 'vue';
   import { useRouter, useRoute } from 'vue-router';
+  import { useTabs } from '/@/hooks/web/useTabs';
   import { BasicForm, useForm } from '/@/components/Form/index';
   import { useMessage } from '/@/hooks/web/useMessage';
   import { returnFormSchema } from './Return.data';
-  import { getApplyById, getParticipatedProjects, getProjectMaterialAccount, submitReturnApply, updateReturnApply } from './Return.api';
+  import {
+    getApplyById,
+    getParticipatedProjects,
+    getProjectMaterialAccount,
+    submitReturnApply,
+    updateReturnApply,
+    RETURN_PERIOD_STATUSES,
+  } from './Return.api';
   import { queryItems } from '../record/StockApply.api';
   import { resolveCurrentMaterialUser, getCurrentUser } from '../material.util';
   import { MATERIAL_USAGE_TYPE } from '../material.constants';
+  import { PageEnum } from '/@/enums/pageEnum';
+  import { useSessionDraft } from '/@/hooks/web/useSessionDraft';
 
   const router = useRouter();
   const route = useRoute();
+  const { close: closeTab } = useTabs();
+  async function leaveCompletedForm() {
+    const completedRoute = { ...route };
+    await router.push(returnPath.value);
+    await closeTab(completedRoute);
+  }
   const { createMessage } = useMessage();
 
   // 注册表单
-  const [registerForm, { setFieldsValue, validate, updateSchema }] = useForm({
+  const [registerForm, { setFieldsValue, getFieldsValue, resetFields, validate, updateSchema }] = useForm({
     labelWidth: 100,
     schemas: returnFormSchema,
     showActionButtonGroup: false,
@@ -93,7 +110,7 @@
   const applyId = (route.query.applyId as string) || '';
   const returnPath = computed(() => {
     const from = Array.isArray(route.query.from) ? route.query.from[0] : route.query.from;
-    return typeof from === 'string' && from.startsWith('/') && !from.startsWith('//') ? from : '/dashboard/analysis';
+    return typeof from === 'string' && from.startsWith('/') && !from.startsWith('//') ? from : PageEnum.BASE_HOME;
   });
   const returnToRecord = computed(() => returnPath.value === '/material/record');
 
@@ -115,6 +132,14 @@
   ];
 
   const detailList = ref<any[]>([]);
+  let returnBaseline = '';
+  // 库存/应还数量不入草稿，恢复后始终使用本次查询结果。
+  const draft = useSessionDraft<any>(`material-return:${applyId || 'new'}`, () => ({
+    baseline: returnBaseline,
+    periodId: selectedPeriodId.value,
+    remark: getFieldsValue().remark,
+    rows: detailList.value.map((row) => ({ materialId: row.materialId, returnQty: row.returnQty, differenceReason: row.differenceReason })),
+  }));
   const detailEmptyText = computed(() => (selectedPeriodId.value ? '该项目当前没有待还物料' : '请先选择参与项目'));
   let detailKeySeed = 0;
 
@@ -165,7 +190,7 @@
       const uniqueRecords = new Map<string, any>();
       records.forEach((item: any) => {
         const key = String(item.periodId || '');
-        if (key && !uniqueRecords.has(key)) uniqueRecords.set(key, item);
+        if (key && RETURN_PERIOD_STATUSES.includes(item.periodStatus) && !uniqueRecords.has(key)) uniqueRecords.set(key, item);
       });
       participatedProjectPool.value = Array.from(uniqueRecords.values());
       return filterProjectOptions();
@@ -265,6 +290,29 @@
     ]);
     if (editMode) {
       await loadApplyForEdit();
+      if (!draft.isAlive() || !returnBaseline) return;
+      const saved = draft.read();
+      if (saved && saved.baseline === returnBaseline && saved.periodId === selectedPeriodId.value) {
+        await setFieldsValue({ remark: saved.remark });
+        for (const row of detailList.value) {
+          const input = saved.rows?.find((item: any) => String(item.materialId) === String(row.materialId));
+          if (input) Object.assign(row, { returnQty: input.returnQty, differenceReason: input.differenceReason });
+        }
+      } else if (saved) createMessage.warning('还料单已变化，未恢复旧草稿，请核对最新申请');
+      draft.enable();
+    } else if (draft.isAlive()) {
+      const saved = draft.read();
+      const option = projectOptions.value.find((item: any) => String(item.value) === String(saved?.periodId));
+      if (saved && option) {
+        await onProjectChange(String(saved.periodId), option);
+        if (!draft.isAlive()) return;
+        await setFieldsValue({ remark: saved.remark });
+        for (const row of detailList.value) {
+          const input = saved.rows?.find((item: any) => String(item.materialId) === String(row.materialId));
+          if (input) Object.assign(row, { returnQty: input.returnQty, differenceReason: input.differenceReason });
+        }
+      } else if (saved?.periodId) createMessage.warning('草稿项目已不在可选范围，请重新选择项目');
+      draft.enable();
     }
   });
 
@@ -328,7 +376,9 @@
         returnQty: Number(it.unitQty ?? it.applyQty ?? 0),
         differenceReason: it.remark || '',
       }));
+      returnBaseline = JSON.stringify(res);
     } catch (e) {
+      returnBaseline = '';
       createMessage.error('申请加载失败');
     }
   }
@@ -347,6 +397,10 @@
   /** 校验并组装提交数据 */
   async function buildSubmitData() {
     const values = await validate();
+    if (!participatedProjectPool.value.some((item) => String(item.periodId) === selectedPeriodId.value)) {
+      createMessage.warning('该分期不在当前可还料的参与项目中，请重新选择项目');
+      return null;
+    }
     if (!detailList.value.length) {
       createMessage.warning('请选择参与项目并加载待还物料');
       return null;
@@ -397,7 +451,11 @@
         await submitReturnApply(data);
         createMessage.success('还料申请提交成功');
       }
-      router.push(returnPath.value);
+      draft.clear();
+      await resetFields();
+      detailList.value = [];
+      selectedPeriodId.value = '';
+      await leaveCompletedForm();
     } finally {
       submitLoading.value = false;
     }
@@ -405,7 +463,11 @@
 
   /** 取消 */
   function handleCancel() {
-    router.push(returnPath.value);
+    draft.clear();
+    void resetFields();
+    detailList.value = [];
+    selectedPeriodId.value = '';
+    void leaveCompletedForm();
   }
 </script>
 

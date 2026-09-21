@@ -9,6 +9,9 @@
   import { BasicForm, useForm } from '/@/components/Form/index';
   import { formPasswordSchema } from './user.data';
   import { changePassword } from './user.api';
+  import { useMessage } from '/@/hooks/web/useMessage';
+  const { createMessage } = useMessage();
+  const targetUsername = ref('');
   // 声明Emits
   const emit = defineEmits(['success', 'register']);
   //表单配置
@@ -18,6 +21,7 @@
   });
   //表单赋值
   const [registerModal, { setModalProps, closeModal }] = useModalInner(async (data) => {
+    targetUsername.value = data.username;
     //重置表单
     await resetFields();
     setModalProps({ confirmLoading: false });
@@ -28,6 +32,10 @@
   async function handleSubmit() {
     try {
       const values = await validate();
+      if (targetUsername.value === 'admin' || values.username === 'admin') {
+        createMessage.warning('管理员账号不允许在用户管理中修改密码');
+        return;
+      }
       setModalProps({ confirmLoading: true });
       //提交表单
       await changePassword(values);

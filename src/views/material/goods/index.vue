@@ -40,6 +40,7 @@
 
     <!-- 新增/编辑物料弹窗(含单位子表) -->
     <GoodsModal @register="registerModal" @success="handleSuccess" />
+    <GoodsPriceModal @register="registerPriceModal" @success="handleSuccess" />
     <!-- 物料Excel导入弹窗(下载模板按钮在弹窗内，由 JImportModal 的 template 配置提供) -->
     <JImportModal @register="registerImportModal" :url="importExcel" :template="{ name: '物料导入模板', url: importTemplate }" />
   </div>
@@ -52,6 +53,9 @@
   import { useListPage } from '/@/hooks/system/useListPage';
   import { useMessage } from '/@/hooks/web/useMessage';
   import GoodsModal from './components/GoodsModal.vue';
+  import GoodsPriceModal from './components/GoodsPriceModal.vue';
+  import { usePermission } from '/@/hooks/web/usePermission';
+  import { MATERIAL_PRICE_PERMISSION } from './Goods.api';
   import JImportModal from '/@/components/Form/src/jeecg/components/JImportModal.vue';
   import { columns, searchFormSchema } from './Goods.data';
   import { list, deleteOne, batchDelete, queryById, importExcel, importTemplate } from './Goods.api';
@@ -68,6 +72,12 @@
 
   // 注册新增/编辑物料弹窗
   const [registerModal, { openModal }] = useModal();
+  const { hasPermission } = usePermission();
+  const [registerPriceModal, { openModal: openPriceModal }] = useModal();
+  function handlePrice(record: Recordable) {
+    if (!hasPermission(MATERIAL_PRICE_PERMISSION)) return;
+    openPriceModal(true, { id: record.id });
+  }
   // 注册导入弹窗(JImportModal)
   const [registerImportModal, { openModal: openImportModal }] = useModal();
 
@@ -86,7 +96,7 @@
         fieldMapToTime: [],
       },
       actionColumn: {
-        width: 160,
+        width: 220,
         fixed: 'right',
       },
       beforeFetch: (params) => {
@@ -166,6 +176,7 @@
         onClick: handleEdit.bind(null, record),
         auth: 'mtl:goods:edit',
       },
+      { label: '价格维护', onClick: handlePrice.bind(null, record), auth: MATERIAL_PRICE_PERMISSION },
     ];
   }
 

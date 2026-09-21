@@ -1,5 +1,6 @@
 import { BasicColumn } from '/@/components/Table';
 import { FormSchema } from '/@/components/Table';
+import { projectDisplayName } from '../../project/projectListFilters';
 
 /**
  * 采购入库 - 列定义 / 表单
@@ -10,7 +11,7 @@ import { FormSchema } from '/@/components/Table';
 export const purchaseColumns: BasicColumn[] = [
   { title: '采购单号', align: 'center', dataIndex: 'orderNo', width: 160 },
   { title: '供应商', align: 'center', dataIndex: 'supplierName', width: 160 },
-  { title: '分期项目', align: 'center', dataIndex: 'periodName', width: 140 },
+  { title: '项目名称', align: 'center', dataIndex: 'projectName', width: 240, customRender: ({ record }) => projectDisplayName(record) },
   { title: '下单日期', align: 'center', dataIndex: 'orderDate', width: 110 },
   { title: '总金额', align: 'center', dataIndex: 'totalAmount', width: 110 },
   { title: '状态', align: 'center', dataIndex: 'status', width: 100 },
@@ -78,21 +79,22 @@ export const purchaseFormSchema: FormSchema[] = [
     dynamicRules: () => [{ required: true, message: '请选择供应商!' }],
   },
   {
-    label: '分期项目',
+    label: '项目名称',
     field: 'periodId',
     component: 'Select',
     componentProps: {
       showSearch: true,
       allowClear: true,
-      filterOption: false, // 远程模糊搜索
-      placeholder: '输入分期项目名称模糊搜索，自动带出编号',
-      options: [], // 远程加载(弹窗 onSearch 注入)
+      optionFilterProp: 'label',
+      placeholder: '请选择或搜索主项目名称-分期项目名称',
+      options: [],
     },
-    dynamicRules: () => [{ required: true, message: '请选择分期项目!' }],
+    dynamicRules: () => [{ required: true, message: '请选择项目!' }],
   },
   {
     label: '项目名称',
     field: 'projectName',
+    show: false,
     component: 'Input',
     componentProps: { placeholder: '选择分期项目后自动带出', disabled: true },
   },

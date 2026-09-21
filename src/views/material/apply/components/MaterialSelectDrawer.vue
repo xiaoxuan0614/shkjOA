@@ -239,8 +239,15 @@
   );
 
   // 加载列表
+  function normalizePageNumber(value: unknown, fallback: number): number {
+    const number = typeof value === 'number' || typeof value === 'string' ? Number(value) : NaN;
+    return Number.isSafeInteger(number) && number > 0 ? number : fallback;
+  }
+
   async function loadData() {
     if (!drawerVisible.value) return;
+    pagination.current = normalizePageNumber(pagination.current, 1);
+    pagination.pageSize = normalizePageNumber(pagination.pageSize, 10);
     const requestSequence = ++loadSequence;
     const sourceMode = props.sourceMode;
     const periodId = props.periodId;
@@ -363,6 +370,7 @@
     const node = findNode(treeData.value, key);
     // 选中「全部」(或无分类节点) → 清空分类过滤，展示全部
     queryParam.materialCategory = node && node.key !== 'all' ? node.categoryCode : undefined;
+    pagination.current = 1;
     loadData();
   }
 
@@ -402,8 +410,8 @@
 
   // 分页变化
   function handleTableChange(pg: any) {
-    pagination.current = pg.current;
-    pagination.pageSize = pg.pageSize;
+    pagination.current = normalizePageNumber(pg?.current, pagination.current);
+    pagination.pageSize = normalizePageNumber(pg?.pageSize, pagination.pageSize);
     loadData();
   }
 

@@ -10,7 +10,7 @@
     :loading="loading"
   >
     <a-alert type="warning" show-icon class="arrival-confirm__alert">
-      <template #message>确认后系统将自动生成到货款计划回款时间，是否确认执行该操作？</template>
+      <template #message>确认本分期已到货；若合同配置了到货款，系统将同步计算计划回款时间。</template>
     </a-alert>
 
     <a-descriptions :column="1" bordered size="middle">
@@ -27,7 +27,7 @@
         <a-space v-if="contractAttachments.length" direction="vertical" size="small">
           <a-button
             v-for="file in contractAttachments"
-            :key="file.id || file.fileId"
+            :key="file.fileId"
             type="link"
             size="small"
             preIcon="ant-design:eye-outlined"
@@ -40,16 +40,17 @@
       </a-descriptions-item>
     </a-descriptions>
 
-    <a-alert v-if="!loading && !arrivalPlan" type="error" show-icon class="arrival-confirm__missing" message="此合同没有到货款，无需确认到货。" />
+    <a-alert v-if="!loading && !arrivalPlan" type="info" show-icon class="arrival-confirm__missing" message="此合同未配置到货款，仍需确认到货。" />
 
     <template #footer>
       <a-button :disabled="submitting" @click="closeModal">取消</a-button>
-      <a-button type="primary" :loading="submitting" :disabled="loading || !arrivalPlan" @click="handleConfirm"> 确认执行 </a-button>
+      <a-button type="primary" :loading="submitting" :disabled="loading" @click="handleConfirm"> 确认执行 </a-button>
     </template>
   </BasicModal>
 </template>
 
 <script lang="ts" setup>
+  import { expandContractAttachments } from '../contract/contractAttachments';
   import { computed, ref } from 'vue';
   import dayjs from 'dayjs';
   import { BasicModal, useModalInner } from '/@/components/Modal';
@@ -58,8 +59,14 @@
   import { previewFileInModal } from '/@/utils/filePreview';
   import { changeArrivalStatus, projectDetail } from '../Project.api';
   import { getFiles } from '../detail/ProjectDetail.api';
-  import { findArrivalPayment, isArrivalStage } from '../arrivalPayment';
+  import { findArrivalPayment, isArrivalStage, isPhysicalProject } from '../arrivalPayment';
+  import { loadProjectTypeMap } from '../Project.data';
+  import { readProjectMembership } from '../projectMembership';
+  import { useUserStore } from '/@/store/modules/user';
+  import { usePermission } from '/@/hooks/web/usePermission';
 
+  const userStore = useUserStore();
+  const { hasPermission } = usePermission();
   const emit = defineEmits(['register', 'success']);
   const { createMessage } = useMessage();
 
@@ -102,14 +109,22 @@
       const attachmentRecords = (Array.isArray(filePage) ? filePage : filePage?.records || []).filter(
         (item: Recordable) => String(item.fileType || '') === 'CONTRACT_ATTACHMENT' && item.fileId
       );
-      contractAttachments.value = attachmentRecords.length
-        ? attachmentRecords
-        : [
-            { fileId: detail?.contractFile?.fileId || detail?.contractFileId, fileName: detail?.contractFile?.fileName || detail?.contractFileName },
-            { fileId: detail?.materialFile?.fileId || detail?.materialFileId, fileName: detail?.materialFile?.fileName || detail?.materialFileName },
-          ]
-            .filter((item) => item.fileId)
-            .map((item) => ({ ...item, fileName: item.fileName || String(item.fileId).split('/').pop() || '合同附件' }));
+      contractAttachments.value = expandContractAttachments(
+        attachmentRecords.length && !detail?.contractFileId
+          ? attachmentRecords
+          : [
+              {
+                fileId: detail?.contractFileId || detail?.contractFile?.fileId,
+                fileName: detail?.contractFile?.fileName || detail?.contractFileName,
+              },
+              {
+                fileId: detail?.materialFile?.fileId || detail?.materialFileId,
+                fileName: detail?.materialFile?.fileName || detail?.materialFileName,
+              },
+            ]
+              .filter((item) => item.fileId)
+              .map((item) => ({ ...item, fileName: item.fileName || String(item.fileId).split('/').pop() || '合同附件' }))
+      );
       arrivalPlan.value = findArrivalPayment(detail?.records);
     } catch (error: any) {
       createMessage.error(error?.message || '合同回款信息加载失败，请稍后重试');
@@ -119,12 +134,16 @@
   });
 
   async function handleConfirm() {
-    if (!periodId.value || !arrivalPlan.value || submitting.value) return;
+    if (!periodId.value || loading.value || submitting.value || !hasPermission('project:arrival:confirm')) return;
     submitting.value = true;
     try {
-      const [latest, latestContract] = await Promise.all([projectDetail({ periodId: periodId.value }), contractDetailByPeriodId(periodId.value)]);
-      if (!isArrivalStage(latest || {}) || !findArrivalPayment(latestContract?.records)) {
-        createMessage.warning('到货状态或合同回款计划已变化，请刷新后操作');
+      const [latest, typeNames, membership] = await Promise.all([
+        projectDetail({ periodId: periodId.value }),
+        loadProjectTypeMap(),
+        readProjectMembership(periodId.value, String(userStore.getUserInfo?.id || '')),
+      ]);
+      if (!isArrivalStage(latest || {}) || !isPhysicalProject(latest || {}, typeNames) || !membership.manager) {
+        createMessage.warning('当前项目阶段、类型或项目经理身份不符合确认到货条件，请刷新后操作');
         closeModal();
         emit('success');
         return;

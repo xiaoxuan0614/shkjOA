@@ -1,5 +1,5 @@
 <template>
-  <div class="project-apply">
+  <div class="project-apply" @input.capture="scheduleDraft" @change.capture="scheduleDraft">
     <!-- 申请信息 -->
     <div class="project-apply__card">
       <a-alert v-if="!editId" type="info" show-icon class="project-apply__mode">
@@ -37,9 +37,9 @@
 </template>
 
 <script lang="ts" setup>
-  import { computed, ref, onMounted } from 'vue';
+  import { computed, ref, onMounted, onBeforeUnmount, onDeactivated, onActivated } from 'vue';
   import type { UploadFile } from 'ant-design-vue';
-  import { useRouter, useRoute } from 'vue-router';
+  import { useRouter, useRoute, onBeforeRouteLeave } from 'vue-router';
   import { BasicForm, useForm } from '/@/components/Form/index';
   import { AmapPoi } from '/@/components/jeecg/AMapPlaceSearch.vue';
   import { useMessage } from '/@/hooks/web/useMessage';
@@ -48,6 +48,7 @@
   import { addProject, editProject, projectDetail, getCustomerList, getMainProjectList } from '../Project.api';
   import { loadUserOptions } from '/@/views/resource/userOptions';
   import { previewFileInModal } from '/@/utils/filePreview';
+  import { projectCreateDraftKey, readProjectCreateDraft, saveProjectCreateDraft, removeProjectCreateDraft } from '/@/utils/projectCreateDraft';
 
   const router = useRouter();
   const route = useRoute();
@@ -77,12 +78,57 @@
   let liaisonNameMap: Recordable = {};
 
   // 注册表单
-  const [registerForm, { setFieldsValue, validate, updateSchema }] = useForm({
+  const [registerForm, { setFieldsValue, getFieldsValue, resetFields, validate, updateSchema }] = useForm({
     labelWidth: 120,
-    schemas: projectFormSchema,
+    schemas: projectFormSchema.map((schema) =>
+      schema.field === 'projectName' ? { ...schema, dynamicDisabled: () => isPeriodCreate.value } : schema
+    ),
     showActionButtonGroup: false,
     baseColProps: { span: 12 },
     baseRowStyle: { padding: '0 20px' },
+  });
+
+  const draftToken = userStore.getToken;
+  const draftUser: any = userStore.getUserInfo;
+  const draftKey = projectCreateDraftKey(String(draftUser.id || draftUser.userId || ''), String(draftUser.loginTenantId || ''), createMode.value, selectedParentProjectId.value);
+  let draftReady = false;
+  let disposed = false;
+  let draftFinished = false;
+  let draftTimer: ReturnType<typeof setTimeout> | undefined;
+  let storageWarningShown = false;
+  function persistDraft() {
+    if (editId.value || !draftReady || draftFinished || userStore.getToken !== draftToken) return;
+    try { saveProjectCreateDraft(draftKey, getFieldsValue(), selectedAttachment.value); }
+    catch {
+      if (!storageWarningShown) createMessage.warning('浏览器草稿缓存不可用，请保存后再离开页面');
+      storageWarningShown = true;
+    }
+  }
+  function scheduleDraft() {
+    clearTimeout(draftTimer);
+    draftTimer = setTimeout(persistDraft, 250);
+  }
+  function clearDraft() {
+    draftFinished = true;
+    clearTimeout(draftTimer);
+    removeProjectCreateDraft(draftKey);
+  }
+  onBeforeRouteLeave(() => { persistDraft(); });
+  onActivated(async () => {
+    if (!draftFinished || editId.value) return;
+    await resetFields();
+    selectedAttachment.value = undefined;
+    attachmentFileList.value = [];
+    await loadMainProjects();
+    await loadLiaisons();
+    draftFinished = false;
+  });
+  onDeactivated(persistDraft);
+  onBeforeUnmount(() => {
+    persistDraft();
+    disposed = true;
+    clearTimeout(draftTimer);
+    window.removeEventListener('pagehide', persistDraft);
   });
 
   /**
@@ -251,6 +297,7 @@
         originFileObj: file as any,
       },
     ];
+    scheduleDraft();
     return false;
   }
 
@@ -258,6 +305,7 @@
     selectedAttachment.value = undefined;
     attachmentFileList.value = [];
     attachmentReplacementRequired.value = !!existingAttachmentPath.value;
+    scheduleDraft();
     return true;
   }
 
@@ -270,7 +318,7 @@
   }
 
   /**
-   * 保存：业务数据放入 data JSON part，附件放入 attachment part，一次提交 multipart/form-data。
+   * 保存：有新附件时先公共上传，再将路径随业务 JSON 保存。
    */
   async function handleSave() {
     try {
@@ -284,9 +332,9 @@
         createMessage.warning('已移除原附件，请先选择新文件后再保存');
         return;
       }
-      // 最新 DTO 不接收附件路径；附件仅通过 multipart 的 attachment part 提交。
+      // 附件路径由 API 封装在公共上传成功后填入，避免提交表单中的旧值。
       delete values.attachmentFileId;
-      const { projectId, projectName, periodName, ...rest } = values;
+      const { projectId: _projectId, projectName, periodName, ...rest } = values;
       // 多选字段: 数组 → 逗号分隔字符串(对齐后端存储格式)
       const submitValues: Recordable = { ...rest };
       ['businessAttribute', 'involvedProducts'].forEach((f) => {
@@ -315,6 +363,7 @@
         );
       }
       createMessage.success('保存成功');
+      clearDraft();
       router.push('/project/list');
     } catch (error) {
       // 校验失败/接口异常
@@ -327,6 +376,7 @@
    * 取消
    */
   function handleCancel() {
+    clearDraft();
     router.push('/project/list');
   }
 
@@ -335,9 +385,28 @@
     await loadMainProjects();
     await loadLiaisons();
     await loadAddressSelect();
+    if (disposed) return;
     if (editId.value) {
       await loadDetail();
+    } else if (userStore.getToken === draftToken) {
+      const draft = readProjectCreateDraft(draftKey);
+      if (draft) {
+        const values = { ...draft.values };
+        for (const field of ['businessAttribute', 'involvedProducts']) {
+          if (typeof values[field] === 'string') values[field] = values[field].split(',').filter(Boolean);
+        }
+        if (isPeriodCreate.value) {
+          values.projectId = selectedParentProjectId.value;
+          values.projectName = selectedMainProjectName.value;
+        }
+        await setFieldsValue(values);
+        await updateSchema({ field: 'projectAddress', componentProps: { lng: values.longitude ?? null, lat: values.latitude ?? null } });
+        if (draft.file) handleBeforeAttachmentUpload(draft.file);
+        else if (draft.attachmentName) createMessage.warning(`表单草稿已恢复，请重新选择附件：${draft.attachmentName}`);
+      }
+      draftReady = true;
     }
+    window.addEventListener('pagehide', persistDraft);
   });
 </script>
 
