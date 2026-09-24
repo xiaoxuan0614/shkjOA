@@ -22,16 +22,17 @@
           <a-button :loading="saving">撤回审批</a-button>
         </a-popconfirm>
         <template v-if="reviewMode && loaded && caps.approve">
-          <a-popconfirm title="确认通过技术审批？通过后由市场部主管维护比例和指导价。" @confirm="review('1')"
+          <a-popconfirm :title="marketQuotation ? '确认通过市场审批？' : '确认通过技术审批？通过后由市场部主管维护比例和指导价。'" @confirm="review('1')"
             ><a-button type="primary" :loading="saving">通过</a-button></a-popconfirm
           >
           <a-button danger :disabled="saving" @click="rejectOpen = true">驳回</a-button>
         </template>
-        <a-popconfirm v-if="canPrice" title="按当前比例和终价确认整单定价？" @confirm="confirmPrice"
+        <a-button v-if="canPrice && !canEditPricing" :disabled="saving" @click="unlockPricing">解锁</a-button>
+        <a-popconfirm v-if="canEditPricing" title="按当前比例和终价确认整单定价？" @confirm="confirmPrice"
           ><a-button type="primary" :loading="saving">确认定价</a-button></a-popconfirm
         >
-        <a-button v-if="loaded && access.canManage && hasPermission('plan:quotation:grant')" @click="grantOpen = true" :disabled="saving">报价授权</a-button>
-        <a-button v-if="!simpleLoad && loaded && record.id" @click="historyOpen = true">操作记录</a-button>
+        <a-button v-if="canGrant" @click="grantOpen = true" :disabled="saving">报价授权</a-button>
+        <a-button v-if="loaded && record.id" @click="historyOpen = true">操作记录</a-button>
       </div>
     </div>
     <a-alert class="material-draft-editor__notice" show-icon :type="error ? 'error' : 'info'" :message="error || notice" />
@@ -55,6 +56,7 @@
         :candidate-id="tableCandidateId"
         mode="quotation"
         quote-pricing
+        :direct-quotation="directEntry"
         paginated
         snapshot-only
         :editable="canModify && !saving"
@@ -62,8 +64,8 @@
         :cost-visible="true"
         :price-visible="showMarketPricing"
         :base-price-editable="canModify && (!record.id || caps.editBase)"
-        :pricing-editable="canPrice"
-        :combined-material-identity="viewOnly"
+        :pricing-editable="directEntry ? canModify : canEditPricing"
+        combined-material-identity
         :busy="saving"
         @loaded="restoreQuotationDraft"
       />
@@ -74,8 +76,8 @@
           ><a-textarea v-model:value="rejectReason" :maxlength="500" :rows="3" /></a-form-item
       ></a-form>
     </a-modal>
-    <QuotationGrantModal v-if="loaded && access.canManage && hasPermission('plan:quotation:grant')" v-model:open="grantOpen" :period-id="periodId" @success="reloadAccess" />
-    <QuotationHistoryModal v-if="!simpleLoad" v-model:open="historyOpen" :period-id="periodId" :candidate-id="candidateId" />
+    <QuotationGrantModal v-if="canGrant" v-model:open="grantOpen" :period-id="periodId" @success="reloadAccess" />
+    <QuotationHistoryModal v-model:open="historyOpen" :period-id="periodId" :candidate-id="candidateId" />
   </div>
 </template>
 
@@ -98,10 +100,12 @@
     getCandidateRecord,
     getQuotationAccess,
     getQuotationHistory,
+    getQuotationDepartments,
   } from '../Plan.api';
   import { noQuotationAccess, quotationCapabilities, quotationListCapabilities, quotationVersion, assertQuotationVersion } from '../quotationGovernance';
-  import { quotationPricePayload } from '../quotationPricing';
+  import { quotationPricePayload, validateDirectQuotation } from '../quotationPricing';
   import { findQuotationRejection } from '../quotationRejection';
+  import { previewQuotationRoute } from '../quotationRoute';
   defineOptions({ name: 'ContractMaterialDraftEditor' });
   const route = useRoute();
   const router = useRouter();
@@ -112,6 +116,11 @@
   const candidateId = ref(String(route.query.candidateId || ''));
   const tableCandidateId = ref(candidateId.value);
   const record = ref<Recordable>({});
+  const creationRoute = ref('');
+  const marketQuotation = computed(() => (record.value.id ? record.value.approvalRoute : creationRoute.value) === 'MARKET');
+  // 录入字段按人员职责开放，不修改历史单的服务端审批线路。
+  const directEntry = computed(() => marketQuotation.value || (creationRoute.value === 'MARKET'
+    && ['-1', '0', '2'].includes(String(record.value.status ?? '-1'))));
   const project = ref<Recordable>({});
   const access = ref({ ...noQuotationAccess });
   const loaded = ref(false);
@@ -147,6 +156,8 @@
     }
   }
   const grantOpen = ref(false);
+  const canGrant = computed(() => loaded.value && String(record.value.status) === '1' && String(record.value.priced) === '1'
+    && access.value.canManage && hasPermission('plan:quotation:grant'));
   const historyOpen = ref(false);
   const editing = ref(route.query.mode === 'create');
   const needsRecovery = ref(false);
@@ -157,7 +168,7 @@
       id: candidateId.value, version: record.value.version,
       name: candidateName.value,
       rows: (tableRef.value?.getRows() || []).map((row: any) => Object.fromEntries(
-        ['id', 'materialId', 'materialName', 'materialCode', 'materialCategory', 'brand', 'model', 'unit', 'unitId', '_unitValue', 'plannedQty', 'basePrice', 'remark'].map((field) => [field, row[field]])
+        ['id', 'materialId', 'materialName', 'materialCode', 'materialCategory', 'brand', 'model', 'unit', 'unitId', '_unitValue', 'plannedQty', 'basePrice', 'finalPrice', 'remark'].map((field) => [field, row[field]])
       )),
     };
   });
@@ -202,21 +213,41 @@
       price: quotationCapabilities(record.value, access.value, userStore.getUserInfo, hasPermission).price };
   });
   const canModify = computed(
-    () => loaded.value && !viewOnly.value && (record.value.id ? caps.value.edit : hasPermission('plan:quotation:add'))
+    () => loaded.value && !viewOnly.value && (!marketQuotation.value || ['-1', '0'].includes(String(record.value.status ?? '-1')))
+      && (record.value.id ? caps.value.edit : !!creationRoute.value && hasPermission('plan:quotation:add'))
   );
-  const canUnlock = computed(() => loaded.value && !canPrice.value && !editing.value && !reviewMode.value && !pricingMode.value && !!record.value.id && caps.value.structure);
+  const canUnlock = computed(() => loaded.value && !canPrice.value && !editing.value && !reviewMode.value && !pricingMode.value && !!record.value.id && caps.value.structure
+    && (!marketQuotation.value || ['-1', '0'].includes(String(record.value.status))));
   const canSubmitSaved = computed(() => loaded.value && !editing.value && !reviewMode.value && !pricingMode.value && !!record.value.id && caps.value.submit);
   function unlockEditing() {
     if (!canUnlock.value || saving.value) return;
     editing.value = true;
     quotationDraft.enable();
   }
-  const canPrice = computed(() => loaded.value && !editing.value && !reviewMode.value && (pricingMode.value || simpleLoad.value) && caps.value.price);
-  const showMarketPricing = computed(() => canPrice.value && String(record.value.status) === '1');
+  const canPrice = computed(() => !marketQuotation.value && loaded.value && !editing.value && !reviewMode.value && (pricingMode.value || simpleLoad.value) && caps.value.price);
+  const pricingUnlocked = ref(false);
+  const canEditPricing = computed(() => canPrice.value && (String(record.value.priced) !== '1' || pricingUnlocked.value));
+  function unlockPricing() {
+    if (!canPrice.value || saving.value) return;
+    pricingUnlocked.value = true;
+  }
+  const showMarketPricing = computed(() => directEntry.value || (canPrice.value && String(record.value.status) === '1'));
   const title = computed(() =>
-    reviewMode.value ? '技术审批' : pricingMode.value ? '市场定价' : viewOnly.value ? '查看报价' : record.value.id ? '修改报价' : '新增报价'
+    reviewMode.value ? (marketQuotation.value ? '市场审批' : '技术审批') : pricingMode.value ? '市场定价' : viewOnly.value ? '查看报价' : record.value.id ? '修改报价' : '新增报价'
   );
   const notice = computed(() => {
+    if (directEntry.value && !marketQuotation.value) return editing.value
+      ? '请填写成本价和报价，均保留两位小数；保存后提交审批。此历史报价的审批线路仍以后端为准。'
+      : '成本价和报价为已保存内容；草稿或驳回状态点击“修改”后可填写。审批线路保持不变。';
+    if (marketQuotation.value) {
+      if (String(record.value.status) === '1') return String(record.value.priced) === '1'
+        ? '市场审批已通过，报价已锁定；有授权资格的人员可配置导出权限。'
+        : '市场审批已通过，但后端仍返回未定价，暂不可授权导出；请联系后端核对审批自动定价逻辑。';
+      if (reviewMode.value) return '市场主管只读核对成本价和报价，办理通过或驳回，不修改价格。';
+      if (String(record.value.status) === '2') return '报价待市场主管审批，内容只读；提交人可在审批前撤回。';
+      return editing.value ? '请填写成本价和最终报价，均保留两位小数；保存后提交市场主管审批。' : '当前报价只读，点击“修改”可调整成本价和报价，保存后可提交市场主管审批。';
+    }
+    if (canPrice.value && !canEditPricing.value) return '已确认定价，当前页面只读。需要调整指导比例或指导价，请先点击“解锁”，调整后重新确认定价。';
     if (canPrice.value) return '技术审批已通过，可维护指导比例和指导价并确认定价，成本价保持只读。';
     if (reviewMode.value) return '技术审批仅查看报价内容并操作通过或驳回；提价比例和指导价由市场部主管在审批通过后维护。';
     if (pricingMode.value) {
@@ -231,22 +262,20 @@
   });
 
   async function reloadAccess() {
-    access.value = await getQuotationAccess(periodId);
+    access.value = await getQuotationAccess(periodId, candidateId.value);
   }
   async function reload() {
     if (saving.value) return;
+    pricingUnlocked.value = false;
     loaded.value = false;
     access.value = { ...noQuotationAccess };
     error.value = '';
     try {
       if (!periodId) throw new Error('缺少项目分期 ID，请从报价管理进入');
       if (route.query.mode !== 'create' && !candidateId.value) throw new Error('缺少候选清单 ID');
+      creationRoute.value = previewQuotationRoute(userStore.getIdentity.departmentIds, await getQuotationDepartments());
       if (simpleLoad.value) {
-        const candidate = needsRecovery.value ? await getCandidateRecord(periodId, candidateId.value) : {
-          id: candidateId.value, version: route.query.version == null ? undefined : quotationVersion(route.query.version),
-          candidateName: String(route.query.candidateName || ''), status: String(route.query.status || ''),
-          adopted: String(route.query.adopted ?? ''), priced: String(route.query.priced ?? ''), createBy: String(route.query.createBy || ''),
-        };
+        const candidate = await getCandidateRecord(periodId, candidateId.value);
         if (editFromList.value && !['0', '1'].includes(String(candidate.adopted))) throw new Error('缺少报价采用状态，请返回列表重新进入');
         project.value = (await projectDetail({ periodId })) || {};
         record.value = candidate;
@@ -267,12 +296,15 @@
       }
       const [p, permissions, candidate] = await Promise.all([
         projectDetail({ periodId }),
-        getQuotationAccess(periodId),
+        getQuotationAccess(periodId, candidateId.value),
         candidateId.value ? getCandidateRecord(periodId, candidateId.value) : Promise.resolve({}),
       ]);
       project.value = p || {};
       access.value = permissions;
       record.value = candidate;
+      if (!candidateId.value) {
+        if (!creationRoute.value) throw new Error('无法确认报价所属部门，请确认市场部或技术部归属后重试');
+      }
       void loadRejection();
       if (candidate.candidateName) candidateName.value = candidate.candidateName;
       tableCandidateId.value = candidateId.value;
@@ -288,7 +320,7 @@
       if (String(record.value.status) === '1') await reloadAccess();
       return;
     }
-    const permissions = await getQuotationAccess(periodId);
+    const permissions = await getQuotationAccess(periodId, candidateId.value);
     access.value = permissions;
     if (!record.value.id) return;
     const latest = await getCandidateRecord(periodId, candidateId.value);
@@ -340,6 +372,7 @@
     }
   }
   async function refreshAfterWrite() {
+    pricingUnlocked.value = false;
     loaded.value = false;
     needsRecovery.value = true;
     record.value = await getCandidateRecord(periodId, candidateId.value);
@@ -370,6 +403,14 @@
     await run(async () => {
       if (!hasPermission('plan:quotation:submit')) throw new Error('没有提交审批按钮权限');
       if (!canSubmitSaved.value) throw new Error('请先保存修改，再提交审核');
+      if (directEntry.value) {
+        const rows = tableRef.value?.getRows();
+        if (!rows?.length) throw new Error('报价明细为空');
+        rows.forEach((row: any) => {
+          try { validateDirectQuotation(row.basePrice, row.finalPrice); }
+          catch (error: any) { throw new Error(`${row.materialName}：${error.message}`); }
+        });
+      }
       await verifyCurrent();
       await candidateAction('submit', record.value);
       await refreshAfterWrite();
@@ -397,10 +438,11 @@
       await candidateAction('approve', record.value, { result, ...(result === '0' ? { reason: rejectReason.value.trim() } : {}) });
       rejectOpen.value = false;
       await refreshAfterWrite();
-      createMessage.success(result === '1' ? '技术审批已通过，待市场部主管确认定价' : '技术审批已驳回');
+      createMessage.success(result === '1' ? (marketQuotation.value ? '市场审批已通过' : '技术审批已通过，待市场部主管确认定价') : '报价审批已驳回');
     });
   }
   async function confirmPrice() {
+    if (!canEditPricing.value) return;
     await run(async () => {
       await verifyCurrent();
       if (!caps.value.price) throw new Error('当前无定价资格');
@@ -413,11 +455,16 @@
         return { id: row.id, markupRate: values.markupRate, finalPrice: values.finalPrice };
       });
       await candidateAction('price', record.value, { records });
+      pricingUnlocked.value = false;
       await refreshAfterWrite();
       createMessage.success('整单定价已确认');
     });
   }
   function goBack() {
+    if (route.query.from === 'project-detail' && periodId) {
+      router.push({ path: `/project/detail/${encodeURIComponent(periodId)}`, query: { tab: 'quotation' } });
+      return;
+    }
     router.push('/plan/material-draft');
   }
   onMounted(reload);

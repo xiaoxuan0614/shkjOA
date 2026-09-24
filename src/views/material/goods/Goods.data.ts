@@ -1,5 +1,6 @@
 import { BasicColumn } from '/@/components/Table';
 import { FormSchema } from '/@/components/Table';
+import { renderMaterialSpecification } from '../materialSpecification';
 
 /**
  * 物料库存 - 列表/搜索/常量字典配置
@@ -48,16 +49,17 @@ export const columns: BasicColumn[] = [
     width: 110,
   },
   {
+    title: '参数',
+    align: 'center',
+    dataIndex: 'specificationParams',
+    width: 180,
+    customRender: ({ text }) => renderMaterialSpecification(text),
+  },
+  {
     title: '基准单位',
     align: 'center',
     dataIndex: 'unit',
     width: 90,
-  },
-  {
-    title: '基准单价',
-    align: 'center',
-    dataIndex: 'unitPrice',
-    width: 100,
   },
   {
     title: '库存数量',
@@ -164,6 +166,23 @@ export const formSchema: FormSchema[] = [
     component: 'InputNumber',
     componentProps: { placeholder: '请输入初始库存(基准单位)', min: 0, style: { width: '100%' } },
     // 新增时可填初始库存；编辑时由页面动态禁用(库存变动统一走「出入库」)
+  },
+  {
+    label: '规格参数',
+    field: 'specificationParams',
+    component: 'InputTextArea',
+    defaultValue: '',
+    colProps: { span: 24 },
+    componentProps: { placeholder: '请输入规格参数，支持多行填写（选填）', autoSize: { minRows: 3, maxRows: 8 } },
+    rules: [
+      {
+        validator: async (_rule, value) => {
+          if (new TextEncoder().encode(value ?? '').length > 65535) {
+            throw new Error('规格参数不能超过 65535 字节，请缩短内容（中文通常占 3 字节）');
+          }
+        },
+      },
+    ],
   },
   {
     label: '备注',

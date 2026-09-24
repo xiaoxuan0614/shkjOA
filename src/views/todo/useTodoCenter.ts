@@ -35,7 +35,8 @@ export const TODO_TYPE_DICT_CODE = 'todo_type';
 
 const TODO_TYPE_FALLBACKS: Record<string, TodoTypeMeta> = {
   PROJECT_MEMBER_INVITATION: { text: '项目成员邀请', color: '#13c2c2' },
-  PROJECT_PLAN_APPROVAL: { text: '项目计划方案审批', color: '#1677ff' },
+  PROJECT_PERIOD_APPROVAL: { text: '分期计划审批', color: '#1677ff' },
+  PROJECT_PLAN_APPROVAL: { text: '历史方案审批', color: '#1677ff' },
   PROJECT_CANDIDATE_APPROVAL: { text: '报价审批', color: '#722ed1' },
   PROJECT_CONTRACT_APPROVAL: { text: '项目合同审批', color: '#722ed1' },
   PROJECT_MATERIAL_APPLY_APPROVAL: { text: '项目用料申请审批', color: '#fa8c16' },

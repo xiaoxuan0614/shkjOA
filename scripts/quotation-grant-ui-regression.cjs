@@ -1,0 +1,16 @@
+const fs = require('node:fs');
+const assert = require('node:assert/strict');
+const { parse, compileScript, compileTemplate } = require('@vue/compiler-sfc');
+const filename = 'src/views/plan/material-draft/QuotationGrantModal.vue';
+const source = fs.readFileSync(filename, 'utf8');
+const { descriptor } = parse(source);
+compileScript(descriptor, { id: 'grant' });
+assert.deepEqual(compileTemplate({ source: descriptor.template.content, filename, id: 'grant' }).errors, []);
+assert.doesNotMatch(source, /a-checkbox|title: '查看价格'|title: '修改价格'/);
+assert.match(source, /canViewPrice: false, canEditPrice: false, canExport/);
+assert.match(source, /updateGrant\(target, version.value, true\)/);
+assert.match(source, /updateGrant\(String\(row.userId\), quotationVersion\(row.version\), false\)/);
+assert.match(source, /Number\(row.canExport\) === 1/);
+assert.match(source, /current.version\) : 0\) !== payload.version/);
+assert.match(source, /操作已成功，但列表刷新失败/);
+console.log('Grant modal compilation, export-only payload, revoke and version guards passed');

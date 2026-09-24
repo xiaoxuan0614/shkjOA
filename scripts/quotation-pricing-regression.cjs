@@ -10,6 +10,13 @@ function load(file, overrides = {}) {
   return exports;
 }
 const pricing = load('src/views/plan/quotationPricing.ts');
+assert.doesNotThrow(() => pricing.validateDirectQuotation(0, '0.00'));
+assert.doesNotThrow(() => pricing.validateDirectQuotation('12.34', '12.34'));
+assert.doesNotThrow(() => pricing.validateDirectQuotation('12.34', '12.35'));
+assert.doesNotThrow(() => pricing.validateDirectQuotation('12.34', '12.33'));
+assert.doesNotThrow(() => pricing.validateDirectQuotation('12.34', '0.00'));
+assert.throws(() => pricing.validateDirectQuotation(1, null));
+assert.throws(() => pricing.validateDirectQuotation(1, '1.001'));
 assert.equal(pricing.guidancePrice(100,20),'120.00');
 assert.equal(pricing.guidancePrice('1.01',50),'1.52');
 assert.equal(pricing.guidancePrice(0,20),'0.00');
@@ -36,7 +43,7 @@ const excel = load('src/views/plan/materialExcel.ts', { './quotationPricing': pr
   await excel.exportCandidateMaterials({ candidateId: 'test', candidateName: '测试报价', records: rows });
   const workbook = new ExcelJS.Workbook(); await workbook.xlsx.load(buffer);
   const sheet = workbook.worksheets[0];
-  assert.equal(sheet.getCell('H1').value, '终价（单价）');
+  assert.equal(sheet.getCell('H1').value, '指导价格');
   assert.equal(sheet.getCell('H2').value, 120);
   assert(!JSON.stringify(sheet.getRow(1).values).match(/成本|底价|比例|备注/));
   assert.equal(sheet.columnCount, 8);

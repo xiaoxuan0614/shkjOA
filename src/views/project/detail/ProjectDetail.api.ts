@@ -127,6 +127,8 @@ export const getImplementLog = (params) => defHttp.get({ url: Api.implementLog, 
  * 内部/外部验收记录 tab(分页)，acceptType 显式传 INTERNAL 或 CUSTOMER。
  */
 export const getAcceptance = (params) => defHttp.get({ url: Api.acceptance, params });
+export const getAcceptanceLatestStatus = (periodId: string) =>
+  defHttp.get({ url: '/project/acceptance/latestStatus', params: { periodId } });
 export const getAcceptanceById = (id: string) => defHttp.get({ url: '/project/acceptance/queryById', params: { id } }, quietFeedback);
 
 /**

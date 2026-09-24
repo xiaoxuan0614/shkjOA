@@ -46,7 +46,7 @@ export async function exportCandidateMaterials(record: Recordable) {
     { header: '型号', key: 'model', width: 20 },
     { header: '数量', key: 'quantity', width: 14 },
     { header: '单位', key: 'unit', width: 14 },
-    { header: '终价（单价）', key: 'finalPrice', width: 18 },
+    { header: '指导价格', key: 'finalPrice', width: 18 },
   ];
   rows.forEach((item) => {
     worksheet.addRow({

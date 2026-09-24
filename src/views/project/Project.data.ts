@@ -46,6 +46,7 @@ export const projectStatusMap: Recordable = {
   PENDING_ACCEPT: '待验收',
   INTERNAL_ACCEPTING: '内部验收中',
   ACCEPTING: '验收中',
+  REACCEPTING: '复验中',
   REWORKING: '返工中',
   WARRANTY: '质保中',
   COMPLETED: '完结',
@@ -141,9 +142,9 @@ export const loadProductOptions = () => loadDictOptions('project_products');
  * 项目状态流转配置：普通 action 传 periodId + status → /project/period/status，
  * 验收提交和返工执行由各自专用接口处理。
  * - 普通 action: { label, status, auth } → 调状态流转接口
- * - act='contractSign': 跳转「合同信息」页面(合同提交后待审批，审批通过后项目→筹备中)
- * - act='planAudit': 打开「计划审批」(通过→实施中, 驳回→筹备中)
- * 生命周期: 未开始 →(合同提交/审批)→ 筹备中 →(计划提交审批)→ 待审批 →(计划审批通过)→ 实施中
+ * - act='contractSign': 跳转「合同信息」页面，合同审批不再由前端推进分期阶段
+ * - act='planAudit': 专用分期审批接口(通过→筹备中, 驳回/撤回→未开始)
+ * 生命周期: 未开始 →(计划提交审批)→ 待审批 →(计划审批通过)→ 筹备中 → 后续实施流程
  *   → 逐道工序完成 → 待验收 → 验收(内/外并行) → 质保 → 完结；失败验收可进入返工后复验
  * ⚠️ status 为前端约定, 后端提供 status 接口后需对齐状态码
  */
@@ -156,7 +157,7 @@ export const statusFlow: Recordable = {
     actions: [],
   },
   PENDING_APPROVAL: {
-    actions: [{ label: '计划审批', act: 'planAudit', auth: 'project:plan:audit' }],
+    actions: [{ label: '计划审批', act: 'planAudit', auth: 'project:period:approve' }],
   },
   IMPLEMENTING: {
     actions: [{ label: '实施完成', act: 'processComplete', auth: 'project:implement' }],
@@ -173,6 +174,7 @@ export const statusFlow: Recordable = {
   PENDING_ACCEPT: { actions: [] },
   INTERNAL_ACCEPTING: { actions: [] },
   ACCEPTING: { actions: [] },
+  REACCEPTING: { actions: [] },
   // 返工审批通过后复用实施工序完成抽屉；最后一道完成后由后端推进验收。
   REWORKING: {
     actions: [{ label: '返工进度', act: 'processComplete', auth: 'project:implement' }],
@@ -194,6 +196,7 @@ export const statusColorMap: Recordable = {
   PENDING_ACCEPT: 'gold',
   INTERNAL_ACCEPTING: 'geekblue',
   ACCEPTING: 'orange',
+  REACCEPTING: 'orange',
   REWORKING: 'volcano',
   WARRANTY: 'purple',
   COMPLETED: 'success',
@@ -265,9 +268,9 @@ export const columns: BasicColumn[] = [
 export const searchFormSchema: FormSchema[] = [
   {
     label: '项目名称',
-    field: 'projectName',
+    field: 'keyword',
     component: 'Input',
-    componentProps: { placeholder: '请输入主项目名称关键词', allowClear: true },
+    componentProps: { placeholder: '请输入项目名称关键词', allowClear: true },
   },
   {
     label: '项目经理',

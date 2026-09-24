@@ -1,6 +1,8 @@
 <template>
-  <a-card title="返工申请与审批记录" size="small">
-    <template #extra><a-button size="small" :loading="loading" @click="load">刷新</a-button></template>
+  <div>
+    <div style="display: flex; justify-content: flex-end; margin-bottom: 12px">
+      <a-button size="small" :loading="loading" @click="load">刷新</a-button>
+    </div>
     <a-alert v-if="error" type="warning" :message="error" show-icon />
     <a-table
       v-else
@@ -15,15 +17,21 @@
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'approvalStatus'">{{ getApprovalStatusMeta(record.approvalStatus).text }}</template>
         <template v-else-if="column.key === 'executionStatus'">{{ executionText(record) }}</template>
-        <template v-else-if="column.key === 'action'"><a-button type="link" @click="$emit('open', record.id)">查看 / 办理</a-button></template>
+        <template v-else-if="column.key === 'action'">
+          <a-button type="link" @click="$emit('open', record.id)">查看详情</a-button>
+          <a-button v-if="canApprove(record)" type="link" @click="$emit('open', record.id)">审批</a-button>
+        </template>
       </template>
     </a-table>
-  </a-card>
+  </div>
 </template>
 <script setup lang="ts">
   import { ref, watch } from 'vue';
   import { getProjectReworks } from '../ProjectDetail.api';
-  import { getApprovalStatusMeta } from '/@/utils/approvalStatus';
+  import { getApprovalStatusMeta, isApprovalPending } from '/@/utils/approvalStatus';
+  import { usePermission } from '/@/hooks/web/usePermission';
+  const { hasPermission } = usePermission();
+  const canApprove = (record: any) => hasPermission('project:rework:approve') && isApprovalPending(record.approvalStatus);
   const props = defineProps<{ periodId: string }>();
   defineEmits(['open']);
   const rows = ref<any[]>([]),
@@ -41,7 +49,7 @@
     { title: '实施状态', key: 'executionStatus' },
     { title: '审批人', dataIndex: 'approvalUserName' },
     { title: '审批意见', dataIndex: 'approvalReason', ellipsis: true },
-    { title: '操作', key: 'action', width: 110 },
+    { title: '操作', key: 'action', width: 180, fixed: 'right' },
   ];
   const executionText = (row: any) =>
     String(row.approvalStatus) !== '1'

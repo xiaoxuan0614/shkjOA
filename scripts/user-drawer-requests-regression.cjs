@@ -9,6 +9,16 @@ function load(file, dependencies = {}) {
   return out;
 }
 const departments = load('src/views/system/user/userDepartment.ts');
+const { advancedUserFields, mergeUserFormValues } = load('src/views/system/user/userFormSections.ts');
+const fields = ['id', 'email', 'mainDepPostId', 'otherDepPostId', 'sort'].map(field => ({ field }));
+assert.deepEqual(mergeUserFormValues(fields,
+  { id: 'u', email: 'old@example.com', mainDepPostId: 'p', otherDepPostId: ['q'], sort: 9, extra: 'omit' },
+  { email: '', otherDepPostId: [], sort: 0 }, { id: 'u' }),
+  { id: 'u', email: '', mainDepPostId: 'p', otherDepPostId: [], sort: 0 });
+assert(advancedUserFields.has('mainDepPostId'));
+assert(advancedUserFields.has('positionType'));
+assert(!advancedUserFields.has('selecteddeparts'));
+assert(!advancedUserFields.has('departIds'));
 const { loadUserDrawerRecord } = load('src/views/system/user/userDrawerLoader.ts', { './userDepartment': departments });
 (async () => {
   let calls = 0;
@@ -35,6 +45,10 @@ const { loadUserDrawerRecord } = load('src/views/system/user/userDrawerLoader.ts
   const filename = 'src/views/system/user/UserDrawer.vue';
   const sourceVue = fs.readFileSync(filename, 'utf8');
   assert(sourceVue.includes('if (!ready.value || !showFooter.value) return;'));
+  assert(sourceVue.includes('advancedOpen.value &&'));
+  assert(sourceVue.includes('api: loadRoleOptions'));
+  assert(sourceVue.includes('rolesRequest = undefined;'));
+  assert(!schema.includes('// 查询失败时，清空所有岗位选择'));
   const { parse, compileScript, compileTemplate } = require('@vue/compiler-sfc');
   const { descriptor } = parse(sourceVue);
   compileScript(descriptor, { id: 'user-drawer' });

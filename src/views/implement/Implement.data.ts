@@ -38,9 +38,9 @@ export const columns: BasicColumn[] = [
 export const searchFormSchema: FormSchema[] = [
   {
     label: '项目名称',
-    field: 'projectName',
+    field: 'keyword',
     component: 'Input',
-    componentProps: { placeholder: '请输入主项目名称' },
+    componentProps: { placeholder: '请输入项目名称关键词' },
   },
   {
     label: '客户名称',

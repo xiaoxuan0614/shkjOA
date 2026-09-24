@@ -1,6 +1,7 @@
 import { quotationVersion, normalizeQuotationAccess } from './quotationGovernance';
 import { defHttp } from '/@/utils/http/axios';
 import { ContentTypeEnum } from '/@/enums/httpEnum';
+import { normalizeProjectListParams } from '../project/projectListFilters';
 
 export const QUOTATION_STATUS_DRAFT = '-1';
 export const QUOTATION_STATUS_REJECTED = '0';
@@ -54,7 +55,7 @@ async function fetchAllPages(api: (params: Recordable) => Promise<any>, params: 
 /**
  * 项目/分期分页列表(计划方案入口)
  */
-export const planProjectList = (params) => defHttp.get({ url: Api.list, params });
+export const planProjectList = (params) => defHttp.get({ url: Api.list, params: normalizeProjectListParams(params) });
 
 export function normalizeQuotationStatus(status: unknown) {
   return String(status ?? QUOTATION_STATUS_DRAFT);
@@ -63,7 +64,7 @@ export function normalizeQuotationStatus(status: unknown) {
 /** 名称直接传关键词；0 为有效筛选，空值才省略。 */
 export function quotationFilters(params: Recordable = {}) {
   const filters: Recordable = {};
-  for (const key of ['projectName', 'status', 'adopted']) {
+  for (const key of ['keyword', 'projectName', 'status', 'adopted']) {
     const value = params[key];
     if (value != null && String(value).trim() !== '') filters[key] = typeof value === 'string' ? value.trim() : value;
   }
@@ -128,8 +129,11 @@ export const editMaterialCandidateItems = (params, showSuccessMessage = true) =>
 
 const candidateBase = '/project/materialCandidate';
 const quietCandidate = { successMessageMode: 'none', errorMessageMode: 'none' } as const;
-export const getQuotationAccess = async (periodId: string) =>
-  normalizeQuotationAccess(await defHttp.get({ url: `${candidateBase}/permissions`, params: { periodId } }, quietCandidate));
+export const getQuotationGrantUsers = (pageNo: number) =>
+  defHttp.get({ url: '/sys/user/list', params: { pageNo, pageSize: 100, status: 1 } }, quietCandidate);
+export const getQuotationDepartments = () => defHttp.get({ url: '/sys/sysDepart/queryTreeList' }, quietCandidate);
+export const getQuotationAccess = async (periodId: string, candidateId?: string) =>
+  normalizeQuotationAccess(await defHttp.get({ url: `${candidateBase}/permissions`, params: { periodId, ...(candidateId ? { candidateId } : {}) } }, quietCandidate));
 export const getQuotationGrants = (periodId: string) => defHttp.get({ url: `${candidateBase}/grants`, params: { periodId } }, quietCandidate);
 export const saveQuotationGrant = (params: Recordable) =>
   defHttp.post({ url: `${candidateBase}/grant`, params: { ...params, version: quotationVersion(params.version) } }, quietCandidate);

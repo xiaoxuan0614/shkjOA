@@ -78,8 +78,8 @@ async function main() {
     createMessage:{warning:m=>{throw Error(m);}, error:m=>{throw Error(m);},success:()=>{}},
     editing:{value:true}, loadReworks:async()=>{}, emit:()=>{},
   };
-  const api = functions(pc, ['saveDraft'], state);
-  await api.saveDraft();
+  const api = functions(pc, ['submitApplication'], state);
+  await api.submitApplication();
   assert.equal(payload.process.length, 2);
   assert.equal(payload.outsources.length, 1);
   assert.equal(payload.materials.length, 0);
@@ -87,7 +87,7 @@ async function main() {
   assert.equal(payload.expectedAcceptanceDate, null);
   form.expectedAcceptanceDate = '2026-10-15';
   form.id='r'; form.version=3;
-  await api.saveDraft();
+  await api.submitApplication();
   assert.equal(payload.id,'r'); assert.equal(payload.version,3);
   assert.equal(payload.expectedAcceptanceDate, '2026-10-15');
   assert.equal('reworkId' in payload,false);

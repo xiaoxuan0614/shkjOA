@@ -1,11 +1,12 @@
 /** 候选状态、分期授权和整单版本规则；角色管理者资格由后端 permissions 决定。 */
 export interface QuotationAccess {
+  canApprove: boolean;
   canManage: boolean;
   canViewPrice: boolean;
   canEditPrice: boolean;
   canExport: boolean;
 }
-export const noQuotationAccess: QuotationAccess = { canManage: false, canViewPrice: false, canEditPrice: false, canExport: false };
+export const noQuotationAccess: QuotationAccess = { canApprove: false, canManage: false, canViewPrice: false, canEditPrice: false, canExport: false };
 export function isQuotationApplicant(record: any, user: any) {
   if (!record?.createBy) return false;
   const identities = [user?.username, user?.id, user?.userId].filter(Boolean).map(String);
@@ -20,8 +21,8 @@ export function quotationListCapabilities(record: any, hasButton: (code: string)
   const allowed = (name: string) => record?.version != null && hasButton(`plan:quotation:${name}`);
   return {
     edit: allowed('edit') && ['-1', '0', '1'].includes(status),
-    approve: allowed('technicalApprove') && status === '2',
-    price: allowed('price') && status === '1',
+    approve: allowed(record?.approvalRoute === 'MARKET' ? 'lock' : 'technicalApprove') && status === '2',
+    price: record?.approvalRoute !== 'MARKET' && allowed('price') && status === '1',
     export: allowed('export') && status === '1' && String(record?.priced) === '1',
     submit: allowed('submit') && ['-1', '0'].includes(status),
     withdraw: allowed('withdraw') && applicant && status === '2',
@@ -33,6 +34,7 @@ export function normalizeQuotationAccess(value: any): QuotationAccess {
   const canViewPrice = canManage || value?.canViewPrice === true;
   return {
     canManage,
+    canApprove: value?.canApprove === true,
     canViewPrice,
     canEditPrice: canViewPrice && (canManage || value?.canEditPrice === true),
     canExport: canManage || value?.canExport === true,
@@ -57,7 +59,7 @@ export function quotationCapabilities(record: any, access: QuotationAccess, user
     structure: edit && !adopted,
     editBase: edit && !adopted,
     submit: hasButton('plan:quotation:submit') && content && ['-1', '0'].includes(status),
-    approve: hasButton('plan:quotation:technicalApprove') && status === '2',
+    approve: access.canApprove && hasButton(record?.approvalRoute === 'MARKET' ? 'plan:quotation:lock' : 'plan:quotation:technicalApprove') && status === '2',
     withdraw: hasButton('plan:quotation:withdraw') && applicant && status === '2',
     void: hasButton('plan:quotation:delete') && content && !adopted && ['-1', '0', '1'].includes(status),
     price: hasButton('plan:quotation:price') && access.canManage && status === '1',

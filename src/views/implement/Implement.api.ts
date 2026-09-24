@@ -1,5 +1,6 @@
 import { defHttp } from '/@/utils/http/axios';
 import { getImplementProjectStatusFilter } from './implementScope';
+import { normalizeProjectListParams } from '../project/projectListFilters';
 
 /**
  * 实施管理 - 对接后端 /project/*(项目域)
@@ -22,7 +23,7 @@ enum Api {
  * @param params { projectName?, periodName?, customerName?, projectType?, status?, pageNo, pageSize }
  */
 export const implementProjectList = (params = {}) =>
-  defHttp.get({ url: Api.projectList, params: { ...params, status: getImplementProjectStatusFilter((params as Record<string, unknown>).status) } });
+  defHttp.get({ url: Api.projectList, params: normalizeProjectListParams({ ...params, status: getImplementProjectStatusFilter((params as Record<string, unknown>).status) }) });
 
 /** 项目分期基本信息。 */
 export const implementProjectDetail = (params: { periodId: string }) => defHttp.get({ url: Api.projectDetail, params });

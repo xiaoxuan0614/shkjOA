@@ -26,20 +26,31 @@
           >
             {{ currentTabEditing ? currentTabSaveLabel : '修改' }}
           </a-button>
-          <a-button type="primary" preIcon="ant-design:audit-outlined" :loading="submitting" :disabled="tabSaveBusy" @click="handleSubmitAudit">
-            提交审批
-          </a-button>
         </template>
-        <template v-else-if="canAuditPlan">
-          <a-button danger :disabled="submitting" @click="openRejectModal">驳 回</a-button>
-          <a-popconfirm title="确认通过该计划方案？通过后项目将进入实施中。" @confirm="handleApproveAudit">
-            <a-button type="primary" :loading="submitting">通 过</a-button>
-          </a-popconfirm>
-        </template>
-        <a-tag v-else-if="permissionLoaded" color="default">{{ readonlyHint }}</a-tag>
+        <a-tag v-else-if="permissionLoaded && !isAuditView" color="default">{{ readonlyHint }}</a-tag>
+        <PeriodApprovalActions
+          ref="approvalRef" :period-id="periodId" :approval-id="String(route.query.approvalId || '')"
+          :allow-submit="route.query.mode !== 'view' || periodStatus === 'PENDING_APPROVAL'"
+          :allow-approve="isAuditView" :disabled="tabSaveBusy || !contextReady" :before-submit="validateBeforeSubmit"
+          @busy="submitting = $event" @changed="handleApprovalChanged" @summary="approvalSummary = $event" />
       </div>
     </div>
 
+    <div class="project-plan__approval-summary" aria-live="polite">
+      <span v-if="approvalSummary.loading">正在加载最新审批结果…</span>
+      <span v-else-if="approvalSummary.error">{{ approvalSummary.error }}</span>
+      <template v-else>
+        <span>当前计划：</span><a-tag :color="getApprovalStatusMeta(approvalSummary.status).color">{{ getApprovalStatusMeta(approvalSummary.status).text }}</a-tag>
+        <template v-if="approvalSummary.latest">
+          <span>最近第 {{ approvalSummary.latest.roundNo }} 轮：{{ getApprovalStatusMeta(approvalSummary.latest.approvalStatus).text }}</span>
+          <span v-if="approvalSummary.latest.approvalUserName">审批人：{{ approvalSummary.latest.approvalUserName }}</span>
+          <span v-if="approvalSummary.latest.approvalTime">审批时间：{{ approvalSummary.latest.approvalTime }}</span>
+          <span v-if="approvalSummary.latest.approvalReason" :class="{ 'project-plan__rejected': String(approvalSummary.latest.approvalStatus) === '0' }">审批意见：{{ approvalSummary.latest.approvalReason }}</span>
+          <span v-if="approvalSummary.latest.withdrawReason">撤回原因：{{ approvalSummary.latest.withdrawReason }}</span>
+        </template>
+        <span v-else>暂无审批记录</span>
+      </template>
+    </div>
     <!-- 第2部分: 内容盒子(与工具栏间隔 5px) -->
     <div class="project-plan__content">
       <div v-if="contextLoading || (!contextReady && !contextLoadFailed)" class="project-plan__state">
@@ -99,39 +110,17 @@
       </a-tabs>
     </div>
     <ProjectBasicDrawer @register="registerProjectBasicDrawer" />
-    <a-modal
-      v-model:open="rejectModalOpen"
-      title="驳回计划方案"
-      ok-text="确认驳回"
-      cancel-text="取消"
-      :confirm-loading="submitting"
-      :ok-button-props="{ danger: true }"
-      :mask-closable="false"
-      @ok="handleRejectAudit"
-    >
-      <a-alert
-        class="project-plan__reject-warning"
-        type="warning"
-        show-icon
-        message="当前接口暂不支持保存驳回原因"
-        description="确认后只会把项目退回筹备中；原因需待后端扩展审批接口后才能持久化。"
-      />
-      <a-form layout="vertical">
-        <a-form-item label="驳回原因" required>
-          <a-textarea v-model:value="rejectReason" :rows="4" :maxlength="500" show-count placeholder="请填写驳回原因" />
-        </a-form-item>
-      </a-form>
-    </a-modal>
   </div>
 </template>
 
 <script lang="ts" setup>
+  import { getApprovalStatusMeta } from '/@/utils/approvalStatus';
   import { ref, reactive, computed, watch } from 'vue';
   import { useRouter, useRoute } from 'vue-router';
   import { useMessage } from '/@/hooks/web/useMessage';
   import { useDrawer } from '/@/components/Drawer';
-  import { usePermission } from '/@/hooks/web/usePermission';
   import { useUserStore } from '/@/store/modules/user';
+  import { readProjectMembership } from '../projectMembership';
   import PlanFileMgmt from './PlanFileMgmt.vue';
   import PlanMaterial from './PlanMaterial.vue';
   import PlanPerson from './PlanPerson.vue';
@@ -139,17 +128,16 @@
   import PlanPosition from './PlanPosition.vue';
   import PlanPayment from './PlanPayment.vue';
   import ProjectBasicDrawer from '../components/ProjectBasicDrawer.vue';
-  import { projectDetail, changePeriodStatus } from '../Project.api';
+  import { projectDetail } from '../Project.api';
+  import PeriodApprovalActions from './PeriodApprovalActions.vue';
+  import { canEditPeriodPlan } from './periodApproval';
   import { addPlanProcessesBatch, editPlanOutsourcesBatch, editPlanProcessesBatch, editPlanLocationsBatch } from './Plan.api';
   import { editPlanMaterialBatch } from '/@/views/plan/Plan.api';
   import { contractDetail } from '/@/views/payment/Payment.api';
-  import { refreshTodos } from '/@/views/todo/useTodoCenter';
-  import { APPROVAL_PENDING, getApprovalStatusMeta, isApprovalPending } from '/@/utils/approvalStatus';
 
   const router = useRouter();
   const route = useRoute();
   const { createMessage } = useMessage();
-  const { hasPermission } = usePermission();
   const userStore = useUserStore();
   const [registerProjectBasicDrawer, { openDrawer: openProjectBasicDrawer }] = useDrawer();
 
@@ -158,7 +146,8 @@
 
   const contractRecord = ref<Recordable>({});
   const periodStatus = ref('');
-  const planApprovalStatus = ref('');
+  const approvalRef = ref<InstanceType<typeof PeriodApprovalActions>>();
+  const approvalSummary = ref<Recordable>({ loading: true });
   const permissionLoaded = ref(false);
   const contextLoading = ref(true);
   const contextReady = ref(false);
@@ -168,37 +157,26 @@
     const user: any = userStore.getUserInfo;
     return String(user?.id ?? user?.userId ?? '');
   });
-  // 只有合同审批时指定的项目经理可编写计划。
+  const isProjectManager = ref(false);
+  // 当前分期已接受的项目经理或管理员可编写计划。
   const editable = computed(
     () =>
       route.query.mode !== 'view' &&
       permissionLoaded.value &&
       contextReady.value &&
-      periodStatus.value === 'PREPARING' &&
+      canEditPeriodPlan({ status: periodStatus.value }) &&
       !!currentUserId.value &&
-      String(contractRecord.value.projectManagerUserId ?? '') === currentUserId.value
+      (userStore.getIdentity.roleCodes?.includes('admin') || isProjectManager.value)
   );
   const isAuditView = computed(() => route.query.mode === 'view' && route.query.audit === '1');
-  const canAuditPlan = computed(
-    () =>
-      isAuditView.value &&
-      permissionLoaded.value &&
-      contextReady.value &&
-      periodStatus.value === 'PENDING_APPROVAL' &&
-      isApprovalPending(planApprovalStatus.value) &&
-      hasPermission('project:plan:audit')
-  );
   const readonlyHint = computed(() => {
     if (contextLoading.value) return '正在加载计划上下文';
     if (contextLoadFailed.value) return '项目或合同信息加载失败';
     if (!isAuditView.value && periodStatus.value === 'PENDING_APPROVAL') return '计划已提交审批，当前仅可查看';
-    if (route.query.mode !== 'view' && periodStatus.value !== 'PREPARING') return '仅筹备中的项目可编辑计划';
-    if (!isAuditView.value) return '仅合同审批指定的项目经理可编辑';
+    if (route.query.mode === 'view' && !isAuditView.value) return '当前为只读查看';
+    if (route.query.mode !== 'view' && !canEditPeriodPlan({ status: periodStatus.value })) return '当前阶段不可修改原计划';
+    if (!isAuditView.value) return '仅本项目项目经理或管理员可编辑';
     if (periodStatus.value !== 'PENDING_APPROVAL') return '当前项目不在计划待审批状态';
-    if (planApprovalStatus.value && !isApprovalPending(planApprovalStatus.value)) {
-      return `该计划审批状态为「${getApprovalStatusMeta(planApprovalStatus.value).text}」`;
-    }
-    if (!hasPermission('project:plan:audit')) return '当前账号无计划审批权限';
     return '计划状态加载失败，暂无法审批';
   });
 
@@ -219,6 +197,12 @@
       return;
     }
     openProjectBasicDrawer(true, { record: { ...projectRecord.value, periodId: periodId.value }, useProvidedDetail: true });
+  }
+
+  function handleApprovalChanged({ period, succeeded }: { period: Recordable | null; succeeded: boolean }) {
+    if (succeeded) { void loadContext(); return; }
+    // 失败只更新门禁，保留各页未保存内容；状态回查失败时禁止继续写入。
+    periodStatus.value = String(period?.status || '');
   }
 
   // 子组件引用
@@ -310,7 +294,7 @@
 
   async function runTabSave(key: keyof typeof tabSaving, label: string, action: () => Promise<unknown>, reload: () => Promise<unknown>) {
     if (!editable.value) {
-      createMessage.warning('仅合同审批指定的项目经理可保存计划');
+      createMessage.warning('当前阶段仅本分期已接受的项目经理或管理员可保存计划');
       return false;
     }
     if (!periodId.value) {
@@ -336,6 +320,12 @@
         throw new Error(`${label}已提交保存，但最新数据回查失败，请刷新确认`);
       }
       createMessage.success(`${label}已保存`);
+      // 受控资料修改可能使原审批失效，刷新阶段但保留其他页签的未保存草稿。
+      periodStatus.value = '';
+      const latest = await projectDetail({ periodId: periodId.value }, true);
+      periodStatus.value = String(latest.status || '');
+      projectRecord.value = latest;
+      await approvalRef.value?.refresh();
       return true;
     } catch (error: any) {
       createMessage.warning(error?.message || `${label}保存失败，请重试`);
@@ -417,10 +407,10 @@
     contextReady.value = false;
     contextLoadFailed.value = false;
     permissionLoaded.value = false;
+    isProjectManager.value = false;
     contractRecord.value = {};
     projectRecord.value = {};
     periodStatus.value = '';
-    planApprovalStatus.value = '';
     if (!targetPeriodId) {
       contextLoading.value = false;
       contextLoadFailed.value = true;
@@ -429,9 +419,12 @@
       return;
     }
     try {
-      const [projectResult, contractResult] = await Promise.allSettled([
+      const [projectResult, contractResult, membershipResult] = await Promise.allSettled([
         projectDetail({ periodId: targetPeriodId }, true),
         contractDetail({ periodId: targetPeriodId }, true),
+        userStore.getIdentity.roleCodes?.includes('admin')
+          ? Promise.resolve({ manager: false })
+          : readProjectMembership(targetPeriodId, currentUserId.value),
       ]);
       if (requestSequence !== contextLoadSequence || targetPeriodId !== periodId.value) return;
       if (projectResult.status === 'rejected' || contractResult.status === 'rejected') {
@@ -446,9 +439,8 @@
       const project = (projectResult.value as Recordable) || {};
       const contract = (contractResult.value as Recordable) || {};
       contractRecord.value = contract;
+      isProjectManager.value = membershipResult.status === 'fulfilled' && membershipResult.value.manager;
       periodStatus.value = String(project.status || '');
-      // 兼容后端切换期：生命周期待审批可推导为审批状态 2，其他状态不做推断。
-      planApprovalStatus.value = String(project.approvalStatus ?? (project.status === 'PENDING_APPROVAL' ? APPROVAL_PENDING : ''));
       projectRecord.value = project;
       contextReady.value = true;
     } catch {
@@ -464,10 +456,8 @@
   }
 
   /**
-   * 提交审批只负责项目状态流转，不再隐式保存任何页签数据。
+   * 提交分期审批前确保所有页签已保存，不隐式保存任何页签数据。
    */
-  const rejectModalOpen = ref(false);
-  const rejectReason = ref('');
 
   const planTabLabels = {
     file: '方案文件',
@@ -501,7 +491,7 @@
     activeKey.value = key;
   }
 
-  function validateBeforeSubmit() {
+  async function validateBeforeSubmit() {
     for (const key of planTabKeys) {
       const state = getTabSubmissionState(key);
       if (!state) {
@@ -529,7 +519,7 @@
     ];
     for (const { key, validate } of businessValidators) {
       try {
-        validate();
+        await validate();
       } catch (error: any) {
         focusTab(key);
         return error?.message || `「${planTabLabels[key]}」数据校验未通过`;
@@ -539,68 +529,6 @@
     return '';
   }
 
-  function openRejectModal() {
-    rejectReason.value = '';
-    rejectModalOpen.value = true;
-  }
-
-  async function handleApproveAudit() {
-    if (!periodId.value || !canAuditPlan.value || submitting.value) return;
-    const validationMessage = validateBeforeSubmit();
-    if (validationMessage) {
-      createMessage.warning(validationMessage);
-      return;
-    }
-    submitting.value = true;
-    try {
-      await changePeriodStatus({ periodId: periodId.value, status: 'IMPLEMENTING' });
-      createMessage.success('审批通过，项目开始实施');
-      refreshTodos(true).catch(() => undefined);
-      router.push('/project/list');
-    } finally {
-      submitting.value = false;
-    }
-  }
-
-  async function handleRejectAudit() {
-    if (!periodId.value || !canAuditPlan.value || submitting.value) return;
-    if (!rejectReason.value.trim()) {
-      createMessage.warning('请填写驳回原因');
-      return;
-    }
-    submitting.value = true;
-    try {
-      await changePeriodStatus({ periodId: periodId.value, status: 'PREPARING' });
-      createMessage.warning('已驳回并退回筹备中；当前接口未持久化驳回原因');
-      rejectModalOpen.value = false;
-      refreshTodos(true).catch(() => undefined);
-      router.push('/project/list');
-    } finally {
-      submitting.value = false;
-    }
-  }
-
-  async function handleSubmitAudit() {
-    if (!periodId.value || !editable.value || submitting.value) return;
-    if (tabSaveBusy.value) {
-      createMessage.warning('当前页仍在保存，请完成后再提交审批');
-      return;
-    }
-    const validationMessage = validateBeforeSubmit();
-    if (validationMessage) {
-      createMessage.warning(validationMessage);
-      return;
-    }
-    submitting.value = true;
-    try {
-      await changePeriodStatus({ periodId: periodId.value, status: 'PENDING_APPROVAL' });
-      createMessage.success('计划已提交审批，项目进入「待审批」');
-      refreshTodos(true).catch(() => undefined);
-      router.push('/project/list');
-    } finally {
-      submitting.value = false;
-    }
-  }
 
   /**
    * 取消
@@ -612,13 +540,11 @@
   let contextLoadSequence = 0;
 
   watch(
-    periodId,
+    () => [periodId.value, currentUserId.value, userStore.getToken, JSON.stringify(userStore.getIdentity)],
     () => {
       activeKey.value = 'file';
       Object.assign(tabEditing, { file: false, material: false, person: false, implement: false, position: false });
       Object.assign(tabSaving, { file: false, material: false, person: false, implement: false, position: false });
-      rejectModalOpen.value = false;
-      rejectReason.value = '';
       void loadContext();
     },
     { immediate: true }
@@ -626,6 +552,17 @@
 </script>
 
 <style lang="less" scoped>
+  .project-plan__approval-summary {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+    padding: 12px 20px;
+    margin-bottom: 5px;
+    background: var(--component-background, #fff);
+    overflow-wrap: anywhere;
+  }
+  .project-plan__rejected { color: #cf1322; }
   .project-plan {
     padding: 16px;
 

@@ -6,6 +6,9 @@ new Function('exports', ts.transpile(fs.readFileSync('src/views/material/purchas
   module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020,
 }))(result);
 const { purchaseProjectOption, filterPurchaseProject, loadPurchaseProjects } = result;
+assert.equal(result.purchaseEditProjectOption({ periodId: 's' }, { periodId: 's', projectName: '园区', periodName: '一期' }).label, '园区-一期');
+assert.equal(result.purchaseEditProjectOption({ periodId: 'other' }, { periodId: 's', projectName: '园区', periodName: '一期' }).label, 'other');
+assert.equal(result.purchaseEditProjectOption({ periodId: 's', projectName: '新名称' }, { periodId: 's', projectName: '旧名称', periodName: '一期' }).label, '新名称-一期');
 (async () => {
   const option = purchaseProjectOption({ projectId: 'p', periodId: 's', projectName: ' 园区 ', periodName: '一期' });
   assert.equal(option.label, '园区-一期');

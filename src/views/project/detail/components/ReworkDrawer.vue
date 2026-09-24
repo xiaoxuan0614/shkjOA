@@ -1,5 +1,5 @@
 <template>
-  <BasicDrawer v-bind="$attrs" @register="register" title="返工管理" :width="1240" :show-footer="false" destroyOnClose>
+  <BasicDrawer v-bind="$attrs" @register="register" :title="editing ? '申请返工' : '返工详情'" :width="1240" :show-footer="false" destroyOnClose>
     <div class="rework-drawer__header">
       <div>
         <div class="rework-drawer__project">{{ projectTitle }}</div>
@@ -202,63 +202,17 @@
       <div class="rework-drawer__form-actions">
         <a-button :disabled="saving" @click="cancelEdit">取消</a-button>
 
-        <a-button type="primary" :loading="saving" @click="saveDraft()">提交审批</a-button>
+        <a-button type="primary" :loading="saving" @click="submitApplication()">提交审批</a-button>
       </div>
     </template>
 
     <template v-else>
-      <a-table
-        :columns="reworkColumns"
-        :data-source="reworks"
-        :row-key="(record) => record.id"
-        :loading="loading"
-        :pagination="false"
-        :scroll="{ x: 1240 }"
-        size="middle"
-        bordered
-      >
-        <template #emptyText><a-empty description="暂无返工记录" /></template>
-        <template #bodyCell="{ column, record }">
-          <template v-if="column.key === 'approvalStatus'">
-            <a-tag :color="getApprovalStatusMeta(record.approvalStatus).color">{{ getApprovalStatusMeta(record.approvalStatus).text }}</a-tag>
-          </template>
-          <template v-else-if="column.key === 'executionStatus'">
-            <a-tag :color="executionMeta(record.executionStatus).color">{{ executionMeta(record.executionStatus).text }}</a-tag>
-          </template>
-          <template v-else-if="column.key === 'processSummary'">{{
-            parsePlan(record)
-              .process.map((item) => item.processName)
-              .join('、') || '—'
-          }}</template>
-          <template v-else-if="column.key === 'materialSummary'">{{ parsePlan(record).materials.length }} 种额外领料</template>
-          <template v-else-if="column.key === 'reason'">
-            <a-tooltip :title="record.reason"
-              ><span class="rework-drawer__ellipsis">{{ record.reason || '—' }}</span></a-tooltip
-            >
-          </template>
-          <template v-else-if="column.key === 'action'">
-            <div class="rework-drawer__row-actions">
-              <a-button type="link" size="small" @click="viewRework(record)">详情</a-button>
-              <a-button v-if="canEditRework(record)" type="link" size="small" @click="editRework(record)">修改</a-button>
-              <a-popconfirm v-if="canSubmitRework(record)" title="确认提交这张返工申请？" @confirm="submitRework(record)">
-                <a-button type="link" size="small">提交</a-button>
-              </a-popconfirm>
-              <a-popconfirm v-if="canWithdrawRework(record)" title="确认撤回这张返工申请？" @confirm="withdrawRework(record)">
-                <a-button type="link" size="small">撤回</a-button>
-              </a-popconfirm>
-              <a-button v-if="canApproveRework(record)" type="link" size="small" @click="prepareApproval(record, true)">通过</a-button>
-              <a-button v-if="canApproveRework(record)" type="link" danger size="small" @click="prepareApproval(record, false)">驳回</a-button>
-              <a-button v-if="canApplyMaterial(record)" type="link" size="small" @click="goPick(record)">申请领料</a-button>
-            </div>
-          </template>
-        </template>
-      </a-table>
-
-      <a-drawer v-model:open="detailVisible" title="返工详情" :width="760" destroyOnClose>
-        <a-spin :spinning="detailLoading">
+      <section>
+        <a-spin :spinning="detailLoading || loading || saving">
           <a-descriptions :column="2" size="small" bordered>
             <a-descriptions-item label="返工单号">{{ detailRecord.reworkNo || '—' }}</a-descriptions-item>
             <a-descriptions-item label="审批状态">{{ getApprovalStatusMeta(detailRecord.approvalStatus).text }}</a-descriptions-item>
+            <a-descriptions-item label="执行状态">{{ executionMeta(detailRecord.executionStatus).text }}</a-descriptions-item>
             <a-descriptions-item label="申请人">{{ detailRecord.applyUserName || '—' }}</a-descriptions-item>
             <a-descriptions-item label="申请时间">{{ detailRecord.applyTime || detailRecord.createTime || '—' }}</a-descriptions-item>
             <a-descriptions-item label="预计再次验收日期" :span="2">{{ detailRecord.expectedAcceptanceDate || '—' }}</a-descriptions-item>
@@ -267,21 +221,25 @@
             <a-descriptions-item label="审批意见" :span="2">{{ detailRecord.approvalReason || '—' }}</a-descriptions-item>
           </a-descriptions>
 
-          <div class="rework-drawer__detail-title">提交和审批记录</div>
-          <a-empty v-if="!reworkHistory(detailRecord.historyJson).length" description="暂无历史明细" />
-          <a-timeline v-else>
-            <a-timeline-item v-for="(entry, index) in reworkHistory(detailRecord.historyJson)" :key="index">
-              <div v-for="(value, key) in entry" :key="key">{{ historyLabel(String(key)) }}：{{ value ?? '—' }}</div>
-            </a-timeline-item>
-          </a-timeline>
           <div class="rework-drawer__detail-title">返工工序</div>
           <a-table
             :columns="detailProcessColumns"
+            :scroll="{ x: 730 }"
             :data-source="parsePlan(detailRecord).process"
             :row-key="(record, index) => record.id || index"
             :pagination="false"
             size="small"
-          />
+          >
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'action'">
+                <a-button
+                  v-if="String(detailRecord.approvalStatus) === '1' && record.id" type="link" size="small"
+                  @click="router.push({ path: `/implement/log/${periodId}`, query: { processId: record.id } })"
+                >查看实施日志</a-button>
+                <span v-else>—</span>
+              </template>
+            </template>
+          </a-table>
 
           <div v-if="parsePlan(detailRecord).outsources.length" class="rework-drawer__detail-title">本轮外协计划</div>
           <div v-for="item in parsePlan(detailRecord).outsources" :key="item.unitId"
@@ -297,27 +255,8 @@
           >
             <template #emptyText><a-empty description="本次返工无需额外领料" /></template>
           </a-table>
-          <div class="rework-drawer__detail-title">额外领料执行情况</div>
-          <a-button v-if="!materialStatsLoaded" :loading="materialStatsLoading" @click="loadMaterialStats">查看额外领料执行情况</a-button>
-          <a-alert v-if="materialStatsError" type="warning" :message="materialStatsError" />
-          <a-table
-            v-if="materialStatsLoaded"
-            :columns="materialStatColumns"
-            :data-source="materialStats"
-            :row-key="(record) => record.materialId"
-            :pagination="false"
-            size="small"
-          >
-            <template #emptyText><a-empty description="本轮没有额外领料记录" /></template>
-          </a-table>
 
           <div class="rework-drawer__detail-actions">
-            <a-button
-              v-for="process in detailRecord.processes || (detailRecord.processId ? [{ id: detailRecord.processId }] : [])"
-              :key="process.id"
-              @click="router.push({ path: `/implement/log/${periodId}`, query: { processId: process.id } })"
-              >查看{{ process.processName || '本轮' }}实施日志</a-button
-            >
             <a-button v-if="canEditRework(detailRecord)" @click="editFromDetail">修改</a-button>
             <a-button v-if="canSubmitRework(detailRecord)" type="primary" @click="submitFromDetail">提交审批</a-button>
             <a-button v-if="canWithdrawRework(detailRecord)" @click="withdrawFromDetail">撤回</a-button>
@@ -326,7 +265,7 @@
             <a-button v-if="canApplyMaterial(detailRecord)" type="primary" @click="goPick(detailRecord)">申请领料</a-button>
           </div>
         </a-spin>
-      </a-drawer>
+      </section>
     </template>
 
     <a-modal
@@ -381,14 +320,13 @@
   } from '/@/utils/approvalStatus';
   import { defHttp } from '/@/utils/http/axios';
   import MaterialPlanTable from '/@/views/plan/components/MaterialPlanTable.vue';
-  import { enrichMaterialInfo, getCurrentUser, loadMaterialMap } from '/@/views/material/material.util';
-  import { resolveReworkName, reworkHistory } from '/@/utils/reworkRound';
-  import { assertAcceptanceApplication } from '../acceptanceWorkflow';
+  import { getCurrentUser } from '/@/views/material/material.util';
+  import { resolveReworkName } from '/@/utils/reworkRound';
+  import { reworkProcessName } from '/@/utils/reworkProcessName';
   import {
     approveProjectRework,
     getMembers,
     getProjectReworkDetail,
-    getProjectReworkMaterials,
     getProjectReworks,
     submitProjectRework,
     withdrawProjectRework,
@@ -513,100 +451,49 @@
     { title: '备注', key: 'remark', width: 180 },
     { title: '操作', key: 'remove', width: 70 },
   ];
-  const reworkColumns = [
-    { title: '返工单号', dataIndex: 'reworkNo', width: 180 },
-    { title: '审批状态', key: 'approvalStatus', width: 110 },
-    { title: '执行状态', key: 'executionStatus', width: 110 },
-    { title: '申请人', dataIndex: 'applyUserName', width: 110 },
-    { title: '返工工序', key: 'processSummary', width: 120 },
-    { title: '额外领料', key: 'materialSummary', width: 120 },
-    { title: '返工原因', key: 'reason', width: 220 },
-    { title: '预计再次验收日期', dataIndex: 'expectedAcceptanceDate', width: 150 },
-    { title: '申请时间', dataIndex: 'applyTime', width: 170 },
-    { title: '操作', key: 'action', width: 300, fixed: 'right' },
-  ];
   const detailProcessColumns = [
-    { title: '工序名称', dataIndex: 'processName', width: 120 },
+    { title: '工序名称', dataIndex: 'processName', width: 180, customRender: ({ record }) => reworkProcessName(record.processName, detailRecord.value.reworkRound) },
     { title: '现场负责人', dataIndex: 'siteLeaderName', width: 120 },
     { title: '计划开始', dataIndex: 'plannedStartTime', width: 120 },
     { title: '计划完成', dataIndex: 'plannedEndTime', width: 120 },
     { title: '预计工时(h)', dataIndex: 'plannedHours', width: 110 },
+    { title: '操作', key: 'action', width: 140, fixed: 'right' },
   ];
   const materialPlanColumns = [
     { title: '物料名称', key: 'materialName', customRender: ({ record }) => record.materialName || record.materialId || '—' },
     { title: '计划额外领料数量', dataIndex: 'plannedQty' },
     { title: '单位', key: 'unit', customRender: ({ record }) => record.unitName || record.unit || '—' },
   ];
-  const materialStatColumns = [
-    { title: '物料编码', dataIndex: 'materialCode', width: 130 },
-    { title: '物料名称', dataIndex: 'materialName', width: 150 },
-    { title: '计划额外领料', dataIndex: 'plannedAdditionalQty', width: 120 },
-    { title: '已出库', dataIndex: 'outboundQty', width: 90 },
-    { title: '已消耗', dataIndex: 'consumedQty', width: 90 },
-    { title: '当前可申请', dataIndex: 'availableApplyQty', width: 110 },
-  ];
 
-  const detailVisible = ref(false);
   const detailLoading = ref(false);
   const detailRecord = ref<Recordable>({});
-  const materialStats = ref<Recordable[]>([]);
   const approvalVisible = ref(false);
   const approvalApproved = ref(true);
   const approvalComment = ref('');
   const approvalRecord = ref<Recordable>({});
   const approving = ref(false);
-  const materialStatsError = ref('');
-  const materialStatsLoaded = ref(false);
-  const materialStatsLoading = ref(false);
-  let statsRequest = 0;
-  async function loadMaterialStats() {
-    if (materialStatsLoaded.value || materialStatsLoading.value || !detailRecord.value.id) return;
-    const request = ++statsRequest;
-    const id = String(detailRecord.value.id);
-    materialStatsLoading.value = true;
-    materialStatsError.value = '';
-    try {
-      const [stats, materialMap]: any[] = await Promise.all([getProjectReworkMaterials({ reworkId: id }), loadMaterialMap()]);
-      if (request !== statsRequest || id !== String(detailRecord.value.id)) return;
-      const records = Array.isArray(stats) ? stats : [];
-      enrichMaterialInfo(records, materialMap);
-      materialStats.value = records;
-      materialStatsLoaded.value = true;
-    } catch {
-      if (request === statsRequest) materialStatsError.value = '额外领料统计加载失败，请点击重试';
-    } finally {
-      if (request === statsRequest) materialStatsLoading.value = false;
-    }
-  }
-  const historyLabel = (key: string) =>
-    ({
-      action: '操作',
-      actionType: '操作',
-      operateTime: '时间',
-      time: '时间',
-      operatorName: '操作人',
-      userName: '操作人',
-      approvalComment: '审批意见',
-      remark: '说明',
-      approvalStatus: '审批状态',
-      comment: '意见',
-    })[key] || key;
 
-  const [register] = useDrawerInner(async (data) => {
+  const [register, { closeDrawer }] = useDrawerInner(async (data) => {
     const record = data?.record || data || {};
     periodId.value = String(data?.periodId || record.periodId || record.actionParams?.periodId || '');
     project.value = data?.project || record || {};
     sourceAcceptance.value = data?.sourceAcceptance || {};
     editing.value = false;
-    detailVisible.value = false;
     resetForm();
+    detailRecord.value = {};
+    approvalVisible.value = false;
     if (!periodId.value) {
-      createMessage.error('缺少项目分期 ID，无法加载返工管理');
+      createMessage.error('缺少项目分期 ID，无法加载返工申请');
       return;
     }
-    await loadReworks();
-    if (data?.reworkId) await viewRework({ id: String(data.reworkId) });
-    else if (data?.initialCreate && sourceAcceptance.value.id) startCreate();
+    reworks.value = [];
+    if (data?.reworkId) {
+      await viewRework({ id: String(data.reworkId) });
+      if (detailRecord.value.id) reworks.value = [detailRecord.value];
+    } else {
+      await loadReworks();
+      if (data?.initialCreate && sourceAcceptance.value.id) await startCreate();
+    }
   });
 
   async function loadOptions() {
@@ -651,10 +538,10 @@
     } catch {
       plan = {};
     }
-    const raw = plan.process || record.processes || record.process;
+    const raw = record.processes ?? plan.process ?? record.process;
     const process = Array.isArray(raw) ? raw : raw ? [raw] : [];
-    const materials = plan.materials || record.materials || [];
-    const outsources = plan.outsources || [];
+    const materials = record.materials ?? plan.materials ?? [];
+    const outsources = record.outsources ?? plan.outsources ?? [];
     return { process, materials: Array.isArray(materials) ? materials : [], outsources };
   }
 
@@ -669,7 +556,7 @@
   }
 
   async function startCreate() {
-    if (!canApply.value) return;
+    if (!canApply.value) return createMessage.warning('当前账号无返工申请权限或项目经理资格');
     const existing = reworks.value.find((record) => String(record.sourceAcceptanceId || '') === String(sourceAcceptance.value.id || ''));
     if (existing) {
       if (canEditRework(existing)) editRework(existing);
@@ -682,7 +569,6 @@
       sourceAcceptanceType: String(sourceAcceptance.value.acceptType || ''),
     });
     try {
-      await assertAcceptanceApplication(periodId.value, currentUserId.value, String(sourceAcceptance.value.id), 'rework');
       const name = await resolveReworkName(String(sourceAcceptance.value.reworkId || ''), periodId.value, (id) => getProjectReworkDetail({ id }));
       await loadOptions();
       addProcess();
@@ -755,6 +641,7 @@
   function cancelEdit() {
     editing.value = false;
     resetForm();
+    if (!detailRecord.value.id) closeDrawer();
   }
 
   function buildProcess() {
@@ -798,7 +685,7 @@
     }));
   }
 
-  async function saveDraft() {
+  async function submitApplication() {
     if (saving.value) return;
     if (!form.sourceAcceptanceId) {
       createMessage.warning('缺少来源失败验收记录，无法申请返工');
@@ -828,7 +715,7 @@
     saving.value = true;
     try {
       if (!canApply.value) throw new Error('当前账号无返工申请权限');
-      await assertAcceptanceApplication(periodId.value, currentUserId.value, String(form.sourceAcceptanceId), 'rework', String(form.id || ''));
+      // 来源有效性、施工状态及返工互斥交由 submit 接口统一校验。
       const editVersion = Number(form.version);
       if (form.id && (form.version == null || !Number.isFinite(editVersion))) throw new Error('返工详情缺少有效版本号，请退出编辑后重新打开');
       const payload = {
@@ -845,10 +732,10 @@
       await submitProjectRework(payload);
       createMessage.success('返工申请已提交审批');
       editing.value = false;
-      await loadReworks();
+      closeDrawer();
       emit('success');
     } catch (error: any) {
-      createMessage.error(error?.message || '返工申请保存失败，请重试');
+      createMessage.error(error?.message || '返工申请提交失败，填写内容已保留，请重试');
     } finally {
       saving.value = false;
     }
@@ -906,7 +793,7 @@
       if (!canWithdrawRework(latest)) throw new Error('申请状态或权限已变化，请刷新');
       await withdrawProjectRework({ reworkId, version });
       createMessage.success('返工申请已撤回');
-      await loadReworks();
+      closeDrawer();
       emit('success');
       return true;
     } catch (error: any) {
@@ -917,16 +804,15 @@
 
   function editFromDetail() {
     const record = { ...detailRecord.value };
-    detailVisible.value = false;
     void editRework(record);
   }
 
   async function submitFromDetail() {
-    if (await submitRework(detailRecord.value)) detailVisible.value = false;
+    await submitRework(detailRecord.value);
   }
 
   async function withdrawFromDetail() {
-    if (await withdrawRework(detailRecord.value)) detailVisible.value = false;
+    await withdrawRework(detailRecord.value);
   }
 
   const preparingApproval = ref(false);
@@ -965,8 +851,7 @@
       });
       createMessage.success(approvalApproved.value ? '返工申请已通过' : '返工申请已驳回');
       approvalVisible.value = false;
-      detailVisible.value = false;
-      await loadReworks();
+      closeDrawer();
       emit('success');
     } catch (error: any) {
       createMessage.error(error?.message || '返工审批失败，请重试');
@@ -976,14 +861,8 @@
   }
 
   async function viewRework(record: Recordable) {
-    detailVisible.value = true;
     detailLoading.value = true;
     detailRecord.value = {};
-    materialStatsError.value = '';
-    materialStats.value = [];
-    statsRequest++;
-    materialStatsLoaded.value = false;
-    materialStatsLoading.value = false;
     try {
       detailRecord.value = await getProjectReworkDetail({ id: String(record.id) });
     } catch (error: any) {

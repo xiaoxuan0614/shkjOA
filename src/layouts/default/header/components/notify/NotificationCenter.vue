@@ -42,10 +42,11 @@
         <div class="notification-content" v-html="sanitizeHtml(detail.msgContent || '暂无通知正文')"></div>
         <a-alert v-if="readError" :message="readError" type="warning" show-icon />
         <a-button v-if="readError" @click="markRead">重试标记已读</a-button>
-        <a-button v-if="businessTarget" type="primary" class="notification-business" @click="viewBusiness">查看相关业务</a-button>
+        <a-button v-if="businessTarget || todoTarget" type="primary" class="notification-business" @click="viewBusiness">查看相关业务</a-button>
       </template>
     </a-spin>
   </a-modal>
+  <TodoActionHost ref="todoHost" @processed="refresh" />
 </template>
 
 <script setup lang="ts">
@@ -54,6 +55,8 @@
   import { useRouter } from 'vue-router';
   import { sanitizeHtml } from '/@/utils/security';
   import { useMessage } from '/@/hooks/web/useMessage';
+  import TodoActionHost from '/@/views/todo/components/TodoActionHost.vue';
+  import { notificationTodo } from './notificationTodo';
   import { notificationPage, notificationDetail, markNotificationRead, markAllNotificationsRead, type NotificationRecord } from './notification.api';
 
   const emit = defineEmits<{ (e: 'updated'): void }>();
@@ -74,6 +77,8 @@
     detailError = ref(''),
     readError = ref('');
   const detail = ref<NotificationRecord | null>(null);
+  const todoHost = ref<InstanceType<typeof TodoActionHost>>();
+  const todoTarget = computed(() => notificationTodo(detail.value));
   let listVersion = 0,
     detailVersion = 0;
   function summary(item: NotificationRecord) {
@@ -156,6 +161,7 @@
     try {
       await markNotificationRead(anntId);
       if (currentVersion !== detailVersion) return;
+      if (detail.value) detail.value.readFlag = 1;
       readError.value = '';
       refresh();
     } catch {
@@ -200,6 +206,12 @@
     return '';
   });
   async function viewBusiness() {
+    if (todoTarget.value) {
+      await todoHost.value?.openTodo(todoTarget.value);
+      detailOpen.value = false;
+      open.value = false;
+      return;
+    }
     const target = router.resolve(businessTarget.value);
     if (!target.matched.length || target.matched.some((route) => route.path.includes(':path'))) {
       createMessage.warning('当前账号没有对应页面权限');

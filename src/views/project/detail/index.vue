@@ -49,7 +49,7 @@
                 @edit="handleEditProject"
               />
             </a-tab-pane>
-            <a-tab-pane key="quotation" tab="报价信息">
+            <a-tab-pane v-if="canViewQuotation" key="quotation" tab="报价信息">
               <DetailQuotation :key="projectId" :period-id="projectId" />
             </a-tab-pane>
             <a-tab-pane v-if="visibleTabs.includes('contract')" key="contract" tab="合同信息">
@@ -100,6 +100,7 @@
 <script lang="ts" name="project-detail" setup>
   import { ref, computed, onMounted, watch, onBeforeUnmount } from 'vue';
   import { DETAIL_TAB_KEYS, resolveDetailTabs, type DetailTabKey } from './detailTabs';
+  import { useQuotationDepartment } from './useQuotationDepartment';
   import { useRoute, useRouter } from 'vue-router';
   import { getProjectBasic, getActivities } from './ProjectDetail.api';
   import { statusFlow, projectStatusMap, statusColorMap, loadProjectStatusMap, loadProjectTypeMap, loadDictOptions } from '../Project.data';
@@ -120,6 +121,7 @@
   const router = useRouter();
   const { createMessage } = useMessage();
   const userStore = useUserStore();
+  const canViewQuotation = useQuotationDepartment();
   const projectId = computed(() => String(route.params.id || '')); // 分期ID periodId
   const activeKey = ref<DetailTabKey>('basic');
   const initialReworkId = computed(() => String(route.query.reworkId || ''));
@@ -128,7 +130,8 @@
   const openedTabs = ref<DetailTabKey[]>([]);
   let loadSequence = 0;
   const visibleTabs = computed(() =>
-    DETAIL_TAB_KEYS.filter((key) => resolveDetailTabs(project.value).includes(key) || openedTabs.value.includes(key))
+    DETAIL_TAB_KEYS.filter((key) => (key !== 'quotation' || canViewQuotation.value) &&
+      (resolveDetailTabs(project.value).includes(key) || openedTabs.value.includes(key)))
   );
   const project = ref<any>({});
   const projectDisplayName = computed(
@@ -244,6 +247,10 @@
     { immediate: true }
   );
   watch(() => route.query.tab, applyRequestedTab);
+  watch(canViewQuotation, () => {
+    if (!canViewQuotation.value && activeKey.value === 'quotation') activeKey.value = 'basic';
+    else if (canViewQuotation.value && route.query.tab === 'quotation') applyRequestedTab();
+  });
   onBeforeUnmount(() => {
     loadSequence++;
   });

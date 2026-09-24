@@ -2,6 +2,7 @@ import { uploadDocument, uploadProjectDocument } from '/@/utils/documentUpload';
 import { defHttp } from '/@/utils/http/axios';
 import { ContentTypeEnum } from '/@/enums/httpEnum';
 import { normalizeProjectListParams } from './projectListFilters';
+import { useUserStoreWithOut } from '/@/store/modules/user';
 
 enum Api {
   // 项目管理(主项目 + 分期 合并行)
@@ -42,7 +43,11 @@ enum Api {
  * 项目管理-分页列表(主项目+分期 合并行)
  * @param params 搜索条件 + 分页
  */
-export const projectList = (params) => defHttp.get({ url: Api.list, params: normalizeProjectListParams(params) });
+export const projectList = async (params) => {
+  const username = String(useUserStoreWithOut().getUserInfo?.username ?? '').trim();
+  if (!username) throw new Error('登录用户名缺失，请重新登录后查询项目');
+  return defHttp.get({ url: Api.list, params: { ...normalizeProjectListParams(params), username } });
+};
 
 /**
  * 项目详情(新增页详情, 主项目+分期合并字段)

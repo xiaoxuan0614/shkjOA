@@ -14,6 +14,16 @@ export function filterPurchaseProject(input: string, option: any) {
   return String(option?.label || '').toLowerCase().includes(input.trim().toLowerCase());
 }
 
+/** 详情只保证返回 ID；仅复用同一分期列表行的展示名称。 */
+export function purchaseEditProjectOption(detail: any, record: any) {
+  const samePeriod = String(detail.periodId) === String(record.periodId);
+  return purchaseProjectOption({
+    ...detail,
+    projectName: detail.projectName || (samePeriod ? record.projectName : ''),
+    periodName: detail.periodName || (samePeriod ? record.periodName : ''),
+  });
+}
+
 /** 全部分页加载，不把首页或失败后的部分结果当作完整选项。 */
 export async function loadPurchaseProjects(query, isCurrent = () => true) {
   const options = new Map<string, ReturnType<typeof purchaseProjectOption>>();

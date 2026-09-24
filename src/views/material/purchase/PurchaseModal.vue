@@ -48,7 +48,7 @@
   import { addOrder, editOrder, getSuppliers, listPurchaseProjects, queryOrderById } from './Purchase.api';
   import MaterialSelectDrawer from '../apply/components/MaterialSelectDrawer.vue';
   import { ensureSupplierOptions } from '../material.options';
-  import { purchaseProjectOption, filterPurchaseProject, loadPurchaseProjects } from './purchaseProjectOptions';
+  import { purchaseEditProjectOption, filterPurchaseProject, loadPurchaseProjects } from './purchaseProjectOptions';
   import { validateEditableRows } from '/@/components/EditableTable';
 
   const { createMessage } = useMessage();
@@ -196,8 +196,8 @@
     const suppliers = await ensureSupplierOptions();
     supplierAll.value = suppliers;
     supplierOptions.value = [...suppliers]; // 打开即展示预载的供应商首页
-    resetFields().catch(() => {});
-    updateSchema([
+    await resetFields();
+    await updateSchema([
       {
         field: 'supplierName',
         componentProps: { options: supplierOptions, onSearch: onSupplierSearch, onSelect: onSupplierSelect },
@@ -221,14 +221,17 @@
         editOrderNo.value = detail.orderNo || editOrderNo.value;
         // 分期选项注入当前项，保证 value 能回显名称
         projectOptions.value = detail.periodId
-          ? [purchaseProjectOption(detail)]
+          ? [purchaseEditProjectOption(detail, record)]
           : [];
+        if (detail.periodId && (!projectOptions.value[0]?.projectName || !projectOptions.value[0]?.periodName)) {
+          await onProjectOpen(true);
+        }
         supplierIdRef.value = detail.supplierId || '';
         projectIdRef.value = detail.projectId || '';
         preselectSupplier(detail.supplierName);
         setFieldsValue({
           supplierName: detail.supplierName,
-          periodId: detail.periodId,
+          periodId: detail.periodId == null ? undefined : String(detail.periodId),
           projectName: detail.projectName,
           orderDate: detail.orderDate,
           expectedArrivalDate: detail.expectedArrivalDate,

@@ -4,7 +4,7 @@ const vm = require('node:vm');
 const ts = require('typescript');
 function load(file, overrides = {}) {
   const exports = {};
-  vm.runInNewContext(ts.transpileModule(fs.readFileSync(file, 'utf8'), {compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText, {exports, require: id => overrides[id] || require(id)});
+  vm.runInNewContext(ts.transpileModule(fs.readFileSync(file, 'utf8'), {compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText, {exports, require: id => overrides[id] || (id.startsWith('.') ? load(require('node:path').resolve(require('node:path').dirname(file), id + '.ts'), overrides) : require(id))});
   return exports;
 }
 const g = load('src/views/plan/quotationGovernance.ts');
@@ -39,18 +39,20 @@ assert.equal(withButtons({...draft,status:'2'},g.normalizeQuotationAccess({canVi
 assert.equal(withButtons({...draft,status:'1',priced:1},{...none,canExport:true},{}).export,true);
 assert.equal(g.quotationCapabilities({...draft,status:'1',priced:1},manager,{}).export,false);
 assert.equal(g.quotationCapabilities({...draft,status:'1',priced:1},none,{},()=>true).export,false);
-assert.equal(g.quotationCapabilities({...draft,status:'2'},none,{},code=>code==='plan:quotation:technicalApprove').approve,true);
+assert.equal(g.quotationCapabilities({...draft,status:'2'},none,{},code=>code==='plan:quotation:technicalApprove').approve,false);
+assert.equal(g.quotationCapabilities({...draft,status:'2'},{...none,canApprove:true},{},code=>code==='plan:quotation:technicalApprove').approve,true);
 assert.equal(g.quotationCapabilities({...draft,status:'2'},manager,{},code=>code==='plan:quotation:lock').approve,false);
 const editorSource=fs.readFileSync('src/views/plan/material-draft/editor.vue','utf8');
 const materialTableSource=fs.readFileSync('src/views/plan/components/MaterialPlanTable.vue','utf8');
 const contractSource=fs.readFileSync('src/views/project/contract/index.vue','utf8');
 assert.match(editorSource, /:price-visible="showMarketPricing"/);
-assert.match(editorSource, /:combined-material-identity="viewOnly"/);
+assert.match(editorSource, /\n\s+combined-material-identity\s*\n/);
+assert.doesNotMatch(editorSource, /:combined-material-identity=/);
 assert.match(contractSource, /:combined-material-identity="!quotationEditing"/);
 assert.match(materialTableSource, /title: '物料名称', key: 'materialIdentity'/);
 assert.match(materialTableSource, /material-plan-table__material-code/);
-assert.match(editorSource, /reviewMode\.value \? '技术审批' : pricingMode\.value \? '市场定价'/);
-assert.match(editorSource, /access\.canManage && hasPermission\('plan:quotation:grant'\)/);
+assert.match(editorSource, /marketQuotation\.value \? '市场审批' : '技术审批'/);
+assert.match(editorSource, /access\.value\.canManage && hasPermission\('plan:quotation:grant'\)/);
 assert.equal(withButtons({...draft,status:'1'},g.normalizeQuotationAccess({canViewPrice:true,canEditPrice:true}),owner).price,false);
 assert.equal(withButtons({...draft,status:'1',priced:0},manager,owner).export,false);
 for(const version of [null,undefined,'',' ',false,[],-1,0.2,'abc',Infinity]) assert.throws(()=>g.quotationVersion(version));
@@ -64,4 +66,8 @@ api.updateMaterialCandidateAdoption(draft,0);assert.equal(calls.at(-1)[0].params
 api.getCandidateExportData(draft);assert.equal(calls.at(-1)[0].url,'/project/materialCandidate/exportData');
 assert.equal(api.quotationFilters({projectName:' 示例 ',status:0,adopted:0}).status,0);
 assert.equal(api.quotationFilters({projectName:' 示例 ',status:0,adopted:0}).projectName,'示例');
+assert.equal(api.quotationFilters({keyword:' 项目一期 '}).keyword, '项目一期');
+for (const keyword of ['', '  ', null, undefined]) assert.equal('keyword' in api.quotationFilters({keyword}), false);
+const quoteSchema = fs.readFileSync('src/views/plan/Plan.data.ts','utf8').split('export const quotationSearchFormSchema')[1];
+assert.match(quoteSchema, /field: 'keyword'/);
 console.log('Quotation permissions, business states, optimistic version, dedicated action and filter checks passed');

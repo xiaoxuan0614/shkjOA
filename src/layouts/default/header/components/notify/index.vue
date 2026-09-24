@@ -7,10 +7,10 @@
       :aria-label="countError ? '通知未读数加载失败，点击重试' : '站内通知，未读 ' + messageCount + ' 条'"
       @click="center?.show()"
     >
-      <Badge :count="messageCount" :overflow-count="99" :offset="[2, 0]"><BellOutlined /></Badge>
+      <Badge class="notification-badge" size="small" :count="messageCount" :overflow-count="99" :offset="[3, -2]"><BellOutlined /></Badge>
       <span v-if="countError" class="notification-warning" title="未读数加载失败">!</span>
     </button>
-    <NotificationCenter v-if="notificationsEnabled" ref="center" :unread="messageCount" @updated="loadCount" />
+    <NotificationCenter v-if="notificationsEnabled" :key="userStore.getUserInfo.id" ref="center" :unread="messageCount" @updated="loadCount" />
     <ChangePasswordModal @register="changePwdModal" />
   </div>
 </template>
@@ -18,14 +18,14 @@
   export default { name: 'HeaderNotification' };
 </script>
 <script setup lang="ts">
-  import { onMounted, onBeforeUnmount, ref } from 'vue';
+  import { onMounted, onBeforeUnmount, ref, watch } from 'vue';
   import { Badge } from 'ant-design-vue';
   import { BellOutlined } from '@ant-design/icons-vue';
   import md5 from 'crypto-js/md5';
   import { useDesign } from '/@/hooks/web/useDesign';
   import { useGlobSetting } from '/@/hooks/setting';
   import { useUserStore } from '/@/store/modules/user';
-  import { connectWebSocket, onWebSocket, offWebSocket } from '/@/hooks/web/useWebSocket';
+  import { connectWebSocket, onWebSocket, offWebSocket, useMyWebSocket } from '/@/hooks/web/useWebSocket';
   import { getToken } from '/@/utils/auth';
   import { useModal } from '/@/components/Modal';
   import { defHttp } from '/@/utils/http/axios';
@@ -34,8 +34,7 @@
   import { notificationPage } from './notification.api';
 
   const { prefixCls } = useDesign('header-notify');
-  // 临时暂停站内通知；恢复时同时开启入口、查询及自动刷新。
-  const notificationsEnabled = false;
+  const notificationsEnabled = true;
   const glob = useGlobSetting();
   const userStore = useUserStore();
   const center = ref<InstanceType<typeof NotificationCenter>>();
@@ -45,7 +44,7 @@
   let countVersion = 0;
   let refreshTimer: ReturnType<typeof setTimeout> | undefined;
   async function loadCount() {
-    if (!notificationsEnabled) return;
+    if (!notificationsEnabled || !getToken() || !userStore.getUserInfo.id) return;
     const version = ++countVersion;
     try {
       const data = await notificationPage({ pageNo: 1, pageSize: 1, readFlag: 0 });
@@ -70,16 +69,27 @@
   function onVisibility() {
     if (document.visibilityState === 'visible') refresh();
   }
+  function connectNotifications() {
+    useMyWebSocket()?.close();
+    const token = getToken();
+    const userId = userStore.getUserInfo.id;
+    if (token && userId && glob.domainUrl) {
+      const url = glob.domainUrl.replace('https://', 'wss://').replace('http://', 'ws://');
+      connectWebSocket(url + '/websocket/' + userId + '_' + md5(String(token)));
+    }
+  }
+  watch(() => [userStore.getUserInfo.id, userStore.getToken], () => {
+    countVersion++;
+    messageCount.value = 0;
+    countError.value = false;
+    connectNotifications();
+    void loadCount();
+  });
   onMounted(() => {
     if (notificationsEnabled) {
       void loadCount();
-      const token = getToken();
-      const userId = userStore.getUserInfo.id;
-      if (token && userId && glob.domainUrl) {
-        const url = glob.domainUrl.replace('https://', 'wss://').replace('http://', 'ws://');
-        connectWebSocket(url + '/websocket/' + userId + '_' + md5(String(token)));
-        onWebSocket(onMessage);
-      }
+      onWebSocket(onMessage);
+      connectNotifications();
       window.addEventListener('focus', refresh);
       document.addEventListener('visibilitychange', onVisibility);
     }
@@ -99,6 +109,7 @@
     countVersion++;
     clearTimeout(refreshTimer);
     offWebSocket(onMessage);
+    useMyWebSocket()?.close();
     window.removeEventListener('focus', refresh);
     document.removeEventListener('visibilitychange', onVisibility);
   });
@@ -118,6 +129,21 @@
   .notification-bell:focus-visible {
     outline: 2px solid #109eff;
     outline-offset: 2px;
+  }
+  .notification-bell .notification-badge {
+    display: inline-flex;
+    align-items: center;
+    height: 18px;
+    line-height: 18px;
+  }
+  .notification-badge :deep(.ant-badge-count) {
+    min-width: 14px;
+    height: 14px;
+    padding: 0 3px;
+    border-radius: 7px;
+    font-size: 10px;
+    line-height: 14px;
+    white-space: nowrap;
   }
   .notification-warning {
     position: absolute;

@@ -1,5 +1,5 @@
 <template>
-  <BasicDrawer v-bind="$attrs" @register="register" :title="drawerTitle" :width="900" showFooter @visible-change="handleVisibleChange" @ok="handleOk">
+  <BasicDrawer v-bind="$attrs" @register="register" :title="drawerTitle" :width="quotationLayout ? 'min(1440px, 96vw)' : 900" showFooter @visible-change="handleVisibleChange" @ok="handleOk">
     <div class="material-select">
       <!-- 左侧：物料大类树 -->
       <div v-if="!isProjectMode && !laborOnly" class="material-select__tree">
@@ -54,23 +54,24 @@
           :row-key="(record) => record.id"
           :row-class-name="getRowClassName"
           :loading="loading"
+          :scroll="{ x: quotationLayout ? 900 : isProjectMode ? 1160 : 1110 }"
           size="small"
           @change="handleTableChange"
         >
           <template #bodyCell="{ column, record }">
             <template v-if="column.key === 'material'">
               <div class="material-select__identity">
-                <a-tooltip v-if="codeTooltip" :title="record.materialCode || '暂无编码'">
-                  <span class="material-select__name" tabindex="0">{{ record.materialName || '未命名物料' }}</span>
-                </a-tooltip>
-                <template v-else>
-                  <span class="material-select__name">{{ record.materialName || '未命名物料' }}</span>
-                  <span class="material-select__code">{{ record.materialCode || '暂无编码' }}</span>
-                </template>
+                <a-button type="link" class="material-select__name" style="padding: 0; text-align: left; white-space: normal; height: auto; overflow-wrap: anywhere" @click.stop="basicInfoRef?.open(record)">{{ record.materialName || '未命名物料' }}<template v-if="quotationLayout && record.brand">（{{ formatBrand(record.brand) }}）</template></a-button>
+                <span v-if="!codeTooltip" class="material-select__code">{{ record.materialCode || '暂无编码' }}</span>
               </div>
             </template>
             <template v-else-if="column.key === 'brand'">
               {{ formatBrand(record.brand) }}
+            </template>
+            <template v-else-if="column.key === 'model' && quotationLayout">
+              <a-tooltip :title="record.model || undefined">
+                <span class="material-select__model-clamp" :tabindex="record.model ? 0 : undefined">{{ record.model || '—' }}</span>
+              </a-tooltip>
             </template>
             <template v-else-if="column.key === 'availableApplyQty'">
               <span class="material-select__available"> {{ record.availableApplyQty }}{{ record.baseUnitName || '' }} </span>
@@ -102,9 +103,7 @@
         <div v-if="selectedList.length > 0" class="material-select__selected">
           <span class="material-select__selected-label">已选物料：</span>
           <a-tag v-for="item in selectedList" :key="item.id" closable @close="removeSelected(item)">
-            <a-tooltip v-if="codeTooltip" :title="item.materialCode || '暂无编码'">
-              <span tabindex="0">{{ item.materialName }}</span>
-            </a-tooltip>
+            <span v-if="codeTooltip">{{ item.materialName }}</span>
             <template v-else>{{ item.materialName }}{{ item.materialCode ? ` · ${item.materialCode}` : '' }}</template>
           </a-tag>
         </div>
@@ -112,6 +111,7 @@
     </div>
     <!-- 新增物料弹窗 -->
     <MaterialAddModal @register="registerAddModal" @success="handleAddMaterialSuccess" />
+    <MaterialBasicInfoModal ref="basicInfoRef" />
   </BasicDrawer>
 </template>
 
@@ -120,14 +120,17 @@
   import { BasicDrawer, useDrawerInner } from '/@/components/Drawer';
   import { useModal } from '/@/components/Modal';
   import MaterialAddModal from '/@/views/material/components/MaterialAddModal.vue';
+  import MaterialBasicInfoModal from '../../components/MaterialBasicInfoModal.vue';
   import { selectMaterialList, selectProjectMaterialAccountPage, addMaterial } from '../MaterialApply.api';
   import { initDictOptions } from '/@/utils/dict/index';
   import { invalidateMaterialMap, loadDictMap } from '../../material.util';
   import { useMessage } from '/@/hooks/web/useMessage';
+  import { renderMaterialSpecification } from '../../materialSpecification';
 
   // Emits声明
   const emit = defineEmits(['register', 'success']);
   const { createMessage } = useMessage();
+  const basicInfoRef = ref<InstanceType<typeof MaterialBasicInfoModal>>();
   const props = withDefaults(
     defineProps<{
       sourceMode?: 'all' | 'project';
@@ -137,6 +140,7 @@
       showSelectedMaterials?: boolean;
       showSelectAll?: boolean;
       codeTooltip?: boolean;
+      quotationLayout?: boolean;
     }>(),
     { sourceMode: 'all', periodId: '', showSelectedMaterials: false, showSelectAll: false, codeTooltip: false }
   );
@@ -181,10 +185,14 @@
 
   // 项目领料读取物料总账，普通选料保持库存主数据列。
   const columns = computed(() => [
-    { title: '物料', key: 'material', width: 240 },
-    { title: '类别', dataIndex: 'materialCategory', key: 'materialCategory', width: 110 },
-    { title: '品牌', dataIndex: 'brand', key: 'brand', width: 120 },
+    { title: '物料', key: 'material', width: props.quotationLayout ? 340 : 240 },
+    ...(props.quotationLayout ? [] : [
+      { title: '类别', dataIndex: 'materialCategory', key: 'materialCategory', width: 110 },
+      { title: '品牌', dataIndex: 'brand', key: 'brand', width: 120 },
+    ]),
     { title: '型号', dataIndex: 'model', key: 'model', width: 140 },
+    { title: '参数', dataIndex: 'specificationParams', key: 'specificationParams', width: 180,
+      customRender: ({ text }) => renderMaterialSpecification(text) },
     ...(isProjectMode.value
       ? [{ title: '当前可申请数量', dataIndex: 'availableApplyQty', key: 'availableApplyQty', width: 150 }]
       : [{ title: '总库存', dataIndex: 'stockQty', key: 'stockQty', width: 100 }]),
@@ -264,10 +272,7 @@
         const [, res]: any[] = await Promise.all([ensureBrandMap(), selectProjectMaterialAccountPage(params)]);
         if (requestSequence !== loadSequence || !drawerVisible.value) return;
         const records = Array.isArray(res) ? res : res?.records || [];
-        tableData.value = records
-          .filter((item: any) => item.materialId)
-          .map(normalizeProjectMaterialAccount)
-          .filter((item: any) => item.availableApplyQty > 0);
+        tableData.value = records.filter((item: any) => item.materialId).map(normalizeProjectMaterialAccount);
         pagination.current = params.pageNo;
         pagination.pageSize = params.pageSize;
         pagination.total = Array.isArray(res) ? records.length : Number(res?.total) || 0;
@@ -486,6 +491,16 @@
 </script>
 
 <style lang="less" scoped>
+  .material-select__model-clamp {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 20px;
+    max-height: 40px;
+  }
   .material-select {
     display: flex;
     height: 100%;

@@ -8,11 +8,16 @@
       </template>
       <!-- 操作栏 -->
       <template #action="{ record }">
-        <TableAction :actions="getTableAction(record)" :dropDownActions="getDropDownAction(record)" />
+        <TableAction v-bind="getProjectActionLayout(record)" />
       </template>
       <!-- 字段回显插槽 -->
       <template #bodyCell="{ column, record }">
-        <template v-if="column.dataIndex === 'status'">
+        <template v-if="column.dataIndex === 'customerName'">
+          <a-tooltip :title="record.customerName || undefined" :trigger="['hover', 'focus']">
+            <span class="project-customer-name" :tabindex="record.customerName ? 0 : undefined">{{ record.customerName || '—' }}</span>
+          </a-tooltip>
+        </template>
+        <template v-else-if="column.dataIndex === 'status'">
           <a-tag :color="statusMeta[record.status]?.color || statusColorMap[record.status] || 'default'">
             {{ statusMeta[record.status]?.text || projectStatusMap[record.status] || record.status || '—' }}
           </a-tag>
@@ -89,6 +94,7 @@
   import { useListPage } from '/@/hooks/system/useListPage';
   import { columns, searchFormSchema, statusFlow, projectStatusMap, statusColorMap, loadProjectStatusMap, loadProjectTypeMap } from './Project.data';
   import { projectList, deleteProject, changePeriodStatus, getMainProjectList } from './Project.api';
+  import { projectActionLayout } from './projectActionLayout';
   import { useMessage } from '/@/hooks/web/useMessage';
   import { getApprovalStatusMeta, isApprovalApproved, isApprovalPending } from '/@/utils/approvalStatus';
   import { loadUserOptions } from '/@/views/resource/userOptions';
@@ -105,7 +111,7 @@
 
   import { useAcceptanceAccess } from './useAcceptanceAccess';
 
-  const { canStartAcceptance, canViewAcceptanceEntry } = useAcceptanceAccess();
+  const { canViewAcceptanceEntry } = useAcceptanceAccess();
   const router = useRouter();
   const { createMessage } = useMessage();
   const { hasPermission } = usePermission();
@@ -181,12 +187,12 @@
         return Object.assign(params, queryParam);
       },
       afterFetch: async (rows: Recordable[]) => {
+        const managerUserId = String(userStore.getUserInfo?.id || '');
         projectTypeMeta.value = await loadProjectTypeMap();
-        const result = rows.map((row) => ({ ...row, _isArrivalManager: false }));
-        if (!hasPermission('project:arrival:confirm') && !hasPermission('project:acceptance:submit')) return result;
+        const result = rows.map((row) => ({ ...row, _isArrivalManager: false, _managerUserId: managerUserId }));
         const pending = result.filter(
           (row) =>
-            ((isArrivalStage(row) && isPhysicalProject(row, projectTypeMeta.value)) || row.status === 'PENDING_ACCEPT') && (row.periodId || row.id)
+            ((isArrivalStage(row) && isPhysicalProject(row, projectTypeMeta.value)) || ['PENDING_ACCEPT', 'NOT_STARTED', 'PREPARING'].includes(row.status)) && (row.periodId || row.id)
         );
         // 仅查询当前页可确认到货的分期经理身份，去重并限制三项并发。
         const requests = new Map<string, Promise<boolean>>();
@@ -197,7 +203,7 @@
               if (!requests.has(periodId)) {
                 requests.set(
                   periodId,
-                  readProjectMembership(periodId, String(userStore.getUserInfo?.id || ''))
+                  readProjectMembership(periodId, managerUserId)
                     .then((access) => access.manager)
                     .catch(() => false)
                 );
@@ -253,7 +259,7 @@
     });
   }
 
-  /** 统一计划入口：筹备中编辑，提交后只读查看。 */
+  /** 统一计划入口：未开始/筹备中可编辑，待审批只读查看。 */
   function handlePlan(record: Recordable) {
     router.push({
       path: '/project/plan',
@@ -279,9 +285,12 @@
     openArrivalConfirmModal(true, { record, periodId: record.periodId || record.id });
   }
 
-  /** 计划审批前仅筹备中的项目允许编辑；审批通过后只能查看计划详情。 */
+  /** 未开始可编辑；筹备中修改受控计划会由后端作废原审批，要求重提。 */
   function canEditPlan(record: Recordable) {
-    return String(record.status || '') === 'PREPARING';
+    return ['NOT_STARTED', 'PREPARING'].includes(String(record.status || '')) &&
+      !!userStore.getUserInfo?.id &&
+      (userStore.getIdentity.roleCodes?.includes('admin') ||
+        (record._isArrivalManager === true && record._managerUserId === String(userStore.getUserInfo.id)));
   }
 
   /** 已提交合同统一进入合同信息页查看和处理，不再使用独立审批弹窗。 */
@@ -365,7 +374,7 @@
       return;
     }
     if (action.act === 'planAudit') {
-      openPlanAuditModal(true, { ...record, periodId: record.periodId || record.id, record });
+      openPlanAuditModal(true, { ...record, periodId: record.periodId || record.id, approvalId: record.currentApprovalId || '', record });
       return;
     }
     if (action.act === 'processComplete') {
@@ -380,11 +389,15 @@
   /**
    * 操作栏: 状态流转(项目创建后仅允许从详情页编辑基本信息)
    */
+  function getProjectActionLayout(record: Recordable) {
+    return projectActionLayout([...getTableAction(record), ...getDropDownAction(record)], hasPermission);
+  }
+
   function getTableAction(record: Recordable) {
     const flow = statusFlow[record.status];
     const actions = [];
     if (
-      ['PENDING_ACCEPT', 'ACCEPTING', 'REWORKING', 'WARRANTY', 'COMPLETED', 'CLOSED'].includes(String(record.status || '')) &&
+      ['PENDING_ACCEPT', 'ACCEPTING', 'REACCEPTING', 'FAILED', 'REWORKING', 'COMPLETED', 'CLOSED'].includes(String(record.status || '')) &&
       canViewAcceptanceEntry()
     ) {
       actions.push({
@@ -395,22 +408,15 @@
         },
       });
     }
-    if (record.status === 'PENDING_ACCEPT') {
-      actions.push({
-        label: '提交验收',
-        disabled: !canStartAcceptance(record._isArrivalManager),
-        onClick: () => openAcceptanceModal(true, { periodId: record.periodId || record.id, project: record, apply: true }),
-      });
-    }
     if (flow && flow.actions) {
       flow.actions.forEach((action) => {
         // 明确返回合同 ID 或状态 0/1/2/3 时，均表示已有合同记录，不再显示「合同签订」。
         if (action.act === 'contractSign' && isContractSubmitted(record)) return;
         const item: Recordable = {
           label: action.label,
-          auth: action.auth,
+          auth: action.act === 'planAudit' && userStore.getIdentity.roleCodes?.includes('admin') ? undefined : action.auth,
         };
-        if (['contractSign', 'processComplete'].includes(action.act)) {
+        if (['contractSign', 'processComplete', 'planAudit'].includes(action.act)) {
           // 合同签订和工序完成先打开各自办理界面，不在列表按钮上直接确认。
           item.onClick = handleAdvance.bind(null, record, action);
         } else {
@@ -437,7 +443,7 @@
         onClick: handleContractInfo.bind(null, record),
       });
     }
-    // 高频计划入口直接展示在操作栏，不收进“更多”。
+    // 计划入口沿用原优先顺序，最终由可见操作数量决定是否折叠。
     if (canEditPlan(record) || String(record.status || '') === 'PENDING_APPROVAL') {
       actions.push({
         label: canEditPlan(record) ? '编辑计划方案' : '查看计划方案',
@@ -493,6 +499,13 @@
 </script>
 
 <style lang="less" scoped>
+  .project-customer-name {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   .project-create-mode {
     &__options {
       display: grid;

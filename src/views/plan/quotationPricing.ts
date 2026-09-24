@@ -2,6 +2,11 @@ import Big from 'big.js';
 
 export const hasPrice = (value: unknown) => value !== null && value !== undefined && value !== '';
 
+export function validateDirectQuotation(basePrice: any, finalPrice: any) {
+  decimalPrice(basePrice, '成本价');
+  decimalPrice(finalPrice, '报价');
+}
+
 /** 比例使用百分数原值，如20表示20%。 */
 export function guidancePrice(cost: any, percent: any) {
   return decimalPrice(cost, '成本价').times(decimalPrice(percent, '指导比例', 4).div(100).plus(1)).round(2, Big.roundHalfUp).toFixed(2);

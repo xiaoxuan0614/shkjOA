@@ -40,7 +40,7 @@ export async function assertAcceptanceApplication(
   const round = String(project.currentReworkId || '');
   const current = [latestAcceptance(internal, round), latestAcceptance(customer, round)].filter(Boolean);
   const source = current.find((row) => String(row.id) === sourceId);
-  if (project.status !== 'ACCEPTING' || !access.manager || !isCurrentFailedAcceptance(source, current))
+  if (!['ACCEPTING', 'REACCEPTING'].includes(project.status) || !access.manager || !isCurrentFailedAcceptance(source, current))
     throw new Error('验收状态或项目经理资格已变化，请刷新后重试');
   if (hasBlockingRework(reworks, round, excludeReworkId)) throw new Error('当前轮已有施工返工申请，请先办理返工记录');
   if (mode === 'rework' && hasActiveRecheck(current)) throw new Error('当前轮复验进行中，暂不能申请施工返工');

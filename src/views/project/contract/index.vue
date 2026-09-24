@@ -74,7 +74,7 @@
             </template>
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'index'">{{ record._key }}</template>
-              <template v-else-if="column.key === 'node'">{{ getOptionLabel(paybackNodeOptions, record.node) }}</template>
+              <template v-else-if="column.key === 'node'">{{ record.paymentNode_dictText || record.node_dictText || getOptionLabel(paybackNodeOptions, record.node) }}</template>
               <template v-else-if="column.key === 'ratio'">{{ record.ratio ?? '—' }}%</template>
               <template v-else-if="column.key === 'rollbackTime'">{{ record.rollbackTime ?? 7 }} 天</template>
               <template v-else-if="column.key === 'amount'">{{ record.amount != null ? `${record.amount.toFixed(2)} 元` : '—' }}</template>
@@ -99,6 +99,7 @@
               <a-select
                 :value="materialCandidateId"
                 @change="handleQuotationSelection"
+                @dropdown-visible-change="(open) => { if (open && !candidatesLoading && !contractCandidates.length) loadContractCandidates(); }"
                 :options="contractCandidateOptions"
                 :loading="candidatesLoading"
                 :disabled="submitting || quotationSaving || candidatesLoading"
@@ -283,6 +284,7 @@
           placeholder="请选择项目经理"
           :loading="userOptionsLoading"
           :options="userOptions"
+          @dropdown-visible-change="(open) => { if (open && !usersLoaded && !userOptionsLoading) loadUsers(); }"
           style="flex: 1"
         />
       </div>
@@ -364,10 +366,9 @@
     editContractWithPaymentRecords,
     changeContractStatus,
   } from '/@/views/payment/Payment.api';
-  import { changePeriodStatus, projectDetail } from '../Project.api';
+  import { projectDetail } from '../Project.api';
   import { loadDictOptions } from '../Project.data';
   import PlanProjectInfo from '../plan/PlanProjectInfo.vue';
-  import { getFiles } from '../detail/ProjectDetail.api';
   import { expandContractAttachments } from './contractAttachments';
   import MaterialPlanTable from '/@/views/plan/components/MaterialPlanTable.vue';
   import {
@@ -415,7 +416,6 @@
   const originalContract = ref<Recordable>({});
   const contractId = ref((route.query?.contractId as string) || '');
   const CONTRACT_ATTACHMENT_LIMIT = 3;
-  const CONTRACT_ATTACHMENT_FILE_TYPE = 'CONTRACT_ATTACHMENT';
   type ContractAttachment = {
     uid: string;
     id?: string;
@@ -597,7 +597,7 @@
     return options.find((item) => String(item.value) === String(value))?.label || String(value);
   }
 
-  const contractTypeText = computed(() => getOptionLabel(contractTypeOptions.value, info.value.contractType));
+  const contractTypeText = computed(() => info.value.contractType_dictText || getOptionLabel(contractTypeOptions.value, info.value.contractType));
   const salesUserName = computed(() => {
     const salesUser = info.value.salesUser || info.value.saleUser || {};
     const isValidName = (value: unknown) => {
@@ -769,6 +769,7 @@
           showSearch: true,
           optionFilterProp: 'label',
           placeholder: '请选择销售负责人',
+          onDropdownVisibleChange: (open: boolean) => { if (open && !userOptionsLoading.value && !usersLoaded) void loadUsers(); },
           onChange: (v: any) => {
             const u = userMap[v];
             setFieldsValue({ salesUserName: u?.name || '' });
@@ -809,14 +810,15 @@
       await router.replace('/project/list');
       return;
     }
-    if (periodId.value) void loadContractCandidates(true);
     if (pageMode.value !== 'create' && !periodId.value) {
       createMessage.error('查看或编辑合同必须提供项目分期 ID');
       await router.replace('/project/list');
       return;
     }
 
-    const auxiliaryDataPromise = Promise.all([loadDictOptions('contract_type'), loadDictOptions('payback_node'), loadUsers()]);
+    const auxiliaryDataPromise = pageMode.value === 'view'
+      ? Promise.resolve([[], []])
+      : Promise.all([loadDictOptions('contract_type'), loadDictOptions('payback_node')]);
 
     if (pageMode.value === 'create') {
       const [contractTypes, nodes] = await auxiliaryDataPromise;
@@ -836,9 +838,6 @@
       createMessage.warning('合同已不在待审批状态，无法通过审批入口查看');
       await router.replace('/project/list');
       return;
-    }
-    if (!contractLoadFailed.value) {
-      await loadProjectRecord();
     }
 
     const [contractTypes, nodes] = await auxiliaryDataPromise;
@@ -862,11 +861,14 @@
   });
 
   /** 加载全量用户(销售负责人下拉) */
+  let usersLoaded = false;
   async function loadUsers() {
+    if (userOptionsLoading.value || usersLoaded) return;
     userOptionsLoading.value = true;
     try {
       const users = await loadUserOptions();
       userOptions.value = users || [];
+      usersLoaded = true;
       userMap = (users || []).reduce((m, u) => {
         m[u.value] = { name: u.label };
         return m;
@@ -912,6 +914,11 @@
     contractAttachments.value = [];
     paybackRows.value = [];
     paybackErrors.value = {};
+    if (defaultUser.value.id && defaultUser.value.name) {
+      userOptions.value = [{ value: String(defaultUser.value.id), label: defaultUser.value.name }];
+      userMap[String(defaultUser.value.id)] = { name: defaultUser.value.name };
+      await updateSchema({ field: 'salesUserId', componentProps: { options: userOptions.value } });
+    }
     await setFieldsValue({
       periodId: periodId.value,
       projectId: projectId.value,
@@ -933,6 +940,11 @@
       periodId.value = periodId.value || contract.periodId || '';
       projectId.value = projectId.value || contract.projectId || '';
       info.value = { ...contract, contractFile, materialFile, records: records || [] };
+      materialCandidateId.value = contract.materialCandidateId || undefined;
+      if (contract.salesUserId && contract.salesUserName && !usersLoaded) {
+        userOptions.value = [{ value: String(contract.salesUserId), label: contract.salesUserName }];
+        userMap[String(contract.salesUserId)] = { name: contract.salesUserName };
+      }
       originalContract.value = { ...contract };
       approvalResult.value = undefined;
       approvalReason.value = '';
@@ -950,6 +962,7 @@
 
   async function fillContractForm() {
     await nextTick();
+    await updateSchema({ field: 'salesUserId', componentProps: { options: userOptions.value } });
     await setFieldsValue({
       ...info.value,
       id: contractId.value,
@@ -986,14 +999,8 @@
     };
   }
 
-  /** 新附件从项目文件表读取；没有新类型记录时兼容原合同的两个历史文件位。 */
+  /** 回显仅使用合同组合详情，不额外查询项目附件列表。 */
   async function loadContractAttachments(detail: { contract?: Recordable; contractFile?: Recordable; materialFile?: Recordable }) {
-    const result: any = await getFiles({ periodId: periodId.value, pageNo: 1, pageSize: 100 });
-    const records = Array.isArray(result) ? result : result?.records || [];
-    const unified = expandContractAttachments(records.filter((record: Recordable) => String(record.fileType || '') === CONTRACT_ATTACHMENT_FILE_TYPE))
-      .map(attachmentFromRecord)
-      .filter(Boolean) as ContractAttachment[];
-
     const contract = detail.contract || {};
     const legacyRecords = expandContractAttachments([
       {
@@ -1008,8 +1015,7 @@
       .map(attachmentFromRecord)
       .filter(Boolean) as ContractAttachment[];
 
-    const next = contract.contractFileId ? legacyRecords : unified.length ? unified : legacyRecords;
-    contractAttachments.value = next.map((item) => ({ ...item }));
+    contractAttachments.value = legacyRecords.map((item) => ({ ...item }));
   }
 
   function openContractAttachmentPicker() {
@@ -1071,6 +1077,11 @@
       if (paybackLoadFailed.value) return;
     }
     pageMode.value = 'edit';
+    const [contractTypes, nodes] = await Promise.all([
+      loadDictOptions('contract_type'), loadDictOptions('payback_node'),
+    ]);
+    contractTypeOptions.value = contractTypes || [];
+    paybackNodeOptions.value = nodes || [];
     readonly.value = true;
     editing.value = true;
     await router.replace({
@@ -1122,7 +1133,6 @@
         records: buildPaybackRecords(true, info.value.contractAmount),
       });
       await changeContractStatus({ periodId: periodId.value, status: '1', approvalReason: '' });
-      await changePeriodStatus({ periodId: periodId.value, status: 'PREPARING' });
       info.value = {
         ...info.value,
         status: '1',
@@ -1130,7 +1140,7 @@
         projectManagerUserId: projectManagerUserId.value,
         projectManagerUserName: selected?.label || '',
       };
-      createMessage.success('合同审批通过，项目已进入筹备中');
+      createMessage.success('合同审批通过，请由项目经理完善并提交分期计划');
       await router.push('/project/list');
     } catch (error: any) {
       createMessage.error(error?.message || '合同审批失败，请刷新后确认当前状态');

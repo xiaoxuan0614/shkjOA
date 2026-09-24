@@ -13,6 +13,8 @@ const stageByStatus: Record<string, number> = {
   PENDING_ACCEPT: 4,
   INTERNAL_ACCEPTING: 4,
   ACCEPTING: 4,
+  REACCEPTING: 4,
+  FAILED: 4,
   REWORKING: 4,
   WARRANTY: 4,
   COMPLETED: 4,

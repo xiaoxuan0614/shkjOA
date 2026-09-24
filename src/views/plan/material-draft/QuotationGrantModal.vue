@@ -2,37 +2,41 @@
   <a-modal
     :open="open"
     title="本分期报价导出授权"
-    :width="800"
-    :confirm-loading="saving"
-    :ok-button-props="{ disabled: loading || failed || !userId }"
+    :width="600"
+    :footer="null"
     :mask-closable="!saving"
     :closable="!saving"
     @cancel="close"
-    @ok="save"
   >
     <a-alert v-if="failed" type="error" :message="failed" show-icon />
-    <a-alert type="info" message="仅授予导出权限，不授予查看或修改价格权限。关闭导出即撤销该用户授权；保存将清除该用户原有价格授权。" show-icon />
-    <a-table :data-source="grants" :columns="columns" row-key="userId" :loading="loading" :pagination="false" :scroll="{ y: 240 }" size="small">
-      <template #bodyCell="{ column, record }"
-        ><a-button v-if="column.key === 'edit'" type="link" :disabled="saving" @click="selectGrant(record)">维护</a-button
-        ><template v-else-if="column.key?.startsWith('can')">{{ Number(record[column.key]) === 1 ? '允许' : '不允许' }}</template></template
-      >
-    </a-table>
     <a-form layout="vertical" style="margin-top: 16px">
-      <a-form-item label="授权用户" required
-        ><JSelectUser v-model:value="userId" row-key="id" :multiple="false" :disabled="loading || saving || !!failed"
-      /></a-form-item>
-      <a-space>
-        <a-checkbox v-model:checked="form.canExport" :disabled="saving">导出报价</a-checkbox>
-      </a-space>
+      <a-form-item label="授权用户" required>
+        <div class="authorize-row">
+          <a-select
+          v-model:value="userId" show-search allow-clear placeholder="搜索姓名或账号选择用户"
+          :options="userOptions" option-filter-prop="label" :loading="usersLoading"
+          :disabled="loading || saving || !!failed" class="authorize-select" @dropdown-visible-change="openUsers" />
+          <a-button type="primary" :loading="saving" :disabled="loading || !!failed || !userId" @click="save">授权</a-button>
+        </div>
+        <div v-if="usersError" role="alert">{{ usersError }} <a-button type="link" @click="loadUsers">重试</a-button></div>
+      </a-form-item>
     </a-form>
+    <div class="authorized-users">
+      <span>已授权用户：</span>
+      <span v-if="!activeGrants.length">{{ loading ? '加载中…' : '暂无' }}</span>
+      <a-tag v-for="record in activeGrants" :key="record.userId">
+        {{ record.userName || record.userId }}
+        <a-popconfirm title="确认删除该用户的报价授权？" :disabled="saving || loading || !!failed" @confirm="removeGrant(record)">
+          <button type="button" class="remove-user" :aria-label="`删除${record.userName || record.userId}的授权`" :disabled="saving || loading || !!failed">×</button>
+        </a-popconfirm>
+      </a-tag>
+    </div>
   </a-modal>
 </template>
 <script setup lang="ts">
-  import { reactive, ref, watch } from 'vue';
-  import JSelectUser from '/@/components/Form/src/jeecg/components/JSelectUser.vue';
+  import { computed, ref, watch } from 'vue';
   import { useMessage } from '/@/hooks/web/useMessage';
-  import { getQuotationAccess, getQuotationGrants, saveQuotationGrant } from '../Plan.api';
+  import { getQuotationAccess, getQuotationGrants, saveQuotationGrant, getQuotationGrantUsers } from '../Plan.api';
   import { quotationVersion } from '../quotationGovernance';
   import { usePermission } from '/@/hooks/web/usePermission';
   const { hasPermission } = usePermission();
@@ -45,14 +49,42 @@
     userId = ref('');
   const grants = ref<Recordable[]>([]);
   const version = ref(0);
-  const form = reactive({ canViewPrice: false, canEditPrice: false, canExport: false });
-  const columns = [
-    { title: '用户', dataIndex: 'userName' },
-    { title: '查看价格', key: 'canViewPrice' },
-    { title: '修改价格', key: 'canEditPrice' },
-    { title: '导出', key: 'canExport' },
-    { title: '操作', key: 'edit' },
-  ];
+  const activeGrants = computed(() => grants.value.filter(row => Number(row.canExport) === 1));
+  const userOptions = ref<{ label: string; value: string }[]>([]);
+  const usersLoading = ref(false);
+  const usersError = ref('');
+  let usersSequence = 0;
+  function openUsers(open: boolean) {
+    if (open && !userOptions.value.length) void loadUsers();
+  }
+  async function loadUsers() {
+    if (usersLoading.value) return;
+    const request = ++usersSequence;
+    usersLoading.value = true;
+    usersError.value = '';
+    const options = new Map<string, { label: string; value: string }>();
+    try {
+      let received = 0;
+      for (let page = 1; ; page++) {
+        const data = await getQuotationGrantUsers(page);
+        if (request !== usersSequence) return;
+        const rows = data == null ? [] : data.records;
+        if (!Array.isArray(rows)) throw new Error('用户列表格式异常');
+        const previous = options.size;
+        rows.forEach(row => {
+          if (row.id) options.set(String(row.id), { value: String(row.id), label: [row.realname, row.username].filter(Boolean).join('（') + (row.realname && row.username ? '）' : '') });
+        });
+        received += rows.length;
+        if (!rows.length || (data.total != null ? received >= Number(data.total) : rows.length < 100)) break;
+        if (options.size === previous) throw new Error('用户分页未前进');
+      }
+      userOptions.value = [...options.values()];
+    } catch {
+      if (request === usersSequence) usersError.value = '用户加载失败，请重试';
+    } finally {
+      if (request === usersSequence) usersLoading.value = false;
+    }
+  }
   let sequence = 0;
   function close() {
     if (!saving.value) emit('update:open', false);
@@ -60,21 +92,15 @@
   function applySelection() {
     const item = grants.value.find((row) => String(row.userId) === String(userId.value));
     version.value = item ? quotationVersion(item.version) : 0;
-    Object.assign(form, {
-      canViewPrice: Number(item?.canViewPrice) === 1,
-      canEditPrice: Number(item?.canEditPrice) === 1,
-      canExport: Number(item?.canExport) === 1,
-    });
-  }
-  function selectGrant(item: Recordable) {
-    userId.value = String(item.userId);
-    applySelection();
   }
   watch(userId, applySelection);
   watch(
     () => [props.open, props.periodId],
     async () => {
       const request = ++sequence;
+      usersSequence++;
+      usersLoading.value = false;
+      userOptions.value = [];
       if (!props.open) return;
       loading.value = true;
       failed.value = '';
@@ -83,6 +109,8 @@
       try {
         const access = await getQuotationAccess(props.periodId);
         if (!access.canManage || !hasPermission('plan:quotation:grant')) throw new Error('当前无报价授权管理权限');
+        if (request !== sequence) return;
+        void loadUsers();
         const rows = await getQuotationGrants(props.periodId);
         if (!Array.isArray(rows)) throw new Error('授权列表格式不正确');
         rows.forEach((row) => quotationVersion(row.version));
@@ -99,7 +127,14 @@
     if (saving.value || loading.value || failed.value || !userId.value) return;
     const target = String(userId.value);
     if (target.includes(',')) return createMessage.warning('每次请选择一个用户');
-    const payload = { periodId: props.periodId, userId: target, version: version.value, canViewPrice: false, canEditPrice: false, canExport: form.canExport };
+    await updateGrant(target, version.value, true);
+  }
+  async function removeGrant(row: Recordable) {
+    if (saving.value || loading.value || failed.value) return;
+    await updateGrant(String(row.userId), quotationVersion(row.version), false);
+  }
+  async function updateGrant(target: string, expectedVersion: number, canExport: boolean) {
+    const payload = { periodId: props.periodId, userId: target, version: expectedVersion, canViewPrice: false, canEditPrice: false, canExport };
     saving.value = true;
     try {
       if (!hasPermission('plan:quotation:grant') || !(await getQuotationAccess(props.periodId)).canManage) throw new Error('当前无报价授权管理权限');
@@ -109,9 +144,17 @@
       const current = latest.find((row) => String(row.userId) === target);
       if ((current ? quotationVersion(current.version) : 0) !== payload.version) throw new Error('授权已变化，请关闭后重新打开核对');
       await saveQuotationGrant(payload);
-      createMessage.success('本分期报价授权已保存');
+      createMessage.success(canExport ? '已授权导出' : '已删除授权');
+      userId.value = '';
       emit('success');
-      emit('update:open', false);
+      try {
+        const refreshed = await getQuotationGrants(props.periodId);
+        if (!Array.isArray(refreshed)) throw new Error('授权列表格式不正确');
+        refreshed.forEach(row => quotationVersion(row.version));
+        grants.value = refreshed;
+      } catch {
+        failed.value = '操作已成功，但列表刷新失败，请关闭后重新打开核对';
+      }
     } catch (e: any) {
       createMessage.error(e?.message || '授权保存失败');
     } finally {
@@ -119,3 +162,12 @@
     }
   }
 </script>
+<style scoped>
+  .authorize-row { display: flex; align-items: center; gap: 8px; }
+  .authorize-select { flex: 1; min-width: 0; }
+  .authorize-row > .ant-btn { flex-shrink: 0; }
+  .authorized-users { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; max-height: 240px; overflow: auto; }
+  .authorized-users :deep(.ant-tag) { margin: 0; white-space: normal; overflow-wrap: anywhere; }
+  .remove-user { border: 0; background: transparent; color: inherit; cursor: pointer; margin-left: 4px; padding: 0 4px; }
+  .remove-user:disabled { cursor: not-allowed; opacity: .45; }
+</style>

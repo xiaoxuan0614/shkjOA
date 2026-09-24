@@ -29,7 +29,7 @@ async function main() {
   assert.equal(requests[1].acceptType, 'CUSTOMER');
   assert.ok(!pc.includes('void loadManager()'));
   assert.ok(!pc.includes('loadHistoryCount'));
-  assert.ok(!read('src/views/project/components/AcceptanceModal.vue').includes('await projectDetail'));
+  assert.ok(read('src/views/project/components/AcceptanceModal.vue').includes('await projectDetail'), '弹窗不能使用待办或列表的旧状态');
   const mobile = read('/Users/xuan/AI/ClaudeAllData/SHKKJ-uniapp/src/pages/ops/components/ProjectAcceptancePopup.vue');
   const calls = [];
   await runFunction(mobile, 'load', {

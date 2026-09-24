@@ -92,9 +92,9 @@
   const currentReworkId = ref('');
   const currentStatus = ref('');
   const submitting = ref(false);
-  function selectable(record: Recordable) {
+  function selectable(record: Recordable, verifyIdentity = false) {
     return hasPermission('project:implement') && !!userId.value &&
-      (isManager.value || String(record.siteLeaderId || '') === userId.value) &&
+      (!verifyIdentity || isManager.value || String(record.siteLeaderId || '') === userId.value) &&
       (!currentReworkId.value || String(record.reworkId || '') === currentReworkId.value) &&
       ['IMPLEMENTING', 'DEBUGGING', 'DEBUG_COMPLETED', 'REWORKING'].includes(currentStatus.value) &&
       normalizeStatus(record.status) === 'IN_PROGRESS';
@@ -139,6 +139,9 @@
     periodId.value = String(data?.periodId || record.periodId || record.id || '');
     projectName.value = record.projectName || '';
     periodName.value = record.periodName || '';
+    currentReworkId.value = String(record.currentReworkId || '');
+    currentStatus.value = String(record.periodStatus ?? record.status ?? '').toUpperCase();
+    isManager.value = record._isArrivalManager === true && record._managerUserId === userId.value;
     selectedProcessId.value = '';
     processes.value = [];
     loadError.value = '';
@@ -190,22 +193,27 @@
     return parsed ? parsed.format('YYYY-MM-DD') : '—';
   }
 
-  async function loadProcesses() {
+  async function loadProcesses(verifyAccess = false) {
     if (!periodId.value) return;
     loading.value = true;
     loadError.value = '';
     selectedProcessId.value = '';
     try {
-      const [detail, statusOptions, workTypeOptions, access, period]: any[] = await Promise.all([
+      const [detail, statusOptions, workTypeOptions]: any[] = await Promise.all([
         getProjectProcessDetail({ periodId: periodId.value }),
         loadProjectProcessStatusOptions(),
         loadProjectWorkTypeOptions(),
-        readProjectMembership(periodId.value, userId.value),
-        getProjectBasic({ periodId: periodId.value }),
       ]);
-      isManager.value = access.manager;
-      currentReworkId.value = String(period.currentReworkId || '');
-      currentStatus.value = String(period.periodStatus ?? period.status ?? '').toUpperCase();
+      // 查看进度复用列表上下文；实际完成工序前才刷新身份和分期状态。
+      if (verifyAccess === true) {
+        const [access, period] = await Promise.all([
+          readProjectMembership(periodId.value, userId.value),
+          getProjectBasic({ periodId: periodId.value }),
+        ]);
+        isManager.value = access.manager;
+        currentReworkId.value = String(period.currentReworkId || '');
+        currentStatus.value = String(period.periodStatus ?? period.status ?? '').toUpperCase();
+      }
       processes.value = Array.isArray(detail?.records) ? detail.records : [];
       statusMeta.value = Object.fromEntries(
         statusOptions.map((item: Recordable) => [String(item.value), { label: item.label, color: item.color || 'default' }])
@@ -252,9 +260,9 @@
         const selectedId = selectedProcessId.value;
         setDrawerProps({ confirmLoading: true });
         try {
-          await loadProcesses();
+          await loadProcesses(true);
           const fresh = processes.value.find((item) => String(item.id) === selectedId);
-          if (loadError.value || !fresh || !selectable(fresh)) return createMessage.warning('工序状态或操作资格已变化，请重新选择');
+          if (loadError.value || !fresh || !selectable(fresh, true)) return createMessage.warning('工序状态或操作资格已变化，请重新选择');
           await changeProjectProcessStatus({ processId: selectedId, status: 'COMPLETED' });
           createMessage.success(`工序“${getProcessName(selected.processName)}”已完成`);
           closeDrawer();

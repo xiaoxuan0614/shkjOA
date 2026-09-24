@@ -9,6 +9,9 @@
     destroyOnClose
   >
     <BasicForm @register="registerForm" />
+    <a-button type="link" :aria-expanded="advancedOpen" @click="advancedOpen = !advancedOpen">
+      {{ advancedOpen ? '收起更多设置' : '更多设置（岗位、个人资料等）' }}
+    </a-button>
   </BasicDrawer>
 </template>
 <script lang="ts" setup>
@@ -20,19 +23,36 @@
   import { saveOrUpdateUser, getUserRoles, getUserDepartList, getAllRolesListNoByTenant } from './user.api';
   import { useDrawerAdaptiveWidth } from '/@/hooks/jeecg/useAdaptiveWidth';
   import { loadUserDrawerRecord } from './userDrawerLoader';
+  import { advancedUserFields, mergeUserFormValues } from './userFormSections';
   import { useMessage } from '/@/hooks/web/useMessage';
 
   // 声明Emits
   const emit = defineEmits(['success', 'register']);
   const isUpdate = ref(true);
   const ready = ref(false);
+  const advancedOpen = ref(false);
+  const originalValues = ref<Recordable>({});
+  let rolesRequest: Promise<any> | undefined;
+  function loadRoleOptions(params) {
+    if (!rolesRequest) rolesRequest = getAllRolesListNoByTenant(params).catch((error) => {
+      rolesRequest = undefined;
+      throw error;
+    });
+    return rolesRequest;
+  }
+  const compactSchemas = formSchema.map((schema) => {
+    if (!advancedUserFields.has(schema.field)) return schema;
+    const originalIfShow = schema.ifShow;
+    return { ...schema, ifShow: (context) => advancedOpen.value &&
+      (typeof originalIfShow === 'function' ? originalIfShow(context) : originalIfShow !== false) };
+  }).sort((a, b) => Number(advancedUserFields.has(a.field)) - Number(advancedUserFields.has(b.field)));
   const { createMessage } = useMessage();
   const departOptions = ref([]);
   let isFormDepartUser = false;
   //表单配置
   const [registerForm, { setProps, resetFields, setFieldsValue, getFieldsValue, validate, updateSchema }] = useForm({
     labelWidth: 90,
-    schemas: formSchema,
+    schemas: compactSchemas,
     showActionButtonGroup: false,
   });
   // TODO [VUEN-527] https://www.teambition.com/task/6239beb894b358003fe93626
@@ -40,6 +60,9 @@
   //表单赋值
   const [registerDrawer, { setDrawerProps, closeDrawer }] = useDrawerInner(async (data) => {
     ready.value = false;
+    advancedOpen.value = false;
+    originalValues.value = {};
+    rolesRequest = undefined;
     data = { ...data, record: { ...data?.record } };
     await resetFields();
     showFooter.value = data?.showFooter ?? true;
@@ -86,12 +109,13 @@
         field: 'selectedroles',
         show: !data.isRole && !data?.departDisabled,
         componentProps:{
-          api: getAllRolesListNoByTenant
+          api: loadRoleOptions
         }
       },
     ]);
     // 无论新增还是编辑，都可以设置表单值
     if (typeof data.record === 'object') {
+      originalValues.value = { ...data.record };
       await setFieldsValue({
         ...data.record,
       });
@@ -136,9 +160,10 @@
   async function handleSubmit() {
     if (!ready.value || !showFooter.value) return;
     try {
-      let values = await validate();
+      const validated = await validate();
       setDrawerProps({ confirmLoading: true });
       const formValues = getFieldsValue();
+      let values = mergeUserFormValues(formSchema, originalValues.value, formValues, validated) as Recordable;
       const selectedDepartments = values.selecteddeparts ?? formValues.selecteddeparts;
       // 隐藏部门选择且无表单值时不猜测清空，避免误删部门关系。
       if (selectedDepartments !== undefined) {

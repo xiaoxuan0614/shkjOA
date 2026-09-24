@@ -74,7 +74,7 @@
   function requestRecheck() {
     if (failureLoading.value || failureError.value || failureRecord.value.result !== 'FAILED' || !hasPermission('project:acceptance:submit')) return;
     failureOpen.value = false;
-    openAcceptanceModal(true, { periodId: failureContext.value.periodId, project: { status: 'ACCEPTING' }, fromTodo: true,
+    openAcceptanceModal(true, { periodId: failureContext.value.periodId, fromTodo: true,
       recheckType: failureRecord.value.acceptType, acceptanceId: failureRecord.value.id });
   }
   const [registerSupplementDrawer, { openDrawer: openSupplementDrawer }] = useDrawer();
@@ -90,12 +90,12 @@
     return pattern.test([todo.todoType, todo.actionKey, todo.title].filter(Boolean).join('|'));
   }
 
-  function openPlanApproval(periodId: string) {
+  function openPlanApproval(periodId: string, approvalId = '') {
     if (!periodId) {
       createMessage.error('计划审批待办缺少项目分期 ID，无法打开');
       return;
     }
-    openPlanAuditModal(true, { periodId });
+    openPlanAuditModal(true, { periodId, approvalId });
   }
 
   async function openTodo(todo: SystemTodo) {
@@ -127,20 +127,24 @@
         const acceptanceId = String(params.acceptanceId || params.sourceAcceptanceId || todo.bizId || '');
         if (!acceptanceId) return createMessage.error('验收待办缺少验收记录 ID');
         await openFailure(todo, periodId, acceptanceId);
-      } else openAcceptanceModal(true, { periodId, project: { status: 'ACCEPTING' }, fromTodo: true });
+      } else openAcceptanceModal(true, { periodId, fromTodo: true });
       return;
     }
     const stockAction = [todo.actionKey, todo.todoType].find((key) =>
-      ['STOCK_IN_APPROVAL', 'STOCK_OUT_APPROVAL', 'STOCK_OUT_EXECUTE', 'PROJECT_MATERIAL_APPLY_APPROVAL'].includes(String(key))
+      ['STOCK_IN_APPROVAL', 'STOCK_OUT_APPROVAL', 'STOCK_IN_EXECUTE', 'STOCK_OUT_EXECUTE', 'PROJECT_MATERIAL_APPLY_APPROVAL'].includes(String(key))
     );
     if (stockAction) {
       const applyId = params.applyId || (stockAction === 'PROJECT_MATERIAL_APPLY_APPROVAL' ? todo.bizId : '');
       if (!applyId) return createMessage.error('物料待办缺少申请 ID');
       try {
         const record: any = await queryById({ id: applyId });
-        if (stockAction !== 'STOCK_OUT_EXECUTE') await prepareApprovalAccess([record]);
-        if (stockAction !== 'STOCK_OUT_EXECUTE' && canApprove(record)) openStockApproveModal(true, { record });
-        else if (stockAction === 'STOCK_OUT_EXECUTE' && canExecute(record)) openStockExecuteModal(true, { record });
+        if (!record?.id || String(record.id) !== String(applyId)) return createMessage.error('返回的申请单信息不匹配，请刷新待办');
+        const execution = ['STOCK_IN_EXECUTE', 'STOCK_OUT_EXECUTE'].includes(stockAction);
+        const expectedType = stockAction.startsWith('STOCK_IN_') ? 'IN' : stockAction.startsWith('STOCK_OUT_') ? 'OUT' : '';
+        if (expectedType && record.applyType !== expectedType) return createMessage.error('待办与申请单出入库类型不一致，请刷新待办');
+        if (!execution) await prepareApprovalAccess([record]);
+        if (!execution && canApprove(record)) openStockApproveModal(true, { record });
+        else if (execution && canExecute(record)) openStockExecuteModal(true, { record });
         else createMessage.warning('当前申请状态已变化或您无权办理');
       } catch {
         createMessage.error('物料申请加载失败，请重试');
@@ -155,7 +159,7 @@
     }
     if ([todo.todoType, todo.actionKey].includes('PROJECT_PERIOD_APPROVAL')) {
       // 当前契约明确该类型 bizId 就是分期 ID，其他待办不使用此兜底。
-      openPlanApproval(periodId || String(todo.bizId || ''));
+      openPlanApproval(periodId || String(todo.bizId || ''), String(params.approvalId || ''));
       return;
     }
     if (/PROJECT_REWORK|REWORK.*APPROVAL/i.test(actionIdentity) || matchesTodo(todo, /返工审批/i)) {

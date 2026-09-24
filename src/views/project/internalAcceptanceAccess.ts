@@ -13,14 +13,16 @@ export function isOperationsDirector(departmentIds: string[], tree: any[]): bool
   return !!id && departmentIds.includes(id);
 }
 
-export async function readInternalAcceptanceAccess(identity: { userId: string; roleCodes: string[]; responsibleDepartmentIds: string[] }) {
+export async function readInternalAcceptanceAccess(identity: { userId: string; responsibleDepartmentIds?: string[]; roleCodes?: string[] }) {
   if (!identity.userId) return false;
-  if (identity.roleCodes.includes('admin')) return true;
-  if (!identity.responsibleDepartmentIds.length) return false;
+  // 前端按指定主管角色开放填写；服务端 complete 仍最终核验真实办理资格。
+  if (identity.roleCodes?.some((code) => code === 'admin' || code === 'operations_manager')) return true;
+  // 兼容未绑定角色但已配置为运维部负责人的账号，不放行普通所属部门成员。
+  if (!identity.responsibleDepartmentIds?.length) return false;
   const response = await defHttp.get(
     { url: '/sys/sysDepart/queryTreeList' },
     { isTransformResponse: false, errorMessageMode: 'none' }
   );
-  if (response?.success !== true || !Array.isArray(response.result)) throw new Error('负责部门查询失败');
+  if (response?.success !== true || !Array.isArray(response.result)) throw new Error('负责部门资格查询失败');
   return isOperationsDirector(identity.responsibleDepartmentIds, response.result);
 }

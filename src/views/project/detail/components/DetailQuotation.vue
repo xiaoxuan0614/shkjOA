@@ -34,7 +34,11 @@
     if (!record.id || !props.periodId.trim()) return;
     router.push({
       path: '/plan/material-draft/editor',
-      query: { mode: 'view', periodId: props.periodId, candidateId: String(record.id) },
+      query: {
+        mode: 'view', from: 'project-detail', periodId: props.periodId, candidateId: String(record.id),
+        candidateName: record.candidateName, status: record.status, version: record.version,
+        adopted: record.adopted, priced: record.priced, createBy: record.createBy,
+      },
     });
   }
   const loadError = ref('');

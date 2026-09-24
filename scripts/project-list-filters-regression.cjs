@@ -7,6 +7,12 @@ vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/views/project/project
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
 }).outputText, { exports: exportsObject });
 const normalize = (params) => JSON.parse(JSON.stringify(exportsObject.normalizeProjectListParams(params)));
+for (const keyword of ['', '   ', null, undefined]) {
+  assert.equal(Object.hasOwn(normalize({ keyword, pageNo: 1 }), 'keyword'), false);
+}
+for (const file of ['src/views/project/Project.api.ts', 'src/views/plan/Plan.api.ts', 'src/views/implement/Implement.api.ts']) {
+  assert.match(fs.readFileSync(file, 'utf8'), /params: (?:\{ \.\.\.)?normalizeProjectListParams\(/);
+}
 assert.deepEqual(normalize({ keyword: ' 项目 ', projectManagerName: ' 陈雄 ', status: ['NEW', 'IMPLEMENTING', 'NEW'], projectType: [1, 2], arrivalStatus: [0, 1], contractStatus: [-1, 0, 2], pageNo: 2 }), {
   keyword: '项目', projectManagerName: '陈雄', status: 'NEW,IMPLEMENTING', projectType: '1,2', arrivalStatus: '0,1', contractStatus: '-1,0,2', pageNo: 2,
 });
@@ -21,8 +27,8 @@ assert.deepEqual(normalize({ projectName: ' 主项目 ', pageNo: 1 }), { project
 for (const file of ['src/views/project/Project.data.ts', 'src/views/plan/Plan.data.ts', 'src/views/implement/Implement.data.ts']) {
   const source = fs.readFileSync(file, 'utf8');
   const search = source.split('export const searchFormSchema')[1].split('];')[0];
-  assert.match(search, /field: 'projectName'/);
-  assert.doesNotMatch(search, /field: '(keyword|periodName)'/);
+  assert.match(search, /field: 'keyword'/);
+  assert.doesNotMatch(search, /field: '(projectName|periodName)'/);
   assert.match(source, /customRender: \(\{ record \}\) => projectDisplayName\(record\)/);
 }
 console.log('Project name, multi-select serialization, zero values, empty reset and manager search checks passed');

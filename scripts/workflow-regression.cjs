@@ -1,0 +1,120 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const crypto = require('node:crypto').webcrypto;
+const ts = require('typescript');
+const vue = require('@vue/compiler-sfc');
+function load(file, mocks = {}) {
+  const exports = {};
+  const code = ts.transpileModule(fs.readFileSync(file, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+  vm.runInNewContext(code, { exports, require: (id) => mocks[id] || require(id), crypto, TextEncoder });
+  return exports;
+}
+const structure = load('src/views/workflow/structure.ts');
+const workflow = load('src/views/workflow/workflow.ts', { './structure': structure });
+const definition = workflow.newDefinition();
+definition.name = '通用申请';
+definition.formFields = [{key:'note',name:'说明',type:'string'}];
+definition.nodes[0].userIds = ['reviewer'];
+assert.equal(workflow.validateDefinition(definition).length, 0);
+definition.nodes[0].options = { mode: 'COUNT', threshold: 0 };
+assert(workflow.validateDefinition(definition).some((e) => e.includes('阈值')));
+definition.nodes[0].options.threshold = 1;
+definition.formFields = [{ key: 'amount', name: '金额', type: 'number', required: true }];
+definition.nodes[0].condition = { field: 'amount', operator: 'GE', value: '0' };
+assert(workflow.validateDefinition(definition).some(v=>v.includes('无节点条件')));
+assert.throws(() => workflow.removeField(definition, 'amount'), /条件引用/);
+delete definition.nodes[0].condition;
+definition.nodes[0].fieldPermissions.amount = 'HIDDEN';
+definition.policy.initiatorFields.amount = 'EDITABLE';
+workflow.removeField(definition, 'amount');
+assert.equal(definition.formFields.length, 0);
+assert.equal(definition.nodes[0].fieldPermissions.amount, undefined);
+assert.equal(definition.policy.initiatorFields.amount, undefined);
+definition.nodes[0].excludedUserIds = ['reviewer', 'reviewer'];
+assert(workflow.validateDefinition(definition).some((e) => e.includes('列表无效')));
+assert.equal(workflow.canEditDefinition({ ...definition, stages: [{ kind: 'PARALLEL' }] }), true);
+assert.equal(workflow.canEditDefinition({ ...definition, businessType: 'CONTRACT' }), false);
+assert.throws(() => workflow.parseDefinition({process_key:'wrong',draft_json:JSON.stringify(definition)}));
+
+const graph = load('src/views/workflow/designer/graph.ts', {'../workflow':workflow});
+const linear = graph.fromNodes([workflow.newNode()]);
+linear[0].approval.userIds=['reviewer'];
+assert.equal(graph.executionBlockers(linear).length,0);
+assert.equal(graph.executableNodes(linear)[0].userIds[0],'reviewer');
+const staged = graph.createDesignNode('CONDITION');
+assert.equal(staged.branches.length,2);
+assert.equal(staged.branches[1].fallback,true);
+staged.branches[0].children.push(graph.createDesignNode('NOTICE'));
+assert.equal(graph.flatten([staged]).length,2);
+assert.throws(()=>graph.executableNodes([staged]),/不能发布/);
+const draft = graph.clone(linear[0]);
+draft.name='临时修改';
+assert.notEqual(linear[0].name,draft.name);
+assert(graph.removeDesignNode([staged],staged.branches[0].children[0].id));
+assert.equal(staged.branches[0].children.length,0);
+linear[0].config.approvalType='auto';
+assert(graph.executionBlockers(linear).length>0);
+
+// Round-trip nested routing, preserving recursive predicates and independent node conditions.
+const p = {junction:'AND',conditions:[{field:'amount',operator:'GT',value:'500'}],children:[{junction:'OR',conditions:[{field:'amount',operator:'LT',value:'900'}]}]};
+const structured = {key:'flow',name:'嵌套',businessType:'WORKFLOW_FORM',formFields:[{key:'amount',name:'金额',type:'number'}],nodes:['first','a','b','last'].map(key=>({...workflow.newNode(),key,name:key,userIds:['u']})),stages:[
+ {key:'s1',kind:'TASK',nodeKey:'first'},
+ {key:'choice',kind:'EXCLUSIVE',children:[{key:'sub',kind:'SUBPROCESS',condition:p,children:[{key:'par',kind:'PARALLEL',children:[{key:'a',kind:'TASK',nodeKey:'a'},{key:'b',kind:'TASK',nodeKey:'b'}]}]},{key:'last',kind:'TASK',nodeKey:'last'}]}
+]};
+assert.equal(workflow.validateDefinition(structured).length,0);
+const restoredGraph=graph.fromDefinition(structured);
+const encoded=graph.executableGraph(restoredGraph,true);
+assert.deepEqual(JSON.parse(JSON.stringify(encoded.stages)),structured.stages);
+assert.equal(workflow.validateDefinition({...structured,...encoded}).length,0);
+const dup=JSON.parse(JSON.stringify(structured)); dup.stages.push({key:'dup',kind:'TASK',nodeKey:'first'});
+assert(workflow.validateDefinition(dup).some(v=>v.includes('恰好引用')));
+const missing=JSON.parse(JSON.stringify(structured)); missing.stages=[];
+assert(workflow.validateDefinition(missing).some(v=>v.includes('不能为空')));
+const emptyPredicate=JSON.parse(JSON.stringify(structured));emptyPredicate.nodes[0].options.predicate={junction:'OR'};
+assert(workflow.validateDefinition(emptyPredicate).some(v=>v.includes('1至30')));
+const tooMany=JSON.parse(JSON.stringify(structured));tooMany.nodes[0].userIds=Array.from({length:60},(_,i)=>'u'+i);tooMany.nodes[0].roleIds=Array.from({length:41},(_,i)=>'r'+i);
+assert(workflow.validateDefinition(tooMany).some(v=>v.includes('合计最多100')));
+const chars=JSON.parse(JSON.stringify(structured));chars.name='中'.repeat(22000);
+assert(!workflow.validateDefinition(chars).some(v=>v.includes('65536')));
+chars.name='中'.repeat(65536);assert(workflow.validateDefinition(chars).some(v=>v.includes('65536')));
+const directoryTree=load('src/views/workflow/directoryTree.ts');
+const tree=directoryTree.departmentTree([{id:'child',parent_id:'parent',name:'子'},{id:'parent',name:'父'},{id:'orphan',parent_id:'absent'}]);
+assert.equal(tree[0].key,'parent');assert.equal(tree[0].children[0].key,'child');assert.equal(tree[1].key,'orphan');
+assert.equal(directoryTree.departmentTree([{id:'a',parent_id:'b'},{id:'b',parent_id:'a'}]).length,2);
+
+const calls = [];
+let response = { success: true, code: 200, result: { process_key: definition.key, revision: 7 } };
+const http = {};
+for (const method of ['get', 'post']) http[method] = async (config) => { calls.push({method,...config}); return response; };
+const api = load('src/views/workflow/Workflow.api.ts', { '/@/utils/http/axios': { defHttp: http } });
+(async () => {
+  const original = JSON.stringify(definition);
+  await api.saveModel(definition);
+  assert.equal(calls.at(-1).data.definition.policy.starters.includeChildren, false);
+  assert.equal(JSON.stringify(definition), original);
+  assert.equal('revision' in calls.at(-1).data, false);
+  await api.saveModel(definition, 0);
+  assert.equal(calls.at(-1).data.revision, 0);
+  await api.publishModel(definition.key, 7);
+  assert.equal(calls.at(-1).data.revision, 7);
+  assert.equal(calls.at(-1).url, '/workflow/model/publish');
+  await api.instanceForm('instance-v1');
+  assert.equal(calls.at(-1).url, '/workflow/instance/form');
+  assert.equal(calls.at(-1).params.instanceId, 'instance-v1');
+  await api.directory('users', '王', 2, 'dept-1');
+  assert.equal(calls.at(-1).params.departmentId, 'dept-1');
+  assert.equal(calls.at(-1).params.pageSize, 30);
+  const payload={processKey:definition.key,businessId:'b1',requestId:'retry-stable',data:{amount:0,accepted:false}};
+  await api.startInstance(payload);
+  await api.startInstance(payload);
+  assert.equal(calls.at(-1).data.requestId,calls.at(-2).data.requestId);
+  assert.equal(calls.at(-1).data.data.amount,0);
+  response={success:false,code:200,message:'业务拒绝'};
+  await assert.rejects(()=>api.saveModel(definition),/业务拒绝/);
+  response={success:true,code:500,message:'状态冲突'};
+  await assert.rejects(()=>api.publishModel(definition.key,7),/状态冲突/);
+  function compile(dir){for(const file of fs.readdirSync(dir)){const path=`${dir}/${file}`;if(fs.statSync(path).isDirectory())compile(path);else if(file.endsWith('.vue')){const {descriptor,errors}=vue.parse(fs.readFileSync(path,'utf8'),{filename:path});assert.equal(errors.length,0);vue.compileScript(descriptor,{id:path});assert.equal(vue.compileTemplate({source:descriptor.template.content,filename:path,id:path}).errors.length,0);}}}
+  compile('src/views/workflow');
+  console.log('Workflow validation, reference protection, revision, business errors, request identity and Vue compilation passed');
+})().catch((e)=>{console.error(e);process.exitCode=1;});

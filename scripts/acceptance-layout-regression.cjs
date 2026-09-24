@@ -71,7 +71,7 @@ assert.equal(actionContext.actions.value.length,3);
 actionContext.actions.value[1].onClick(); assert.equal(clicked.pop(),undefined);
 actionContext.actions.value[2].onClick(); assert.equal(clicked.pop(),'latest-rework');
 actionContext.failedActionCards.value.push({type:'INTERNAL',title:'内部验收',model:{id:'i'}});
-assert.deepEqual(Array.from(actionContext.actions.value,a=>a.label),['查看详情','申请验收（免整改复验）','申请返工']);
+assert.deepEqual(Array.from(actionContext.actions.value,a=>a.label),['查看详情','申请验收','申请返工']);
 actionContext.submitDisabled.value=true; assert.ok(actionContext.actions.value.every(a=>a.disabled));
 actionContext.failedActionCards.value=[]; actionContext.props.project.status='PENDING_ACCEPT';
 actionContext.canApplyNormal.value=true;

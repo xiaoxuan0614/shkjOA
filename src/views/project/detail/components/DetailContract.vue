@@ -63,7 +63,7 @@
         >
           <template #bodyCell="{ column, record }">
             <template v-if="column.key === 'index'">{{ record._key }}</template>
-            <template v-else-if="column.key === 'paymentNode'">{{ getPaymentNodeText(record.paymentNode) }}</template>
+            <template v-else-if="column.key === 'paymentNode'">{{ record.paymentNode_dictText || record.node_dictText || getPaymentNodeText(record.paymentNode) }}</template>
             <template v-else-if="column.key === 'ratio'">{{ record.ratio != null ? `${record.ratio}%` : '—' }}</template>
             <template v-else-if="column.key === 'rollbackTime'">
               {{ `${record.rollbackTime == null ? 7 : record.rollbackTime} 天` }}
@@ -83,9 +83,8 @@
 <script lang="ts" setup>
   import { expandContractAttachments } from '../../contract/contractAttachments';
   import { computed, ref, watch } from 'vue';
-  import { getContractDetail, getFiles } from '../ProjectDetail.api';
-  import { loadDictOptions } from '../../Project.data';
-  import { loadUserOptions, type UserOption } from '/@/views/resource/userOptions';
+  import { getContractDetail } from '../ProjectDetail.api';
+  import type { UserOption } from '/@/views/resource/userOptions';
   import { previewFileInModal } from '/@/utils/filePreview';
   import { getApprovalStatusMeta } from '/@/utils/approvalStatus';
 
@@ -132,10 +131,10 @@
     try {
       const [contractResult, fileResult, contractTypeResult, paymentNodeResult, userResult] = await Promise.allSettled([
         getContractDetail({ periodId }),
-        getFiles({ periodId, pageNo: 1, pageSize: 100 }),
-        loadDictOptions('contract_type'),
-        loadDictOptions('payback_node'),
-        loadUserOptions(true),
+        Promise.resolve([]),
+        Promise.resolve([]),
+        Promise.resolve([]),
+        Promise.resolve([]),
       ]);
       if (currentSequence !== loadSequence) return;
       if (contractResult.status === 'rejected') throw contractResult.reason;

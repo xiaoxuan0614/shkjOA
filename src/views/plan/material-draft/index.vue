@@ -38,9 +38,6 @@
             </template>
           </a-select>
         </a-form-item>
-        <a-form-item label="报价单名称" required>
-          <a-input v-model:value="candidateName" :maxlength="100" placeholder="请输入报价单名称" />
-        </a-form-item>
       </a-form>
       <a-empty v-if="periodLoaded && !periodLoading && !periodOptions.length" description="当前没有可新增报价的项目分期" />
     </a-modal>
@@ -226,7 +223,7 @@
     const ready = record.version != null;
     return [
       { label: '查看详情', onClick: () => openEditor(record) },
-      { label: '技术审批', ifShow: ready && caps.approve, onClick: () => openEditor(record, 'view', true) },
+      { label: record.approvalRoute === 'MARKET' ? '市场审批' : '技术审批', ifShow: ready && caps.approve, onClick: () => openEditor(record, 'view', true) },
       { label: '市场定价', ifShow: ready && caps.price, onClick: () => openEditor(record, 'price') },
       {
         label: '导出',

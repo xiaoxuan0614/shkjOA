@@ -1,5 +1,5 @@
 <template>
-  <div class="material-plan-table">
+  <div class="material-plan-table" :class="{ 'material-plan-table--quotation': mode === 'quotation' }">
     <div v-if="showToolbar" class="material-plan-table__toolbar">
       <a-button
         type="primary"
@@ -23,6 +23,7 @@
       :scroll="{ x: tableScrollX }"
       size="middle"
       bordered
+      table-layout="fixed"
     >
       <template #emptyText>
         <a-empty description="暂未添加物料，请从现有物料库中选择" />
@@ -39,18 +40,24 @@
             class="material-plan-table__material-identity"
             :aria-label="`${materialDisplayName(record)}，物料编码 ${record.materialCode || '无'}`"
           >
-            <span class="material-plan-table__material-name">{{ materialDisplayName(record) }}</span>
+            <a-button v-if="mode === 'quotation'" type="link" class="material-plan-table__material-name" style="padding: 0; height: auto; white-space: normal; text-align: left" :disabled="!record.materialId" @click.stop="basicInfoRef?.open({ materialId: record.materialId })">{{ materialDisplayName(record) }}</a-button>
+            <span v-else class="material-plan-table__material-name">{{ materialDisplayName(record) }}</span>
             <span class="material-plan-table__material-code" aria-hidden="true">{{ record.materialCode || '—' }}</span>
           </div>
         </template>
+        <template v-else-if="column.key === 'model' && mode === 'quotation'">
+          <a-tooltip :title="record.model || undefined">
+            <span class="material-plan-table__model-clamp" :tabindex="record.model ? 0 : undefined">{{ record.model || '—' }}</span>
+          </a-tooltip>
+        </template>
         <template v-else-if="['basePrice', 'markupRate', 'finalPrice'].includes(column.key)">
           <a-input-number
-            v-if="column.key === 'basePrice' || pricingEditable"
+            v-if="column.key === 'basePrice' || pricingEditable || directQuotation"
             :value="record[column.key]"
-            :disabled="busy || (column.key === 'basePrice' && !basePriceEditable)"
+            :disabled="busy || (column.key === 'basePrice' ? !basePriceEditable : !pricingEditable)"
             :min="0"
             :max="9999999999"
-            :precision="column.key === 'markupRate' ? 4 : quantityAndCostPrecision"
+            :precision="quantityAndCostPrecision"
             :addon-after="column.key === 'markupRate' ? '%' : undefined"
             string-mode
             :aria-label="`${record.materialName} ${column.title}`"
@@ -59,7 +66,7 @@
             @change="(value) => changeQuotePrice(record, column.key, value)"
             @blur="changeQuotePrice(record, column.key, record[column.key], true)"
           />
-          <span v-else>{{ record[column.key] ?? '—' }}</span>
+          <span v-else>{{ column.key === 'markupRate' && hasPrice(record[column.key]) ? Number(record[column.key]).toFixed(2) + '%' : record[column.key] ?? '—' }}</span>
           <div v-if="record._priceError?.key === column.key" role="alert" class="material-plan-table__price-error">{{
             record._priceError.message
           }}</div>
@@ -110,18 +117,22 @@
       :show-selected-materials="mode === 'plan' || mode === 'quotation'"
       :show-select-all="mode === 'quotation'"
       :code-tooltip="mode === 'quotation'"
+      :quotation-layout="mode === 'quotation'"
       @register="registerDrawer"
       @success="handleSelected"
     />
+    <MaterialBasicInfoModal v-if="mode === 'quotation'" ref="basicInfoRef" />
   </div>
 </template>
 
 <script lang="ts" setup>
   import { computed, ref, watch } from 'vue';
-  import { hasPrice, decimalPrice, quotationPricePayload, quotationSnapshot, guidancePrice } from '../quotationPricing';
+  import { hasPrice, decimalPrice, quotationPricePayload, quotationSnapshot, guidancePrice, validateDirectQuotation } from '../quotationPricing';
   import { useDrawer } from '/@/components/Drawer';
   import { useMessage } from '/@/hooks/web/useMessage';
   import MaterialSelectDrawer from '/@/views/material/apply/components/MaterialSelectDrawer.vue';
+  import MaterialBasicInfoModal from '/@/views/material/components/MaterialBasicInfoModal.vue';
+  const basicInfoRef = ref<InstanceType<typeof MaterialBasicInfoModal>>();
   import { loadMaterialMap } from '/@/views/material/material.util';
   import { getAllMaterialCandidateItems, getPlanMaterialList } from '../Plan.api';
   import { validateEditableRows } from '/@/components/EditableTable';
@@ -135,6 +146,7 @@
       editable?: boolean;
       busy?: boolean;
       quotePricing?: boolean;
+      directQuotation?: boolean;
       pricingEditable?: boolean;
       basePriceEditable?: boolean;
       costVisible?: boolean;
@@ -217,29 +229,30 @@
   });
 
   const tableScrollX = computed(() => {
+    if (props.mode === 'quotation' && props.combinedMaterialIdentity) return 1100;
     if (props.quotePricing) return props.combinedMaterialIdentity ? 1650 : 1800;
     return props.combinedMaterialIdentity ? 1050 : 1180;
   });
 
   const columns = computed(() => [
     ...(props.combinedMaterialIdentity
-      ? [{ title: '物料名称', key: 'materialIdentity', width: 130, fixed: 'left' }]
+      ? [{ title: '物料名称', key: 'materialIdentity', width: props.mode === 'quotation' ? 220 : 130, fixed: 'left' }]
       : [{ title: '物料编码', dataIndex: 'materialCode', key: 'materialCode', width: 130, fixed: 'left' }]),
     ...(!props.combinedMaterialIdentity ? [{ title: '物料名称', dataIndex: 'materialName', key: 'materialName', width: 130 }] : []),
     ...(!(props.mode === 'quotation' && props.combinedMaterialIdentity) ? [{ title: '品牌', dataIndex: 'brand', key: 'brand', width: 60 }] : []),
-    { title: '型号', dataIndex: 'model', key: 'model', width: 80 },
-    { title: '单位', dataIndex: 'unit', key: 'unit', width: 50, align: 'center', required: props.editable },
-    { title: quantityText.value, key: 'plannedQty', width: 50, required: props.editable },
+    { title: '型号', dataIndex: 'model', key: 'model', width: props.mode === 'quotation' ? 120 : 80 },
+    { title: '单位', dataIndex: 'unit', key: 'unit', width: 90, align: 'center', required: props.editable },
+    { title: quantityText.value, key: 'plannedQty', width: 110, required: props.editable },
     ...(props.mode === 'quotation' && props.quotePricing && (props.costVisible || props.priceVisible || props.basePriceEditable)
-      ? [{ title: '成本价', key: 'basePrice', width: 50, required: props.basePriceEditable }]
+      ? [{ title: '成本价', key: 'basePrice', width: 100, required: props.basePriceEditable }]
       : []),
     ...(props.mode === 'quotation' && props.quotePricing && props.priceVisible
       ? [
-          { title: '指导比例', key: 'markupRate', width: 50 },
-          { title: '指导价', key: 'finalPrice', width: 50 },
+          ...(!props.directQuotation ? [{ title: '指导比例', key: 'markupRate', width: 120 }] : []),
+          { title: props.directQuotation ? '报价' : '指导价', key: 'finalPrice', width: 100, required: props.directQuotation && props.pricingEditable },
         ]
       : []),
-    ...(props.showRemark ? [{ title: '备注', key: 'remark', width: 120 }] : []),
+    ...(props.showRemark ? [{ title: '备注', key: 'remark', width: props.mode === 'quotation' ? undefined : 120 }] : []),
     ...(props.showAction ? [{ title: '操作', key: 'action', width: 80, align: 'center', fixed: 'right' }] : []),
   ]);
 
@@ -359,7 +372,7 @@
     rows.value = list.map((item: any) => {
       const pricingDefaults: Record<string, any> = {};
       // 只在市场定价时初始化，不覆盖已经保存的比例或手动指导价。
-      if (props.pricingEditable) {
+      if (props.pricingEditable && !props.directQuotation) {
         const rate = hasPrice(item.markupRate) ? item.markupRate : item.guideMarkupRate;
         if (hasPrice(rate)) pricingDefaults.markupRate = rate;
         if (!hasPrice(item.finalPrice) && hasPrice(item.basePrice) && hasPrice(rate)) {
@@ -421,7 +434,8 @@
         _unitOptions: [],
         _unitLoading: true,
         plannedQty: 1,
-        ...(props.mode === 'quotation' && props.basePriceEditable ? { basePrice: material.costPrice ?? 0 } : {}),
+        ...(props.mode === 'quotation' && props.basePriceEditable ? { basePrice: props.directQuotation ? 0 : material.costPrice ?? 0 } : {}),
+        ...(props.mode === 'quotation' && props.directQuotation ? { finalPrice: '0.00' } : {}),
         remark: '',
       };
       rows.value.push(row);
@@ -538,6 +552,12 @@
       selectorLabel: '物料',
       optionLabel: (value) => rows.value.find((item) => String(item.materialId) === String(value))?.materialName || String(value),
       rules: [
+        ...(props.directQuotation && props.pricingEditable
+          ? [{ field: 'finalPrice', label: '报价', required: true, validate: (value: any, row: any) => {
+              try { validateDirectQuotation(row.basePrice, value); return true; }
+              catch (error: any) { return error.message; }
+            } }]
+          : []),
         ...(props.mode === 'quotation' && props.basePriceEditable
           ? [{ field: 'basePrice', label: '成本价', required: true }]
           : []),
@@ -562,7 +582,7 @@
         unitId: item._unitValue,
         remark: item.remark,
         ...(props.basePriceEditable ? quotationPricePayload({ basePrice: item.basePrice }) : {}),
-        ...(props.pricingEditable ? quotationPricePayload({ markupRate: item.markupRate, finalPrice: item.finalPrice }) : {}),
+        ...(props.pricingEditable ? quotationPricePayload({ ...(!props.directQuotation ? { markupRate: item.markupRate } : {}), finalPrice: item.finalPrice }) : {}),
       }));
     }
     if (props.mode === 'plan' || props.mode === 'rework') {
@@ -660,14 +680,50 @@
     try {
       decimalPrice(value, key === 'basePrice' ? '成本价' : key === 'markupRate' ? '提价比例' : '终价', key === 'markupRate' ? 4 : 2);
       if (key === 'markupRate' && props.pricingEditable) row.finalPrice = guidancePrice(row.basePrice, value);
+      if (props.directQuotation && hasPrice(row.basePrice) && hasPrice(row.finalPrice)) {
+        validateDirectQuotation(row.basePrice, row.finalPrice);
+      }
     } catch (error: any) {
-      if (showError) row._priceError = { key, message: error.message };
+      if (showError || props.directQuotation) row._priceError = { key, message: error.message };
     }
   }
 </script>
 
 <style lang="less" scoped>
+  .material-plan-table__model-clamp {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 20px;
+    max-height: 40px;
+  }
   .material-plan-table {
+    min-width: 0;
+
+    & {
+      :deep(.ant-input-number),
+      :deep(.ant-input-number-group-wrapper),
+      :deep(.ant-input-number-affix-wrapper),
+      :deep(.ant-select),
+      :deep(.ant-input) {
+        min-width: 0;
+        max-width: 100%;
+        width: 100%;
+        box-sizing: border-box;
+      }
+
+      :deep(.ant-input-number-group-addon) {
+        padding-inline: 6px;
+      }
+
+      :deep(.ant-table-cell) {
+        overflow-wrap: anywhere;
+      }
+    }
+
     &__price-error {
       color: @error-color;
       font-size: 12px;

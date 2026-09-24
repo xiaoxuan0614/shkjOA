@@ -29,7 +29,10 @@
 
       <!-- 字段回显插槽：库存数量(不拼单位) -->
       <template #bodyCell="{ column, record }">
-        <template v-if="column.dataIndex === 'brand'">
+        <template v-if="column.dataIndex === 'materialName'">
+          <a-button type="link" style="padding: 0; white-space: normal; height: auto" @click.stop="basicInfoRef?.open(record)">{{ record.materialName || '未命名物料' }}</a-button>
+        </template>
+        <template v-else-if="column.dataIndex === 'brand'">
           {{ brandMap[String(record.brand ?? '')]?.text || record.brand || '—' }}
         </template>
         <template v-else-if="column.dataIndex === 'stockQty'">
@@ -40,6 +43,7 @@
 
     <!-- 新增/编辑物料弹窗(含单位子表) -->
     <GoodsModal @register="registerModal" @success="handleSuccess" />
+    <MaterialBasicInfoModal ref="basicInfoRef" />
     <GoodsPriceModal @register="registerPriceModal" @success="handleSuccess" />
     <!-- 物料Excel导入弹窗(下载模板按钮在弹窗内，由 JImportModal 的 template 配置提供) -->
     <JImportModal @register="registerImportModal" :url="importExcel" :template="{ name: '物料导入模板', url: importTemplate }" />
@@ -53,6 +57,7 @@
   import { useListPage } from '/@/hooks/system/useListPage';
   import { useMessage } from '/@/hooks/web/useMessage';
   import GoodsModal from './components/GoodsModal.vue';
+  import MaterialBasicInfoModal from '../components/MaterialBasicInfoModal.vue';
   import GoodsPriceModal from './components/GoodsPriceModal.vue';
   import { usePermission } from '/@/hooks/web/usePermission';
   import { MATERIAL_PRICE_PERMISSION } from './Goods.api';
@@ -62,6 +67,7 @@
   import { invalidateMaterialMap, loadDictMap } from '../material.util';
 
   const { createMessage } = useMessage();
+  const basicInfoRef = ref<InstanceType<typeof MaterialBasicInfoModal>>();
 
   const queryParam = reactive<any>({});
   const brandMap = ref<Record<string, { text: string; color: string }>>({});

@@ -1,0 +1,170 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-23T06:43:00.326532+00:00",
+  "title": "Design System: 首汇科技通用审批",
+  "extensions": {
+    "shadows": [
+      {
+        "name": "flow-node",
+        "value": "0 2px 8px #26334d08",
+        "purpose": "节点与分支轻阴影"
+      },
+      {
+        "name": "insert-node",
+        "value": "0 2px 7px #2331570d",
+        "purpose": "圆形插入操作"
+      }
+    ],
+    "motion": [],
+    "breakpoints": [
+      {
+        "name": "header-wrap",
+        "value": "1450px"
+      },
+      {
+        "name": "form-compact",
+        "value": "1200px"
+      },
+      {
+        "name": "form-properties-stack",
+        "value": "900px"
+      },
+      {
+        "name": "canvas-compact",
+        "value": "760px"
+      },
+      {
+        "name": "picker-compact",
+        "value": "480px"
+      }
+    ],
+    "gradients": {
+      "starter": "linear-gradient(100deg, #4e568c, #898ea6)",
+      "approval": "linear-gradient(100deg, #4556e9, #682ce8)",
+      "cc": "linear-gradient(100deg, #eb795c, #efaf49)",
+      "notice": "linear-gradient(100deg, #3e8acc, #58b7dd)",
+      "task": "linear-gradient(100deg, #72be80, #b3d151)"
+    },
+    "focus": {
+      "value": "2px solid #6266dc",
+      "offset": "3px",
+      "purpose": "局部 focus-visible 使用 !important 抵消宿主 outline reset。"
+    },
+    "libraryComponents": {
+      "source": "Ant Design Vue + OA theme",
+      "names": [
+        "button-primary",
+        "button-default",
+        "button-danger",
+        "input",
+        "search",
+        "tabs",
+        "tag",
+        "drawer",
+        "modal",
+        "select"
+      ],
+      "note": "复用真实库控件；顶部和抽屉主按钮局部覆盖为 #7371e6。sidecar 自定义片段不声称复刻完整 Ant 控件。 通知模板内部“置入字段”选择器使用相同紫色背景和白色文字，value 为 null，插入后保留提示。"
+    },
+    "evidence": {
+      "scope": "src/views/workflow",
+      "sources": [
+        "designer/WorkflowCanvas.vue",
+        "designer/FlowSequence.vue",
+        "designer/AddNode.vue",
+        "designer/FlowSettings.vue",
+        "designer/FieldPermissions.vue",
+        "designer/PeoplePicker.vue",
+        "designer/graph.ts",
+        "components/WorkflowEditor.vue"
+      ],
+      "screenshots": [
+        ".impeccable/review/desktop.png",
+        ".impeccable/review/node-menu.png",
+        ".impeccable/review/starter.png",
+        ".impeccable/review/mobile.png"
+      ],
+      "references": [
+        ".impeccable/review/reference-flow.png",
+        ".impeccable/review/reference-notice.png"
+      ],
+      "validation": "真实 OA 页面截图，不是隔离 mock；本轮未发布部署，不作为服务端保存、发布运行或真实审批闭环证据。",
+      "fidelity": "原稿未提供任务编辑详情；任务说明属于补充设计，不宣称全量逐像素一致。",
+      "persistence": "保存会话设计稿使用 sessionStorage；会话已存不同于服务端已保存。未知执行协议的节点与配置阻止服务端保存及发布。 常驻信息条显示“可保存当前会话设计稿；暂不能发布运行”。"
+    }
+  },
+  "components": [
+    {
+      "name": "审批节点",
+      "kind": "card",
+      "refersTo": "flow-node",
+      "description": "200px卡片，蓝紫渐变标题与白色摘要。",
+      "html": "<article class=\"ds-node\"><button class=\"ds-node-select\"><strong>审批节点</strong><span>请选择审批人</span></button></article>",
+      "css": ".ds-node{width:200px;background:#fff;border-radius:2px;box-shadow:0 2px 8px #26334d08}.ds-node-select{display:block;width:100%;padding:0;border:0;background:transparent;text-align:left;color:#424659;cursor:pointer}.ds-node-select strong{display:flex;align-items:center;height:40px;padding:0 14px;background:linear-gradient(100deg,#4556e9,#682ce8);color:white;font-weight:500}.ds-node-select>span{display:flex;align-items:center;min-height:56px;padding:12px 14px;font-size:12px}.ds-node-select:hover{outline:2px solid #7875ee;outline-offset:3px}.ds-node-select:focus-visible{outline:2px solid #6266dc;outline-offset:3px}"
+    },
+    {
+      "name": "添加节点",
+      "kind": "button",
+      "description": "圆形加号，悬停使用紫色，26px。",
+      "html": "<button class=\"ds-insert\" aria-label=\"添加节点\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 14 14\" aria-hidden=\"true\"><path d=\"M7 2v10M2 7h10\" stroke=\"currentColor\" fill=\"none\"/></svg></button>",
+      "css": ".ds-insert{display:grid;place-items:center;width:26px;height:26px;border:0;border-radius:50%;background:white;color:#6668d9;box-shadow:0 2px 7px #2331570d;cursor:pointer}.ds-insert:hover{background:#6868e7;color:#fff}.ds-insert:focus-visible{outline:2px solid #6266dc;outline-offset:3px}.ds-insert:disabled{opacity:.45;cursor:not-allowed}"
+    },
+    {
+      "name": "步骤导航",
+      "kind": "nav",
+      "description": "当前步骤用紫色文字与下边线，片段代表自定义步骤。",
+      "html": "<nav class=\"ds-steps\"><button>表单配置</button><button aria-current=\"step\">流程设计</button><button>权限配置</button></nav>",
+      "css": ".ds-steps{display:flex;gap:26px;min-height:68px}.ds-steps button{padding:0 2px;border:0;border-bottom:2px solid transparent;background:transparent;color:#525766;font-size:13px;cursor:pointer;white-space:nowrap}.ds-steps button[aria-current]{color:#7671df;border-bottom-color:#7671df}.ds-steps button:focus-visible{outline:2px solid #7671df}.ds-steps button:hover{color:#7671df}"
+    },
+    {
+      "name": "表单预览控件",
+      "kind": "input",
+      "description": "既有字段形状预览，不是可提交输入。",
+      "html": "<div class=\"ds-control\">请输入申请事项</div>",
+      "css": ".ds-control{border:1px solid #d9d9d9;border-radius:4px;padding:7px 10px;color:#595959;margin-top:10px}"
+    },
+    {
+      "name": "分支卡片",
+      "kind": "card",
+      "description": "分支条件摘要与选择入口。",
+      "html": "<article class=\"ds-branch\"><button><strong>条件1</strong><span>请设置条件</span></button></article>",
+      "css": ".ds-branch{width:200px;background:white;border-radius:2px;box-shadow:0 2px 8px #26334d08}.ds-branch button{display:block;width:100%;min-height:90px;padding:14px;background:transparent;border:0;text-align:left;cursor:pointer}.ds-branch strong{display:block;color:#519a78;font-size:13px;font-weight:500;margin-bottom:14px}.ds-branch span{font-size:12px;color:#606773}.ds-branch button:hover{outline:2px solid #7875ee;outline-offset:3px}.ds-branch button:focus-visible{outline:2px solid #6266dc;outline-offset:3px}"
+    },
+    {
+      "name": "设置小标题",
+      "kind": "custom",
+      "description": "原稿中的紫色左侧短条，非独立品牌装饰。",
+      "html": "<h3 class=\"ds-section\">请选择审批人员类型</h3>",
+      "css": ".ds-section{font-size:14px;font-weight:600;margin:24px 0 28px;border-left:3px solid #7774e9;padding-left:10px;color:#303448}"
+    }
+  ],
+  "narrative": {
+    "northStar": "OA 审批工作台",
+    "overview": "本文件仅约束 `src/views/workflow/`。复用 OA 导航、页面外壳与 Ant Design Vue 公共组件；流程设计区依据用户指定的墨刀原稿组织画布、节点和设置抽屉。渐变节点、彩色圆形图标和小标题左侧短条均有原稿依据，属于此设计器的局部视觉语言，不推广为 OA 全站主题。\n\n规范从当前 `designer/` 与 `components/WorkflowEditor.vue` 的实际模板和样式提取，根目录 `PRODUCT.md` 约束业务状态与保存边界。墨刀原稿未提供任务编辑详情，当前任务说明设置属于补充设计，不宣称全量逐像素一致。真实 OA 页面截图位于 `.impeccable/review/`；本轮未发布部署，视觉证据不代表发布运行或真实审批闭环。",
+    "keyCharacteristics": [
+      "浅灰紫画布承载紧凑渐变节点，白色大抽屉集中编辑。",
+      "六类节点采用两列菜单、彩色图标与可读名称。",
+      "条件与并行分支按横向泳道展开，保留纵向插入位置。",
+      "会话设计稿、服务端保存与发布运行具有不同的状态文字和操作边界。"
+    ],
+    "rules": [
+      {
+        "name": "The Prototype Scope Rule",
+        "body": "原稿限定的紫色、渐变和彩色图标只约束流程设计器；OA 外壳及其他业务模块继续遵循宿主主题。",
+        "section": "colors"
+      }
+    ],
+    "dos": [
+      "**Do** 复用 OA 外壳与 Ant 公共组件，在设计器范围内保留原稿的渐变、彩色图标和标题左条。",
+      "**Do** 从当前生效代码提取颜色、字号和尺寸，并同步更新 token 与 sidecar。",
+      "**Do** 保持节点、分支和抽屉选择上下文，以及可辨认的键盘焦点。",
+      "**Do** 区分会话设计稿、服务端保存、发布运行和真实审批结果。"
+    ],
+    "donts": [
+      "**Don't** 用旧250px蓝色节点或固定390px侧栏规范覆盖当前设计器。",
+      "**Don't** 把原稿未提供的任务编辑详情宣称为逐像素还原。",
+      "**Don't** 把真实 OA 截图等同于发布部署或后端审批闭环。",
+      "**Don't** 为绕过执行限制而丢弃节点配置、压平分支或误报会话稿为服务端已保存。"
+    ]
+  }
+}

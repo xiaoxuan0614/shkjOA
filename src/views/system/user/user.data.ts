@@ -6,6 +6,7 @@ import { render } from '/@/utils/common/renderUtils';
 import { h } from 'vue';
 import { Tag } from 'ant-design-vue';
 import { createPasswordLengthRule } from '/@/utils/password';
+import { useMessage } from '/@/hooks/web/useMessage';
 export const columns: BasicColumn[] = [
   {
     title: '用户账号',
@@ -549,13 +550,8 @@ async function removeDepPostByDepId(formModel, values, formActionType) {
         }
       } catch (error) {
         console.error('查询部门岗位失败:', error);
-        // 查询失败时，清空所有岗位选择
-        setFieldsValue({
-          mainDepPostId: null,
-          otherDepPostId: [],
-        });
-        formModel.mainDepPostId = null;
-        formModel.otherDepPostId = [];
+        // 网络失败不能当作岗位已失效，更不能静默删除原关系。
+        useMessage().createMessage.warning('部门岗位查询失败，已保留原岗位，请重新选择部门后重试');
       }
     } else {
       // 没有选中部门时，清空所有岗位选择

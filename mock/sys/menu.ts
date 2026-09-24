@@ -626,7 +626,7 @@ export default [
           'project:contract:view',
           'project:contract:approve',
           // 计划提交 / 计划审批(待审批)
-          'project:plan:audit',
+          'project:period:approve',
           // 报价管理按钮权限；解锁权限只授予指定负责人/管理员
           'plan:quotation:add',
           'plan:quotation:edit',

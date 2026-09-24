@@ -24,9 +24,9 @@ export const columns: BasicColumn[] = [
 export const searchFormSchema: FormSchema[] = [
   {
     label: '项目名称',
-    field: 'projectName',
+    field: 'keyword',
     component: 'Input',
-    componentProps: { placeholder: '请输入主项目名称' },
+    componentProps: { placeholder: '请输入项目名称关键词' },
   },
   {
     label: '项目类型',
@@ -59,7 +59,7 @@ export const quotationColumns: BasicColumn[] = [
 ];
 
 export const quotationSearchFormSchema: FormSchema[] = [
-  { label: '项目名称', field: 'projectName', component: 'Input', componentProps: { placeholder: '请输入主项目名称关键词', allowClear: true } },
+  { label: '项目名称', field: 'keyword', component: 'Input', componentProps: { placeholder: '请输入项目或分期名称关键词', allowClear: true } },
   {
     label: '审批状态',
     field: 'status',
