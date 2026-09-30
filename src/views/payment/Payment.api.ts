@@ -30,7 +30,9 @@ export const contractList = (params) => defHttp.get({ url: Api.list, params });
  * @param params { periodId }
  */
 export const contractDetail = async (params, quiet = false) => {
-  const result: any = await defHttp.get({ url: Api.detail, params }, quiet ? { successMessageMode: 'none', errorMessageMode: 'none' } : undefined);
+  const response: any = await defHttp.get({ url: Api.detail, params }, { isTransformResponse: false, successMessageMode: 'none', ...(quiet ? { errorMessageMode: 'none' as const } : {}) });
+  if (response?.success !== true || ![0, 200].includes(response.code)) throw new Error(response?.message || '合同详情读取失败');
+  const result = response.result;
   if (!result?.contract) return result;
   // 兼容原有消费方的合同扁平结构，同时保留组合接口返回的文件与回款计划。
   return {
@@ -38,6 +40,8 @@ export const contractDetail = async (params, quiet = false) => {
     contractFile: result.contractFile,
     materialFile: result.materialFile,
     records: result.records || [],
+    workflowInstanceId: result.workflowInstanceId,
+    workflowStatus: result.workflowStatus,
   };
 };
 
@@ -53,14 +57,21 @@ export const saveContract = (params) => defHttp.post({ url: Api.add, params }, {
 /**
  * 新增合同与回款计划：文件先公共上传，路径随 JSON contract 提交。
  */
-export const addContractWithPaymentRecords = (data: Recordable) =>
-  defHttp.post({ url: Api.addWithPaymentRecords, params: data, headers: { 'Content-Type': ContentTypeEnum.JSON } }, { successMessageMode: 'none' });
+async function submitContractBatch(url: string, data: Recordable) {
+  const response = await defHttp.post(
+    { url, params: data, headers: { 'Content-Type': ContentTypeEnum.JSON } },
+    { isTransformResponse: false, successMessageMode: 'none', errorMessageMode: 'none' }
+  );
+  if (response?.success !== true || ![0, 200].includes(response.code)) throw new Error(response?.message || '合同提交失败');
+  if (!response.result?.contract?.id) throw new Error('合同响应缺少保存结果，请刷新确认后再操作');
+  return response.result;
+}
+export const addContractWithPaymentRecords = (data: Recordable) => submitContractBatch(Api.addWithPaymentRecords, data);
 
 /**
  * 按 periodId 差量修改合同字段，并全量同步回款计划；未传新文件时保留旧文件。
  */
-export const editContractWithPaymentRecords = (data: Recordable) =>
-  defHttp.post({ url: Api.editWithPaymentRecords, params: data, headers: { 'Content-Type': ContentTypeEnum.JSON } }, { successMessageMode: 'none' });
+export const editContractWithPaymentRecords = (data: Recordable) => submitContractBatch(Api.editWithPaymentRecords, data);
 
 /**
  * 合同状态变更（审批、撤回、重新提审）。

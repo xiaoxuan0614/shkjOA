@@ -26,7 +26,7 @@ assert.equal(g.quotationCapabilities(market, { canManage: true, canApprove: fals
 assert.equal(g.quotationListCapabilities({ ...market, status: '1' }, () => true).price, false);
 const editor = fs.readFileSync('src/views/plan/material-draft/editor.vue', 'utf8');
 const table = fs.readFileSync('src/views/plan/components/MaterialPlanTable.vue', 'utf8');
-assert(editor.includes(':pricing-editable="directEntry ? canModify : canEditPricing"'));
+assert(editor.includes(':pricing-editable="directEntry ? canModify : (canEditPricing || (canModify && access.canEditPrice))"'));
 assert(editor.includes("creationRoute.value === 'MARKET'"));
 assert(editor.includes("'basePrice', 'finalPrice', 'remark'"));
 assert(editor.includes('getQuotationAccess(periodId, candidateId.value)'));

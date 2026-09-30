@@ -247,7 +247,7 @@
           >
           <div class="rework-drawer__detail-title">返工额外领料计划</div>
           <a-table
-            :columns="materialPlanColumns"
+            :columns="materialPlanColumns" :scroll="{ x: 'max-content' }"
             :data-source="parsePlan(detailRecord).materials"
             :row-key="(record, index) => record.materialId || index"
             :pagination="false"
@@ -283,7 +283,7 @@
       />
       <div class="rework-drawer__detail-title">返工额外领料计划</div>
       <a-table
-        :columns="materialPlanColumns"
+        :columns="materialPlanColumns" :scroll="{ x: 'max-content' }"
         :data-source="parsePlan(approvalRecord).materials"
         :row-key="(record, index) => record.materialId || index"
         :pagination="false"
@@ -303,6 +303,7 @@
 </template>
 
 <script lang="ts" setup>
+  import { unifyMaterialColumns } from '/@/views/material/materialTableColumns';
   import { computed, nextTick, reactive, ref } from 'vue';
   import dayjs from 'dayjs';
   import { expectedAcceptanceDate } from '/@/utils/expectedAcceptanceDate';
@@ -459,11 +460,11 @@
     { title: '预计工时(h)', dataIndex: 'plannedHours', width: 110 },
     { title: '操作', key: 'action', width: 140, fixed: 'right' },
   ];
-  const materialPlanColumns = [
+  const materialPlanColumns = unifyMaterialColumns([
     { title: '物料名称', key: 'materialName', customRender: ({ record }) => record.materialName || record.materialId || '—' },
     { title: '计划额外领料数量', dataIndex: 'plannedQty' },
     { title: '单位', key: 'unit', customRender: ({ record }) => record.unitName || record.unit || '—' },
-  ];
+  ], { source: 'detail', nameField: 'materialName' });
 
   const detailLoading = ref(false);
   const detailRecord = ref<Recordable>({});

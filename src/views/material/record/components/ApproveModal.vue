@@ -18,7 +18,7 @@
 
     <!-- 申请明细(只读参考，整单审批) -->
     <div class="approve-title">申请明细（整单审批：通过=整单通过，驳回=整单驳回）</div>
-    <a-table :columns="columns" :data-source="rows" :row-key="(r) => r._key" :pagination="false" size="small" bordered />
+    <a-table :columns="columns" :scroll="{ x: 'max-content' }" :data-source="rows" :row-key="(r) => r._key" :pagination="false" size="small" bordered />
 
     <!-- 整单审批结果：通过 /  驳回（驳回必填原因） -->
     <div class="approve-result">
@@ -35,6 +35,7 @@
 </template>
 
 <script lang="ts" setup>
+  import { unifyMaterialColumns } from '/@/views/material/materialTableColumns';
   import { ref, computed } from 'vue';
   import { BasicModal, useModalInner } from '/@/components/Modal';
   import { useMessage } from '/@/hooks/web/useMessage';
@@ -57,13 +58,13 @@
   loadDictMap('stock_apply_type').then((m) => (typeMap.value = m));
 
   // 明细只读列(整单审批，无需每行结果/备注)
-  const columns = [
+  const columns = unifyMaterialColumns([
     { title: '物料名称', dataIndex: 'materialName', key: 'materialName', width: 150 },
     { title: '品牌', dataIndex: 'brand', key: 'brand', width: 90 },
     { title: '型号', dataIndex: 'model', key: 'model', width: 110 },
     { title: '申请数量', dataIndex: 'applyQty', key: 'applyQty', width: 80 },
     { title: '单位', dataIndex: 'unitName', key: 'unitName', width: 60 },
-  ];
+  ], { source: 'detail', nameField: 'materialName' });
 
   const typeText = computed(() => typeMap.value[record.value.applyType]?.text || record.value.applyType || '—');
 
@@ -85,6 +86,8 @@
       const items = itemRes?.records || itemRes || [];
       rows.value = items.map((it: any, i: number) => ({
         _key: i,
+        materialId: it.materialId,
+        materialCode: it.materialCode,
         materialName: it.materialName,
         brand: it.brand,
         model: it.model,

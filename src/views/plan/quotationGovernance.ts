@@ -5,8 +5,9 @@ export interface QuotationAccess {
   canViewPrice: boolean;
   canEditPrice: boolean;
   canExport: boolean;
+  canRevise: boolean;
 }
-export const noQuotationAccess: QuotationAccess = { canApprove: false, canManage: false, canViewPrice: false, canEditPrice: false, canExport: false };
+export const noQuotationAccess: QuotationAccess = { canApprove: false, canManage: false, canViewPrice: false, canEditPrice: false, canExport: false, canRevise: false };
 export function isQuotationApplicant(record: any, user: any) {
   if (!record?.createBy) return false;
   const identities = [user?.username, user?.id, user?.userId].filter(Boolean).map(String);
@@ -34,6 +35,7 @@ export function normalizeQuotationAccess(value: any): QuotationAccess {
   const canViewPrice = canManage || value?.canViewPrice === true;
   return {
     canManage,
+    canRevise: value?.canRevise === true,
     canApprove: value?.canApprove === true,
     canViewPrice,
     canEditPrice: canViewPrice && (canManage || value?.canEditPrice === true),

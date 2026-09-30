@@ -1,4 +1,5 @@
 import { BasicColumn } from '/@/components/Table';
+import { unifyMaterialColumns } from '/@/views/material/materialTableColumns';
 import { FormSchema } from '/@/components/Table';
 
 /**
@@ -6,7 +7,7 @@ import { FormSchema } from '/@/components/Table';
  * 职责：展示所有在库物料的库存数量(以基准单位为准)，库管在此做手动入库/出库
  * 数据源：/stock/material/list（与物料管理同源，字段对齐 StockMaterial）
  */
-export const columns: BasicColumn[] = [
+export const columns: BasicColumn[] = unifyMaterialColumns([
   {
     title: '物料编码',
     align: 'center',
@@ -49,7 +50,7 @@ export const columns: BasicColumn[] = [
     dataIndex: 'stockAmount',
     width: 110,
   },
-];
+], { source: 'master', nameField: 'materialName' });
 
 /**
  * 搜索表单

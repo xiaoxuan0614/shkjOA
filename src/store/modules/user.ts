@@ -18,6 +18,9 @@ import { JDragConfigEnum } from '/@/enums/jeecgEnum';
 import { normalizeIdentity } from '/@/utils/loginIdentity';
 import { clearProjectCreateDrafts } from '/@/utils/projectCreateDraft';
 import { clearSessionDrafts } from '/@/utils/sessionDraftStorage';
+import { invalidateSessionRequests } from '/@/utils/http/axios/sessionRequests';
+import { useMyWebSocket } from '/@/hooks/web/useWebSocket';
+let logoutTask: Promise<void> | undefined;
 interface dictType {
   [key: string]: any;
 }
@@ -82,6 +85,7 @@ export const useUserStore = defineStore('app-user', {
   actions: {
     setToken(info: string | undefined) {
       if ((info || '') !== this.getToken) {
+        invalidateSessionRequests(!info);
         clearProjectCreateDrafts();
         clearSessionDrafts();
       }
@@ -242,41 +246,34 @@ export const useUserStore = defineStore('app-user', {
      * 退出登录
      */
     async logout(goLogin = false) {
-      if (this.getToken) {
-        try {
-          await doLogout();
-        } catch {
-          console.error('注销Token失败');
+      if (logoutTask) return logoutTask;
+      invalidateSessionRequests(true);
+      useMyWebSocket()?.close();
+      logoutTask = Promise.resolve().then(async () => {
+        if (this.getToken) {
+          try {
+            await doLogout();
+          } catch {
+            console.error('服务端注销未确认，继续清理本地登录状态');
+          }
         }
-      }
-
-      // let username:any = this.userInfo && this.userInfo.username;
-      // if(username){
-      //   removeAuthCache(username)
-      // }
-
-      this.setToken('');
-      setAuthCache(TOKEN_KEY, null);
-      this.setSessionTimeout(false);
-      this.setUserInfo(null);
-      this.setRoleList([]);
-      this.setLoginInfo(null);
-      // 代码逻辑说明: 【TV360X-23】退出登录后会提示「Token时效，请重新登录」
-      setTimeout(() => {
+        this.setToken('');
+        setAuthCache(TOKEN_KEY, null);
+        this.setSessionTimeout(false);
+        this.setUserInfo(null);
+        this.setRoleList([]);
+        this.setLoginInfo(null);
+        // 同步清理；延迟清理可能误清新登录会话的字典。
         this.setAllDictItems(null);
-      }, 1e3);
-      // 代码逻辑说明: 退出登录后清除拖拽模块的接口前缀
-      localStorage.removeItem(JDragConfigEnum.DRAG_BASE_URL);
-
-      // 代码逻辑说明: 修复登录成功后，没有正确重定向的问题
-      goLogin && (await router.push({
-        path: PageEnum.BASE_LOGIN,
-        query: {
-          // 传入当前的路由，登录成功后跳转到当前路由
-          redirect: router.currentRoute.value.fullPath,
+        localStorage.removeItem(JDragConfigEnum.DRAG_BASE_URL);
+        if (goLogin && router.currentRoute.value.path !== PageEnum.BASE_LOGIN) {
+          await router.push({
+            path: PageEnum.BASE_LOGIN,
+            query: { redirect: router.currentRoute.value.fullPath },
+          });
         }
-      }));
-
+      }).finally(() => { logoutTask = undefined; });
+      return logoutTask;
     },
     /**
      * 退出询问

@@ -102,7 +102,19 @@ export const quotationPeriodGroupPage = (params: Recordable = {}) =>
     params: { pageNo: params.pageNo || 1, pageSize: params.pageSize || 10, ...quotationFilters(params) },
   });
 export const getAllMaterialCandidates = (periodId: string) => fetchAllPages(getMaterialCandidateList, { periodId });
-export const getAllMaterialCandidateItems = (candidateId: string) => fetchAllPages(getMaterialCandidateItemList, { candidateId });
+export const getAllMaterialCandidateItems = async (candidateId: string, onServiceFees?: (rows: Recordable[]) => void) => {
+  let serviceFees: Recordable[] | undefined;
+  const records = await fetchAllPages(async (params) => {
+    const result = await getMaterialCandidateItemList(params);
+    if (params.pageNo === 1 && onServiceFees) {
+      if (!Array.isArray(result?.serviceFees)) throw new Error('报价服务费数据缺失，请确认后端已更新后刷新，避免覆盖原数据');
+      serviceFees = result.serviceFees;
+    }
+    return result;
+  }, { candidateId });
+  if (onServiceFees && serviceFees) onServiceFees(serviceFees);
+  return records;
+};
 
 export const addMaterialCandidate = (params, showSuccessMessage = true) =>
   defHttp.post({ url: Api.candidateAdd, params }, { successMessageMode: showSuccessMessage ? 'success' : 'none' });

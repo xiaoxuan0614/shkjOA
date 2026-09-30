@@ -3,6 +3,7 @@
     <BasicTable @register="registerTable">
       <template #tableTitle>
         <a-button v-auth="PERMISSIONS.add" type="primary" preIcon="ant-design:plus-outlined" @click="handleAdd">新增</a-button>
+        <a-button v-if="canMaintainServiceFees" @click="serviceFeeOpen = true">服务费维护</a-button>
       </template>
       <template #action="{ record }">
         <TableAction :actions="getTableAction(record)" />
@@ -18,6 +19,12 @@
         </template>
       </template>
     </BasicTable>
+
+    <a-modal
+v-model:open="serviceFeeOpen" title="服务费维护" :width="1000" :footer="null" destroy-on-close
+      :mask-closable="false" :closable="!serviceFeeBusy" :keyboard="!serviceFeeBusy" :body-style="{ maxHeight: '70vh', overflowY: 'auto' }">
+      <ServiceFeeMaintenance v-if="serviceFeeOpen" embedded @busy="serviceFeeBusy = $event" />
+    </a-modal>
 
     <a-modal v-model:open="addModalOpen" title="新增报价" ok-text="下一步" cancel-text="取消" :confirm-loading="periodLoading" :ok-button-props="{ disabled: periodLoading || !selectedPeriodId }" @ok="confirmAdd">
       <a-form layout="vertical">
@@ -45,7 +52,7 @@
 </template>
 
 <script lang="ts" name="quotation-management-list" setup>
-  import { ref, watch } from 'vue';
+  import { computed, defineAsyncComponent, ref, watch } from 'vue';
   import { useRouter } from 'vue-router';
   import { BasicTable, TableAction } from '/@/components/Table';
   import type { ActionItem } from '/@/components/Table';
@@ -75,6 +82,10 @@
   const userStore = useUserStore();
   const { createMessage } = useMessage();
   const { hasPermission } = usePermission();
+  const ServiceFeeMaintenance = defineAsyncComponent(() => import('../service-fee/index.vue'));
+  const serviceFeeOpen = ref(false);
+  const serviceFeeBusy = ref(false);
+  const canMaintainServiceFees = computed(() => ['mtl:serviceFee:add', 'mtl:serviceFee:edit', 'mtl:serviceFee:delete'].some(code => hasPermission(code)));
   const statusMeta = quotationListStatusMap;
   const operatingId = ref('');
   const exportingId = ref('');

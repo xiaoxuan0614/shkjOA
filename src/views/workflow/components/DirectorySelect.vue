@@ -1,6 +1,24 @@
 <template>
   <div>
+    <div v-if="displayOnly && value?.length" class="selected-people" aria-label="已选对象">
+      <span v-for="id in value" :key="id" class="selected-person">
+        <UserOutlined /><span :title="displayLabel(id)">{{ displayLabel(id) }}</span>
+        <a-button
+          type="text"
+          size="small"
+          :aria-label="`移除${displayLabel(id)}`"
+          @click="
+            emit(
+              'update:value',
+              value!.filter((item) => item !== id)
+            )
+          "
+          ><CloseOutlined
+        /></a-button>
+      </span>
+    </div>
     <a-select
+      v-else-if="!displayOnly"
       :value="value || []"
       mode="multiple"
       :options="options"
@@ -30,8 +48,15 @@
 </template>
 <script setup lang="ts">
   import { computed, onBeforeUnmount, ref, watch } from 'vue';
+  import { UserOutlined, CloseOutlined } from '@ant-design/icons-vue';
   import { directory } from '../Workflow.api';
-  const props = defineProps<{ value?: string[]; kind: 'users' | 'roles' | 'departments' | 'positions'; placeholder?: string }>();
+  const props = defineProps<{
+    value?: string[];
+    kind: 'users' | 'roles' | 'departments' | 'positions';
+    placeholder?: string;
+    displayOnly?: boolean;
+    knownLabels?: Record<string, string>;
+  }>();
   const emit = defineEmits<{ (e: 'update:value', value: string[]): void }>();
   const entries = ref<{ value: string; label: string }[]>([]);
   const cache = new Map<string, string>();
@@ -51,6 +76,10 @@
     for (const id of props.value || []) if (!values.has(id)) values.set(id, cache.get(id) || `已选 ${id}`);
     return [...values].map(([value, label]) => ({ value, label }));
   });
+  function displayLabel(id: string) {
+    void resolved.value;
+    return props.knownLabels?.[id] || cache.get(id) || `已选 ${id}`;
+  }
   const hasMore = computed(() => page.value * 30 < total.value);
   async function fetchPage(next: number) {
     const current = ++generation;
@@ -84,7 +113,7 @@
     () => [props.kind, ...(props.value || [])],
     async () => {
       const current = ++resolveGeneration;
-      const missing = new Set((props.value || []).filter((id) => !cache.has(id)));
+      const missing = new Set((props.value || []).filter((id) => !cache.has(id) && !props.knownLabels?.[id]));
       if (!missing.size) return;
       try {
         let next = 1;
@@ -114,6 +143,34 @@
   });
 </script>
 <style scoped>
+  .selected-people {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .selected-person {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    max-width: 100%;
+    padding: 3px 4px 3px 10px;
+    background: #f7f8fc;
+    border: 1px solid #dcdee7;
+    border-radius: 4px;
+    color: #303448;
+  }
+  .selected-person > span:not(.anticon) {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .selected-person > .anticon {
+    color: #6266dc;
+  }
+  .selected-person :deep(.ant-btn) {
+    flex-shrink: 0;
+  }
+
   .ant-select {
     width: 100%;
   }

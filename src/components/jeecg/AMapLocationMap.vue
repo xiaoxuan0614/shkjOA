@@ -21,7 +21,7 @@
       </div>
 
       <!-- 顶部搜索 -->
-      <div class="amap-location-map__search">
+      <div v-if="!disabled" class="amap-location-map__search">
         <AMapPlaceSearch :value="searchKeyword" :disabled="disabled" placeholder="搜索地点，拖动地图可微调定位" @select="onSearchSelect" />
       </div>
 
@@ -192,7 +192,7 @@
           suppressedCenterKey = coordinateKey(nextLng, nextLat);
           map.setCenter([nextLng, nextLat], true);
         }
-        if (changed && !props.address) reverseGeocode(nextLng, nextLat);
+        if (changed && !props.disabled && !props.address) reverseGeocode(nextLng, nextLat);
       }
     }
   );
@@ -287,7 +287,8 @@
           keyboardEnable: false,
         });
       }
-      geocoder = new AMap.Geocoder({ radius: 1000, extensions: 'base' });
+      // 只读地图只需要底图和坐标，避免初始化搜索/逆地理编码能力。
+      if (!props.disabled) geocoder = new AMap.Geocoder({ radius: 1000, extensions: 'base' });
     } catch {
       map?.destroy?.();
       map = null;
@@ -310,7 +311,7 @@
       lat.value = propLocation.lat;
       address.value = propLocation.address;
       searchKeyword.value = propLocation.address;
-      if (!propLocation.address) reverseGeocode(propLocation.lng, propLocation.lat);
+      if (!props.disabled && !propLocation.address) reverseGeocode(propLocation.lng, propLocation.lat);
       return;
     }
     if (deviceLocation) {

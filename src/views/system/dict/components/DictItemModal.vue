@@ -26,7 +26,7 @@
   import { Colors } from '/@/utils/dict/DictColors.js'
   
   // 声明Emits
-  const emit = defineEmits(['success', 'register']);
+  const emit = defineEmits(['success', 'register', 'created']);
   const props = defineProps({ dictId: String });
   const isUpdate = ref(true);
   //表单配置
@@ -71,6 +71,7 @@
       //关闭弹窗
       closeModal();
       //刷新列表
+      if (!unref(isUpdate)) emit('created', values);
       emit('success');
     } finally {
       setModalProps({ confirmLoading: false });

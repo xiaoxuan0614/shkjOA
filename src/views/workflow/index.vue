@@ -1,7 +1,7 @@
 <template>
   <div class="workflow-page">
     <a-result v-if="!canManage" status="403" title="暂无流程管理权限" sub-title="需要流程管理功能权限及对应模型管理范围。" />
-    <WorkflowEditor v-else-if="editing" :key="editorKey" :model="selected" @saved="onSaved" @close="closeEditor" />
+    <WorkflowEditor v-else-if="editing" :key="editorKey" :model="selected" :design="selectedDesign" @saved="onSaved" @close="closeEditor" />
     <section v-else class="model-list">
       <header
         ><div><h1>审批流程配置</h1><p>统一维护审批表单、人员和规则，发布后用于新的申请。</p></div
@@ -12,7 +12,35 @@
       <a-alert v-if="error" type="error" show-icon :message="error"
         ><template #action><a-button size="small" @click="load">重试</a-button></template></a-alert
       >
+      <a-tabs
+        v-model:activeKey="listTab"
+        @change="
+          () => {
+            page = 1;
+            load();
+          }
+        "
+        ><a-tab-pane key="models" tab="流程模型" /><a-tab-pane key="designs" tab="设计草稿"
+      /></a-tabs>
       <a-table
+        v-if="listTab === 'designs'"
+        :columns="designColumns"
+        :data-source="designRows"
+        :loading="loading"
+        row-key="process_key"
+        :pagination="{ current: page, pageSize: 10, total, showSizeChanger: false }"
+        @change="
+          (p) => {
+            page = p.current || 1;
+            load();
+          }
+        "
+        ><template #bodyCell="{ column, record }"
+          ><a-button v-if="column.key === 'action'" type="link" @click="openDesign(record)">继续设计</a-button></template
+        ></a-table
+      >
+      <a-table
+        v-else
         :columns="columns"
         :data-source="rows"
         :loading="loading"
@@ -31,7 +59,8 @@
             ><button type="button" class="model-name" @click="edit(record)">{{ record.name }}</button
             ><div class="model-key">{{ record.process_key }}</div></template
           >
-          <template v-else-if="column.key === 'type'">{{ record.business_type === 'WORKFLOW_FORM' ? '自定义表单' : record.business_type }}</template>
+          <template v-else-if="column.key === 'maintainer'">{{ record.updated_by_name || record.updated_by || '—' }}</template
+          ><template v-else-if="column.key === 'type'">{{ businessTypeLabels[record.business_type] || record.business_type }}</template>
           <template v-else-if="column.key === 'version'"
             ><a-tag v-if="record.published_version" color="blue">V{{ record.published_version }}</a-tag
             ><a-tag v-else>未发布</a-tag></template
@@ -48,9 +77,9 @@
                 ><a-button type="text" size="small">更多<DownOutlined /></a-button
                 ><template #overlay
                   ><a-menu @click="({ key }) => operate(record, String(key))"
-                    ><a-menu-item key="COPY">复制流程</a-menu-item
-                    ><a-menu-item v-if="!record.archived" key="ENABLE" :disabled="!record.published_version">{{
-                      record.enabled ? '停用新申请' : '启用新申请'
+                    ><a-menu-item v-if="record.business_type !== 'PROJECT_CONTRACT'" key="COPY">复制流程</a-menu-item
+                    ><a-menu-item v-if="!record.archived" key="ENABLE" :disabled="!record.published_version || (record.business_type === 'PROJECT_CONTRACT' && !isBindingAdmin)">{{
+                      record.business_type === 'PROJECT_CONTRACT' ? (record.enabled ? '停用合同审批' : '启用合同审批') : (record.enabled ? '停用新申请' : '启用新申请')
                     }}</a-menu-item
                     ><a-menu-item :key="record.archived ? 'RESTORE' : 'ARCHIVE'">{{
                       record.archived ? '恢复流程（保持停用）' : '归档流程'
@@ -87,12 +116,25 @@
   import { Modal, message } from 'ant-design-vue';
   import { DownOutlined, PlusOutlined } from '@ant-design/icons-vue';
   import { usePermission } from '/@/hooks/web/usePermission';
-  import { enableModel, listModels, modelVersions, operateModel } from './Workflow.api';
+  import { designerList, enableModel, listModels, modelVersions, operateModel } from './Workflow.api';
   import { newId, parseDefinition } from './workflow';
+  import { businessTypeLabels } from './businessMetadata';
   import WorkflowEditor from './components/WorkflowEditor.vue';
-  import type { WorkflowModel, WorkflowVersion } from './workflow.types';
+  import { useUserStore } from '/@/store/modules/user';
+  const isBindingAdmin = computed(() => (useUserStore().getRoleList || []).some((role) => String(role) === 'admin'));
+  import type { DesignerDraft, WorkflowModel, WorkflowVersion } from './workflow.types';
   const { hasPermission } = usePermission();
   const canManage = computed(() => hasPermission('workflow:model:manage'));
+  const listTab = ref('models');
+  const designRows = ref<DesignerDraft[]>([]);
+  const selectedDesign = ref<DesignerDraft>();
+  const designColumns = [
+    { title: '流程名称', dataIndex: 'name' },
+    { title: '流程标识', dataIndex: 'process_key' },
+    { title: '设计修订', dataIndex: 'revision' },
+    { title: '更新时间', dataIndex: 'updated_at' },
+    { title: '操作', key: 'action' },
+  ];
   const rows = ref<WorkflowModel[]>([]),
     loading = ref(false),
     error = ref(''),
@@ -114,9 +156,9 @@
     { title: '流程类型', key: 'type', width: 140 },
     { title: '发布版本', key: 'version', width: 100 },
     { title: '状态', key: 'state', width: 100 },
-    { title: '最近维护人', dataIndex: 'updated_by', width: 130 },
+    { title: '最近维护人', key: 'maintainer', width: 130 },
     { title: '最近维护时间', dataIndex: 'updated_at', width: 180 },
-    { title: '操作', key: 'action', width: 190, fixed: 'right' },
+    { title: '操作', key: 'action', width: 280, fixed: 'right' },
   ];
   async function load() {
     if (!canManage.value) return;
@@ -124,6 +166,14 @@
     loading.value = true;
     error.value = '';
     try {
+      if (listTab.value === 'designs') {
+        const result = await designerList(page.value);
+        if (current === generation) {
+          designRows.value = result.records;
+          total.value = result.total;
+        }
+        return;
+      }
       const result = await listModels(page.value);
       if (current !== generation) return;
       rows.value = result.records;
@@ -138,11 +188,13 @@
     }
   }
   function create() {
+    selectedDesign.value = undefined;
     selected.value = undefined;
     editorKey.value = newId('editor');
     editing.value = true;
   }
   function edit(model: WorkflowModel) {
+    selectedDesign.value = undefined;
     try {
       parseDefinition(model);
       selected.value = model;
@@ -150,6 +202,27 @@
       editing.value = true;
     } catch (e) {
       error.value = (e as Error).message;
+    }
+  }
+  async function openDesign(draft: DesignerDraft) {
+    loading.value = true;
+    error.value = '';
+    try {
+      let found: WorkflowModel | undefined;
+      let next = 1;
+      while (true) {
+        const result = await listModels(next++, 100);
+        found = result.records.find((m) => m.process_key === draft.process_key);
+        if (found || !result.records.length || (next - 1) * 100 >= result.total) break;
+      }
+      selected.value = found;
+      selectedDesign.value = draft;
+      editorKey.value = newId('editor');
+      editing.value = true;
+    } catch (e) {
+      error.value = (e as Error).message;
+    } finally {
+      loading.value = false;
     }
   }
   function onSaved(model: WorkflowModel) {
@@ -173,7 +246,9 @@
             : '恢复流程';
     Modal.confirm({
       title: `${label}？`,
-      content: operation === 'COPY' ? '将创建一个未发布的新流程。' : '历史记录和在途审批保留。归档及恢复后均停用新申请。',
+      content: model.business_type === 'PROJECT_CONTRACT' && operation === 'ENABLE'
+        ? (model.enabled ? '停用后，全系统新合同将无法提交审批，不会自动改走旧审批。' : '启用后，全系统后续新合同将按此流程审批，无需另行绑定。已有合同与在途审批保留。')
+        : operation === 'COPY' ? '将创建一个未发布的新流程。' : '历史记录和在途审批保留。归档及恢复后均停用新申请。',
       okText: label,
       cancelText: '取消',
       onOk: async () => {

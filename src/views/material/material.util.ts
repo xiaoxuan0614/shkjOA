@@ -48,6 +48,9 @@ export async function resolveCurrentMaterialUser() {
  * @param code 字典编码（如 stock_apply_biz_type / material_category）
  */
 const dictCache: Record<string, Record<string, { text: string; color: string }>> = {};
+export function invalidateDictMap(code: string) {
+  delete dictCache[code];
+}
 export async function loadDictMap(code: string): Promise<Record<string, { text: string; color: string }>> {
   if (dictCache[code]) return dictCache[code];
   try {
@@ -176,6 +179,7 @@ export function enrichMaterialInfo(records?: any[], materialMap: Record<string, 
     const m = r?.materialId != null ? materialMap?.[String(r.materialId)] : null;
     r.materialCode = m?.materialCode || r.materialCode || '';
     r.materialName = m?.materialName || r.materialName || '';
+    r.brand = r.brand ?? m?.brand ?? '';
   });
   return records || [];
 }

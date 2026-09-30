@@ -1,6 +1,6 @@
 <template>
-  <BasicDrawer v-bind="$attrs" @register="register" :title="drawerTitle" :width="quotationLayout ? 'min(1440px, 96vw)' : 900" showFooter @visible-change="handleVisibleChange" @ok="handleOk">
-    <div class="material-select">
+  <BasicDrawer v-bind="$attrs" @register="register" :title="drawerTitle" width="min(900px, 100vw)" showFooter @visible-change="handleVisibleChange" @ok="handleOk">
+    <div class="material-select material-select--pick">
       <!-- 左侧：物料大类树 -->
       <div v-if="!isProjectMode && !laborOnly" class="material-select__tree">
         <div class="material-select__tree-title">物料分类</div>
@@ -39,9 +39,6 @@
           </template>
           <a-button type="primary" @click="handleSearch">筛选</a-button>
           <a-button @click="handleReset">重置</a-button>
-          <a-button v-if="isProjectMode && !showSelectAll" :disabled="loading || selectableMaterials.length === 0" @click="handleToggleSelectAll">
-            {{ allPageMaterialsSelected ? '取消本页全选' : `全选本页（${selectableMaterials.length}）` }}
-          </a-button>
           <a-button v-if="!isProjectMode && !laborOnly" type="primary" class="material-select__add-btn" @click="handleAddMaterial">
             <Icon icon="ant-design:plus-outlined" />
             新增物料
@@ -50,7 +47,7 @@
         <a-table
           :columns="columns"
           :data-source="tableData"
-          :pagination="showSelectAll ? false : pagination"
+          :pagination="false"
           :row-key="(record) => record.id"
           :row-class-name="getRowClassName"
           :loading="loading"
@@ -58,12 +55,20 @@
           size="small"
           @change="handleTableChange"
         >
+          <template #headerCell="{ column }">
+            <a-checkbox
+              v-if="column.key === 'action'"
+              :checked="allPageMaterialsSelected"
+              :indeterminate="somePageMaterialsSelected && !allPageMaterialsSelected"
+              :disabled="loading || selectableMaterials.length === 0"
+              :aria-label="allPageMaterialsSelected ? '取消本页全选' : '全选本页可选物料'"
+              @change="handleToggleSelectAll"
+            >操作</a-checkbox>
+            <template v-else>{{ column.title }}</template>
+          </template>
           <template #bodyCell="{ column, record }">
             <template v-if="column.key === 'material'">
-              <div class="material-select__identity">
-                <a-button type="link" class="material-select__name" style="padding: 0; text-align: left; white-space: normal; height: auto; overflow-wrap: anywhere" @click.stop="basicInfoRef?.open(record)">{{ record.materialName || '未命名物料' }}<template v-if="quotationLayout && record.brand">（{{ formatBrand(record.brand) }}）</template></a-button>
-                <span v-if="!codeTooltip" class="material-select__code">{{ record.materialCode || '暂无编码' }}</span>
-              </div>
+              <MaterialIdentityCell :record="record" source="master" />
             </template>
             <template v-else-if="column.key === 'brand'">
               {{ formatBrand(record.brand) }}
@@ -77,27 +82,25 @@
               <span class="material-select__available"> {{ record.availableApplyQty }}{{ record.baseUnitName || '' }} </span>
             </template>
             <template v-else-if="column.key === 'action'">
-              <a-button v-if="excludedMaterialIds.has(String(record.id))" type="link" size="small" disabled>
-                {{ showSelectedMaterials ? '已选择' : '已添加' }}
-              </a-button>
-              <a-button
-                v-else-if="!isSelected(record)"
-                type="link"
-                size="small"
-                :disabled="isProjectMode && !record.availableApplyQty"
-                @click="handleSelect(record)"
-              >
-                {{ isProjectMode && !record.availableApplyQty ? '暂无可申请量' : '选择' }}
-              </a-button>
-              <a-button v-else type="link" size="small" danger @click="handleUnselect(record)">取消选择</a-button>
+              <a-checkbox
+                :checked="excludedMaterialIds.has(String(record.id)) || isSelected(record)"
+                :disabled="loading || excludedMaterialIds.has(String(record.id)) || (isProjectMode && Number(record.availableApplyQty) <= 0)"
+                :aria-label="`选择物料${record.materialName || record.materialCode || ''}`"
+                @change="(event) => event.target.checked ? handleSelect(record) : handleUnselect(record)"
+              />
             </template>
           </template>
         </a-table>
-        <div v-if="showSelectAll" class="material-select__pagination">
-          <a-button :disabled="loading || selectableMaterials.length === 0" @click="handleToggleSelectAll">
-            {{ allPageMaterialsSelected ? '取消本页全选' : `全选本页（${selectableMaterials.length}）` }}
-          </a-button>
-          <a-pagination v-bind="pagination" :disabled="loading" @change="(current, pageSize) => handleTableChange({ current, pageSize })" />
+        <div class="material-select__pagination">
+          <a-pagination
+            v-bind="pagination"
+            size="small"
+            show-less-items
+            show-size-changer
+            show-quick-jumper
+            :disabled="loading"
+            @change="(current, pageSize) => handleTableChange({ current, pageSize })"
+          />
         </div>
         <!-- 已选物料 -->
         <div v-if="selectedList.length > 0" class="material-select__selected">
@@ -111,7 +114,6 @@
     </div>
     <!-- 新增物料弹窗 -->
     <MaterialAddModal @register="registerAddModal" @success="handleAddMaterialSuccess" />
-    <MaterialBasicInfoModal ref="basicInfoRef" />
   </BasicDrawer>
 </template>
 
@@ -120,7 +122,7 @@
   import { BasicDrawer, useDrawerInner } from '/@/components/Drawer';
   import { useModal } from '/@/components/Modal';
   import MaterialAddModal from '/@/views/material/components/MaterialAddModal.vue';
-  import MaterialBasicInfoModal from '../../components/MaterialBasicInfoModal.vue';
+  import MaterialIdentityCell from '../../components/MaterialIdentityCell.vue';
   import { selectMaterialList, selectProjectMaterialAccountPage, addMaterial } from '../MaterialApply.api';
   import { initDictOptions } from '/@/utils/dict/index';
   import { invalidateMaterialMap, loadDictMap } from '../../material.util';
@@ -130,7 +132,6 @@
   // Emits声明
   const emit = defineEmits(['register', 'success']);
   const { createMessage } = useMessage();
-  const basicInfoRef = ref<InstanceType<typeof MaterialBasicInfoModal>>();
   const props = withDefaults(
     defineProps<{
       sourceMode?: 'all' | 'project';
@@ -141,6 +142,8 @@
       showSelectAll?: boolean;
       codeTooltip?: boolean;
       quotationLayout?: boolean;
+      /** 领料入口：名称品牌合并、编码另起一行，其他入口布局不变。 */
+      pickLayout?: boolean;
     }>(),
     { sourceMode: 'all', periodId: '', showSelectedMaterials: false, showSelectAll: false, codeTooltip: false }
   );
@@ -158,17 +161,18 @@
   let loadSequence = 0;
 
   const [register, { closeDrawer }] = useDrawerInner((data) => {
-    drawerVisible.value = true;
     excludedMaterialIds.value = new Set((data?.excludeMaterialIds || []).map((id: unknown) => String(id)).filter(Boolean));
-    selectedList.value = [];
-    resetQueryState();
-    void initializeDrawer();
   });
 
-  // useDrawerInner 负责每次真正打开时初始化；visible-change 只维护可见状态，避免重复请求。
+  // 数据回调只同步排除项；真实打开事件负责加载，无参数/相同参数重开也会请求。
   function handleVisibleChange(visible: boolean) {
+    if (visible === drawerVisible.value) return;
     drawerVisible.value = visible;
-    if (!visible) {
+    if (visible) {
+      selectedList.value = [];
+      resetQueryState();
+      void initializeDrawer();
+    } else {
       loadSequence += 1;
       loading.value = false;
     }
@@ -185,10 +189,9 @@
 
   // 项目领料读取物料总账，普通选料保持库存主数据列。
   const columns = computed(() => [
-    { title: '物料', key: 'material', width: props.quotationLayout ? 340 : 240 },
+    { title: '物料', key: 'material', width: 220, fixed: 'left' as const },
     ...(props.quotationLayout ? [] : [
       { title: '类别', dataIndex: 'materialCategory', key: 'materialCategory', width: 110 },
-      { title: '品牌', dataIndex: 'brand', key: 'brand', width: 120 },
     ]),
     { title: '型号', dataIndex: 'model', key: 'model', width: 140 },
     { title: '参数', dataIndex: 'specificationParams', key: 'specificationParams', width: 180,
@@ -196,7 +199,7 @@
     ...(isProjectMode.value
       ? [{ title: '当前可申请数量', dataIndex: 'availableApplyQty', key: 'availableApplyQty', width: 150 }]
       : [{ title: '总库存', dataIndex: 'stockQty', key: 'stockQty', width: 100 }]),
-    { title: '操作', key: 'action', width: 120, align: 'center' },
+    { title: '操作', key: 'action', width: 120, align: 'center', fixed: 'right' as const },
   ]);
 
   // 搜索参数
@@ -245,6 +248,7 @@
       selectableMaterials.value.length > 0 &&
       selectableMaterials.value.every((item) => selectedList.value.some((selected) => String(selected.id) === String(item.id)))
   );
+  const somePageMaterialsSelected = computed(() => selectableMaterials.value.some((item) => isSelected(item)));
 
   // 加载列表
   function normalizePageNumber(value: unknown, fallback: number): number {
@@ -427,6 +431,7 @@
 
   // 选择
   function handleSelect(record: any) {
+    if (loading.value) return;
     if (excludedMaterialIds.value.has(String(record.id))) return;
     if (isProjectMode.value && Number(record.availableApplyQty) <= 0) return;
     if (isSelected(record)) return;
@@ -435,6 +440,7 @@
 
   // 本页全选或取消不影响其他页已经选择的物料。
   function handleToggleSelectAll() {
+    if (loading.value) return;
     const selectable = selectableMaterials.value;
     if (!selectable.length) return;
     const filteredIds = new Set(selectable.map((item) => String(item.id)));
@@ -456,6 +462,7 @@
 
   // 取消选择
   function handleUnselect(record: any) {
+    if (loading.value || excludedMaterialIds.value.has(String(record.id))) return;
     selectedList.value = selectedList.value.filter((s) => String(s.id) !== String(record.id));
   }
 
@@ -491,6 +498,27 @@
 </script>
 
 <style lang="less" scoped>
+  .material-select--pick {
+    .material-select__identity {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 4px;
+    }
+
+    .material-select__name {
+      flex: none;
+      max-width: 100%;
+    }
+
+    .material-select__code {
+      max-width: 100%;
+      color: #595959;
+      text-align: left;
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+  }
+
   .material-select__model-clamp {
     display: -webkit-box;
     -webkit-box-orient: vertical;
@@ -503,11 +531,14 @@
   }
   .material-select {
     display: flex;
+    flex-direction: row;
     height: 100%;
     gap: 12px;
 
     &__tree {
-      width: 200px;
+      width: 180px;
+      max-width: 28%;
+      min-width: 0;
       flex-shrink: 0;
       border: 1px solid #f0f0f0;
       border-radius: 4px;
@@ -544,6 +575,40 @@
       gap: 12px;
       flex-wrap: wrap;
       margin-top: 16px;
+      :deep(.ant-pagination) {
+        display: flex !important;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px 4px;
+        max-width: 100%;
+        margin: 0;
+      }
+      :deep(.ant-pagination > li) {
+        flex-shrink: 0;
+        white-space: nowrap;
+      }
+      :deep(.ant-pagination-options) {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        margin-left: 8px;
+        max-width: 100%;
+      }
+      :deep(.ant-pagination-options-size-changer.ant-select) {
+        width: 100px;
+        margin: 0;
+      }
+      :deep(.ant-pagination-options-quick-jumper) {
+        display: inline-flex;
+        align-items: center;
+        white-space: nowrap;
+      }
+      :deep(.ant-pagination-options-quick-jumper input) {
+        width: 48px;
+        flex: 0 0 48px;
+      }
     }
 
     &__selected {

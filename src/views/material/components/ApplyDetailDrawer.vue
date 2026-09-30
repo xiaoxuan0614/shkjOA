@@ -74,6 +74,7 @@
 </template>
 
 <script lang="ts" name="mtl-apply-detail-drawer" setup>
+  import { unifyMaterialColumns } from '/@/views/material/materialTableColumns';
   import { ref, nextTick } from 'vue';
   import { BasicDrawer, useDrawerInner } from '/@/components/Drawer';
   import { BasicTable } from '/@/components/Table';
@@ -130,7 +131,7 @@
   loadUserMap().then((m) => (userMap.value = m));
 
   // 物料明细分页列表(出入库申请-明细分页列表 /stock/apply/items)
-  const itemColumns = [
+  const itemColumns = unifyMaterialColumns([
     { title: '物料名称', dataIndex: 'materialName', key: 'materialName', width: 150 },
     { title: '类别', dataIndex: 'materialCategory', key: 'materialCategory', width: 90 },
     { title: '品牌', dataIndex: 'brand', key: 'brand', width: 90 },
@@ -143,7 +144,7 @@
     { title: '执行人', dataIndex: 'executeUserName', key: 'executeUserName', width: 100 },
     { title: '执行时间', dataIndex: 'executeTime', key: 'executeTime', width: 150 },
     { title: '备注', dataIndex: 'remark', key: 'remark' },
-  ];
+  ], { source: 'detail', nameField: 'materialName' });
 
   const { tableContext: itemsCtx } = useListPage({
     tableProps: {

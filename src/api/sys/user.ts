@@ -92,11 +92,11 @@ export function getPermCode() {
 }
 
 export function doLogout() {
-  return defHttp.get({ url: Api.Logout });
+  return defHttp.get({ url: Api.Logout }, { errorMessageMode: 'none', successMessageMode: 'none' });
 }
 
 export function getCodeInfo(currdatetime) {
-  let url = Api.getInputCode + `/${currdatetime}`;
+  const url = Api.getInputCode + `/${currdatetime}`;
   return defHttp.get({ url: url });
 }
 /**

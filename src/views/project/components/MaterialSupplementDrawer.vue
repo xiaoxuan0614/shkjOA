@@ -74,7 +74,7 @@
           <div v-if="record.detailLoading" class="material-supplement__detail-loading"><a-spin size="small" /> 正在加载物料明细…</div>
           <a-table
             v-else
-            :columns="materialColumns"
+            :columns="materialColumns" :scroll="{ x: 'max-content' }"
             :data-source="record.materials"
             :pagination="false"
             :row-key="(item, index) => item.id || item.materialId || index"
@@ -142,6 +142,7 @@
 </template>
 
 <script lang="ts" setup>
+  import { unifyMaterialColumns } from '/@/views/material/materialTableColumns';
   import { computed, ref } from 'vue';
   import { BasicDrawer, useDrawerInner } from '/@/components/Drawer';
   import { BasicModal, useModal } from '/@/components/Modal';
@@ -252,7 +253,7 @@
     }
     return columns;
   });
-  const materialColumns = [
+  const materialColumns = unifyMaterialColumns([
     { title: '物料编码', dataIndex: 'materialCode', width: 140 },
     { title: '物料类别', dataIndex: 'materialCategory', width: 120 },
     { title: '物料名称', dataIndex: 'materialName', width: 180 },
@@ -260,7 +261,7 @@
     { title: '规格型号', dataIndex: 'model', width: 150 },
     { title: '单位', dataIndex: 'unit', width: 90, align: 'center' },
     { title: '补料数量', dataIndex: 'applyQty', width: 110, align: 'right' },
-  ];
+  ], { source: 'detail', nameField: 'materialName' });
 
   const [register] = useDrawerInner(async (data) => {
     const record = data?.record || data || {};

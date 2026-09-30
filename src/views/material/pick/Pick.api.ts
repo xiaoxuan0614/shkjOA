@@ -26,7 +26,7 @@ export const selectMaterialList = (params) => defHttp.get({ url: Api.materialLis
  * 查询当前登录用户已接受邀请并参与的项目分期。
  * periodStatus 支持使用英文逗号分隔多个项目分期生命周期状态。
  */
-export const getParticipatedProjects = (params: { periodStatus?: string } = {}) => defHttp.get({ url: Api.participatedProjects, params });
+export const getParticipatedProjects = (params: { periodStatus?: string; approvalStatus?: string } = {}) => defHttp.get({ url: Api.participatedProjects, params });
 
 /**
  * 项目物料总账分页；项目领料以 availableApplyQty 作为当前可申请数量。

@@ -1,4 +1,5 @@
 import { BasicColumn } from '/@/components/Table';
+import { unifyMaterialColumns } from '/@/views/material/materialTableColumns';
 import { FormSchema } from '/@/components/Table';
 import { renderMaterialSpecification } from '../materialSpecification';
 
@@ -18,7 +19,7 @@ import { renderMaterialSpecification } from '../materialSpecification';
 /**
  * 列表列定义(与 StockMaterial 字段对齐)
  */
-export const columns: BasicColumn[] = [
+export const columns: BasicColumn[] = unifyMaterialColumns([
   {
     title: '物料编码',
     align: 'center',
@@ -80,7 +81,7 @@ export const columns: BasicColumn[] = [
     dataIndex: 'createTime',
     width: 180,
   },
-];
+], { source: 'master', nameField: 'materialName' });
 
 /**
  * 搜索表单
@@ -111,7 +112,7 @@ export const searchFormSchema: FormSchema[] = [
     label: '品牌',
     field: 'brand',
     component: 'JDictSelectTag',
-    componentProps: { dictCode: 'material_brand', placeholder: '请选择品牌' },
+    componentProps: { dictCode: 'material_brand', placeholder: '请选择或搜索品牌', showSearch: true, onlySearchByLabel: true },
     // colProps: { span: 6 },
   },
 ];
@@ -145,7 +146,7 @@ export const formSchema: FormSchema[] = [
     label: '品牌',
     field: 'brand',
     component: 'JDictSelectTag',
-    componentProps: { dictCode: 'material_brand', placeholder: '请选择品牌' },
+    componentProps: { dictCode: 'material_brand', placeholder: '请选择或搜索品牌', showSearch: true, onlySearchByLabel: true },
   },
   {
     label: '型号(规格)',

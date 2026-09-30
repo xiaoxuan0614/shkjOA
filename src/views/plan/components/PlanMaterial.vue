@@ -4,7 +4,7 @@
       <a-button type="primary" preIcon="ant-design:plus-outlined" @click="handleAdd">添加申请</a-button>
     </div>
     <a-table
-      :columns="columns"
+      :columns="columns" :scroll="{ x: 'max-content' }"
       :data-source="list"
       :pagination="false"
       size="middle"
@@ -24,10 +24,10 @@
 </template>
 
 <script lang="ts" setup>
+  import { unifyMaterialColumns } from '/@/views/material/materialTableColumns';
   import { ref, watch } from 'vue';
   import { useModal } from '/@/components/Modal';
   import { useMessage } from '/@/hooks/web/useMessage';
-  import { defHttp } from '/@/utils/http/axios';
   import { getPlanMaterialList } from '../Plan.api';
   import MaterialApplyModal from './MaterialApplyModal.vue';
 
@@ -40,7 +40,7 @@
   const [registerModal, { openModal }] = useModal();
 
   // 墨刀申请清单列: 物料类别/物料名称/品牌/型号/库存/申请数量/单位/快递单号/操作
-  const columns = [
+  const columns = unifyMaterialColumns([
     { title: '物料类别', dataIndex: 'category' },
     { title: '物料名称', dataIndex: 'name' },
     { title: '品牌', dataIndex: 'brand' },
@@ -50,7 +50,7 @@
     { title: '单位', dataIndex: 'unit' },
     { title: '快递单号', dataIndex: 'expressNo' },
     { title: '操作', key: 'action', width: 90, align: 'center' },
-  ];
+  ], { source: 'detail', nameField: 'name' });
 
   async function load() {
     const data = await getPlanMaterialList({ projectId: props.projectId });

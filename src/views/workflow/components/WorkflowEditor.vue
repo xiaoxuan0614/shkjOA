@@ -9,8 +9,9 @@
       >
       <a-space
         ><a-tag :color="dirty ? 'orange' : 'green'">{{
-          localSaved ? (dirty ? '本地暂存有修改' : '本地暂存 · 未保存到服务器') : dirty ? '未保存' : '已保存到服务器'
+          localSaved ? (dirty ? '本地暂存有修改' : '本地暂存 · 未保存到服务器') : dirty ? '未保存' : `${savedKind}已保存到服务器`
         }}</a-tag
+        ><a-button :disabled="readOnly || busy || !designReady" @click="saveServerDesign">保存设计草稿</a-button
         ><a-button v-if="step === 2" :disabled="readOnly" @click="saveDesign">本地暂存</a-button
         ><a-button v-if="step === 2 && localSaved" type="text" @click="clearDesign">清除会话稿</a-button
         ><a-button v-if="step === 3" :disabled="busy" @click="permissionsOpen = true">权限范围</a-button
@@ -19,29 +20,58 @@
         ><a-button type="primary" :disabled="busy || step === 4" @click="nextStep">下一步</a-button></a-space
       >
     </header>
-    <a-alert v-if="designBlockers.length" type="info" show-icon message="当前包含仅供设计的节点或配置，可保存当前会话设计稿；暂不能发布运行。" />
-    <a-alert v-if="readOnly" type="warning" show-icon message="此流程为业务适配或已归档，本版仅查看。" />
+    <a-alert v-if="designBlockers.length" type="info" show-icon message="当前有未完成或不支持执行的配置，可保存设计草稿，完善后再发布。" />
+    <a-alert v-if="capabilityError" type="warning" :message="capabilityError"
+      ><template #action><a-button @click="initializeDesigner">重试能力读取</a-button></template></a-alert
+    >
+    <a-alert v-if="availableDraft" type="info" :message="`另有设计草稿修订 ${availableDraft.revision}，载入会替换当前画布；发布前仍需保存完整模型。`"
+      ><template #action><a-button @click="restoreServerDesign(availableDraft!)">载入设计草稿</a-button></template></a-alert
+    >
+    <a-alert v-if="readOnly" type="warning" show-icon message="此流程类型尚未支持或已归档，本版仅查看。" />
     <a-alert v-if="error" class="editor-error" type="error" show-icon :message="error" />
-    <a-config-provider :component-disabled="readOnly"
-      ><fieldset :disabled="busy" class="editor-body">
+    <a-config-provider :component-disabled="readOnly || !designReady || busy"
+      ><fieldset :disabled="busy || !designReady" class="editor-body">
         <div v-if="step === 0" class="basic-page">
           <h1>{{ model ? '编辑审批流程' : '创建审批流程' }}</h1
-          ><p class="hint">先定义一条可独立发起的通用审批流程。</p>
+          ><p class="hint">先选择关联业务，再配置审批节点。已有业务沿用原页面填写和提交。</p>
           <a-form layout="vertical">
             <a-form-item label="流程名称" required
               ><a-input v-model:value="definition.name" placeholder="例如：通用事项审批" :maxlength="100"
             /></a-form-item>
             <a-form-item label="流程标识" required
-              ><a-input v-model:value="definition.key" :disabled="readOnly || !!savedModel" :maxlength="64" /><div class="hint"
+              ><a-input v-model:value="definition.key" :disabled="readOnly || !!savedModel || designRevision != null" :maxlength="64" /><div
+                class="hint"
                 >自动生成，可在首次保存前修改；保存后不可更改。</div
               ></a-form-item
             >
-            <a-form-item label="流程类型"><a-input value="自定义表单" disabled /></a-form-item>
+            <a-form-item label="关联业务">
+              <a-select :value="definition.businessType" :options="businessOptions" :disabled="!!savedModel || designRevision != null" @change="changeBusinessType" />
+              <p v-if="isBusiness" class="hint">使用项目管理－合同签订的原有页面，保留回款计划表格和附件，无需重新搭建表单。</p>
+              <p v-else class="hint">自定义表单用于没有现成业务页面的申请，需要在第 2 步配置字段。</p>
+              <p v-if="isBusiness" class="hint">发布并启用后，全系统后续新合同将按此流程审批，无需另行绑定。</p>
+              <p v-if="savedModel || designRevision != null" class="hint">保存后不可更换关联业务。原自定义合同表单需新建业务流程，不会自动转为项目合同审批。</p>
+            </a-form-item>
             <div v-if="savedModel" class="version-note"
               >当前草稿修订 {{ savedModel.revision }} ·
               {{ savedModel.published_version ? `已发布 V${savedModel.published_version}` : '尚未发布' }}</div
             >
           </a-form>
+        </div>
+        <div v-else-if="step === 1 && isBusiness" class="basic-page">
+          <h2>使用已有业务表单</h2>
+          <a-descriptions bordered :column="1">
+            <a-descriptions-item label="关联业务">{{ businessTypeLabels[definition.businessType] || definition.businessType }}</a-descriptions-item>
+            <a-descriptions-item label="填写与提交">在项目管理－合同签订页面填写合同，提交审批。</a-descriptions-item>
+            <a-descriptions-item label="表格与附件">沿用原合同页面的回款计划、报价明细和附件，无需在此重新配置。</a-descriptions-item>
+          </a-descriptions>
+          <p class="hint">本步骤只确认已有业务提供的字段，点击“下一步”配置审批人和流程条件。</p>
+          <h2>可用业务字段</h2>
+          <p class="hint">字段名称、类型及必填规则由业务目录提供，不可增删修改。条件仅可使用业务目录允许的字段。</p>
+          <a-descriptions bordered :column="1">
+            <a-descriptions-item v-for="field in definition.formFields" :key="field.key" :label="field.name">
+              {{ field.type }}{{ field.required ? ' · 必填' : '' }}{{ currentBusiness?.conditionFields.includes(field.key) ? ' · 可作为条件' : '' }}
+            </a-descriptions-item>
+          </a-descriptions>
         </div>
         <div v-else-if="step === 1" class="form-designer">
           <aside class="field-palette"
@@ -103,17 +133,21 @@
           :readonly="readOnly"
           @changed="syncDesign"
         />
-        <MoreSettings v-else-if="step === 3" />
+        <MoreSettings v-else-if="step === 3" v-model:value="definition.settings" />
         <div v-else class="publish-page">
           <h1>检查并发布</h1><p class="hint">发布创建新版本，在途申请继续使用原版本。启停新申请请在流程列表操作。</p>
           <a-descriptions bordered :column="1"
             ><a-descriptions-item label="流程名称">{{ definition.name || '未填写' }}</a-descriptions-item
+            ><a-descriptions-item label="关联业务">{{ businessTypeLabels[definition.businessType] || definition.businessType }}</a-descriptions-item
             ><a-descriptions-item label="表单字段">{{ definition.formFields?.length || 0 }} 项</a-descriptions-item
             ><a-descriptions-item label="审批节点">{{ definition.nodes.map((n) => n.name).join(' → ') }}</a-descriptions-item
             ><a-descriptions-item label="版本">{{
               savedModel?.published_version ? `当前 V${savedModel.published_version}，发布将创建新版本` : '首次发布'
             }}</a-descriptions-item></a-descriptions
           >
+          <a-alert
+v-if="isBusiness" type="info" show-icon message="发布并启用后，合同签订业务的新申请将按此流程审批"
+            description="全系统只允许一个未归档的合同流程。未发布、停用或归档时，新合同无法提交审批；已有合同与在途审批不自动更换流程。" />
           <a-alert v-if="issues.length" type="warning" show-icon message="以下配置需要完善"
             ><template #description
               ><ul
@@ -140,7 +174,7 @@
           <h1>权限配置</h1><p class="hint">发起范围、额外读取范围分别配置，管理流程不代表可以读取所有申请。</p>
           <a-tabs>
             <a-tab-pane key="starters" tab="发起范围"
-              ><a-form layout="vertical"><AudienceEditor v-model:value="definition.policy!.starters!" /></a-form
+              ><a-form layout="vertical"><AudienceEditor single-source v-model:value="definition.policy!.starters!" /></a-form
             ></a-tab-pane>
             <a-tab-pane key="readers" tab="额外读取范围">
               <section v-for="(reader, index) in definition.policy!.readers" :key="index" class="reader-rule">
@@ -165,14 +199,14 @@
                   :value="definition.policy!.fields![field.key]"
                   allow-clear
                   placeholder="默认权限（未配置）"
-                  :options="permissionOptions"
+                  :options="allowedPermissionOptions"
                   @change="(v) => setPolicyField('fields', field.key, v)"
                 />
                 <a-select
                   :value="definition.policy!.initiatorFields![field.key]"
                   allow-clear
                   placeholder="发起人权限（未配置）"
-                  :options="permissionOptions"
+                  :options="allowedPermissionOptions"
                   @change="(v) => setPolicyField('initiatorFields', field.key, v)"
                 />
               </div>
@@ -184,7 +218,7 @@
   </section>
 </template>
 <script setup lang="ts">
-  import { computed, onBeforeUnmount, ref } from 'vue';
+  import { computed, onBeforeUnmount, onMounted, provide, ref } from 'vue';
   import MoreSettings from './MoreSettings.vue';
   const permissionsOpen = ref(false);
   import { onBeforeRouteLeave } from 'vue-router';
@@ -195,7 +229,8 @@
   import WorkflowCanvas from '../designer/WorkflowCanvas.vue';
   import { fromDefinition, executableGraph, executionBlockers, flatten } from '../designer/graph';
   import { useUserStore } from '/@/store/modules/user';
-  import { saveModel, publishModel } from '../Workflow.api';
+  import { businessTypes, designerCapabilities, designerList, designerDetail, saveDesigner, saveModel, publishModel } from '../Workflow.api';
+  import { businessTypeLabels, validateBusinessDefinition, type BusinessMetadata } from '../businessMetadata';
   import {
     canEditDefinition,
     fieldTypes,
@@ -206,13 +241,44 @@
     removeField,
     validateDefinition,
   } from '../workflow';
-  import type { FieldPermission, WorkflowModel } from '../workflow.types';
-  const props = defineProps<{ model?: WorkflowModel }>();
-  const emit = defineEmits<{ (e: 'close'): void; (e: 'saved', model: WorkflowModel): void }>();
+  import type { DesignerCapabilities, DesignerDraft, FieldPermission, WorkflowModel } from '../workflow.types';
+  const props = defineProps<{ model?: WorkflowModel; design?: DesignerDraft }>();
+  const emit = defineEmits<{ (e: 'close'): void; (e: 'saved', model: WorkflowModel): void; (e: 'designSaved'): void }>();
+  const capabilities = ref<DesignerCapabilities | null>(null);
+  provide('workflowCapabilities', capabilities);
+  const designRevision = ref<number>();
+  const availableDraft = ref<DesignerDraft>();
+  const designReady = ref(false);
+  const capabilityError = ref('');
+  const savedKind = ref('模型');
   const savedModel = ref(props.model);
   const definition = ref(props.model ? parseDefinition(props.model) : newDefinition());
+  const businessCatalog = ref<BusinessMetadata[]>([]);
+  const isBusiness = computed(() => definition.value.businessType !== 'WORKFLOW_FORM');
+  const currentBusiness = computed(() => businessCatalog.value.find((b) => b.businessType === definition.value.businessType));
+  const businessOptions = computed(() => businessCatalog.value.filter((b) => businessTypeLabels[b.businessType]).map((b) => ({ value: b.businessType, label: businessTypeLabels[b.businessType] })));
+  const allowedPermissionOptions = computed(() => permissionOptions.filter((p) => !isBusiness.value || p.value !== 'EDITABLE'));
+  provide('workflowBusinessFieldsLocked', isBusiness);
+  provide('workflowConditionFields', computed(() => isBusiness.value ? currentBusiness.value?.conditionFields || [] : undefined));
+  function applyBusinessFields() {
+    if (savedModel.value && definition.value.businessType !== savedModel.value.business_type) throw new Error('已保存流程不可更换业务类型');
+    if (!isBusiness.value) return;
+    if (!currentBusiness.value) throw new Error('服务尚未提供此业务类型，请加载后端后重试');
+    definition.value.formFields = JSON.parse(JSON.stringify(currentBusiness.value.fields));
+  }
+  function changeBusinessType(type: string) {
+    if (savedModel.value || designRevision.value != null || !businessOptions.value.some((b) => b.value === type)) return;
+    if (type === definition.value.businessType) return;
+    Modal.confirm({ title: '切换关联业务？', content: '将清空当前字段和流程节点配置，保留流程名称与标识。', onOk: () => {
+      const fresh = newDefinition();
+      definition.value = { ...fresh, key: definition.value.key, name: definition.value.name, businessType: type };
+      applyBusinessFields();
+      designNodes.value = fromDefinition(definition.value);
+      selectedField.value = -1;
+    } });
+  }
   definition.value.policy ||= {};
-  definition.value.policy.starters ||= {};
+
   definition.value.policy.readers ||= [];
   definition.value.policy.fields ||= {};
   definition.value.policy.initiatorFields ||= {};
@@ -227,7 +293,7 @@
   let restored = false;
   try {
     const raw = draftKey && sessionStorage.getItem(draftKey);
-    if (raw) {
+    if (raw && !props.design) {
       const draft = JSON.parse(raw);
       if (
         draft.version === 1 &&
@@ -285,6 +351,113 @@
       },
     });
   }
+  function restoreServerDesign(draft: DesignerDraft) {
+    const doc = draft.document;
+    if (
+      !doc ||
+      doc.schemaVersion !== 1 ||
+      !doc.definition ||
+      !Array.isArray(doc.definition.nodes) ||
+      !Array.isArray(doc.nodes) ||
+      doc.definition.key !== draft.process_key
+    ) {
+      error.value = '设计文档格式不兼容，已保留当前画布，未覆盖服务器内容';
+      return false;
+    }
+    definition.value = JSON.parse(JSON.stringify(doc.definition));
+    applyBusinessFields();
+    definition.value.policy ||= {};
+
+    definition.value.policy.readers ||= [];
+    definition.value.policy.fields ||= {};
+    definition.value.policy.initiatorFields ||= {};
+    for (const node of definition.value.nodes) {
+      node.options ||= { mode: 'ANY' };
+      node.fieldPermissions ||= {};
+      node.approverRules ||= [];
+    }
+    designNodes.value = JSON.parse(JSON.stringify(doc.nodes));
+    step.value = Number.isInteger(doc.step) && doc.step! >= 0 && doc.step! <= 4 ? doc.step! : 0;
+    designRevision.value = draft.revision;
+    availableDraft.value = undefined;
+    savedKind.value = '设计草稿';
+    localSaved.value = false;
+    snapshot.value = serialized();
+    designReady.value = true;
+    if (doc.modelRevision !== (savedModel.value?.revision ?? null)) error.value = '此设计基于其他模型修订，载入后请核对配置，再保存完整模型。';
+  }
+  async function initializeDesigner() {
+    capabilityError.value = '';
+    designReady.value = false;
+    try {
+      const [caps, catalog] = await Promise.all([designerCapabilities(), businessTypes()]);
+      capabilities.value = caps;
+      if (!Array.isArray(catalog) || catalog.some((b) => !Array.isArray(b.fields) || !Array.isArray(b.conditionFields))) throw new Error('业务字段目录不完整');
+      businessCatalog.value = catalog;
+      applyBusinessFields();
+      if (!Array.isArray(capabilities.value?.nodeKinds) || !capabilities.value.designerMaxChars || !capabilities.value.definitionMaxChars)
+        throw new Error('能力响应格式不完整');
+      if (props.design) {
+        const draft = await designerDetail(props.design.process_key);
+        designRevision.value = draft.revision;
+        if (restoreServerDesign(draft) === false) throw new Error('无法恢复此设计文档');
+      } else if (savedModel.value) {
+        // Discover absence through list; detail errors must not be mistaken for a new draft.
+        let next = 1;
+        while (true) {
+          const result = await designerList(next++, 100);
+          const found = result.records.find((d) => d.process_key === savedModel.value!.process_key);
+          if (found) {
+            availableDraft.value = await designerDetail(found.process_key);
+            designRevision.value = availableDraft.value.revision;
+            break;
+          }
+          if (!result.records.length || (next - 1) * 100 >= result.total) break;
+        }
+      }
+      designReady.value = true;
+    } catch (e) {
+      capabilityError.value = `设计接口未就绪：${(e as Error).message}。请确认后端已重启加载新接口。`;
+    }
+  }
+  async function saveServerDesign() {
+    if (busy.value || readOnly.value || !designReady.value || !capabilities.value) return;
+    busy.value = true;
+    error.value = '';
+    try {
+      if (!definition.value.name.trim() || !/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(definition.value.key)) throw new Error('请先填写流程名称和有效标识');
+      const document = JSON.parse(
+        JSON.stringify({
+          schemaVersion: 1,
+          definition: definition.value,
+          nodes: designNodes.value,
+          step: step.value,
+          modelRevision: savedModel.value?.revision ?? null,
+        })
+      );
+      if (JSON.stringify(document).length > capabilities.value.designerMaxChars) throw new Error('设计文档超过服务器大小限制');
+      const saved = await saveDesigner({
+        key: definition.value.key,
+        name: definition.value.name,
+        document,
+        ...(designRevision.value == null ? {} : { revision: designRevision.value }),
+      });
+      if (saved.process_key !== definition.value.key || !Number.isInteger(saved.revision)) throw new Error('设计保存响应缺少版本，请重新读取后核对');
+      designRevision.value = saved.revision;
+      availableDraft.value = undefined;
+      localSaved.value = false;
+      savedKind.value = '设计草稿';
+      snapshot.value = serialized();
+      if (draftKey) sessionStorage.removeItem(draftKey);
+      emit('designSaved');
+      message.success('设计草稿已保存，尚未发布');
+    } catch (e) {
+      error.value = (e as Error).message;
+    } finally {
+      busy.value = false;
+    }
+  }
+  onMounted(initializeDesigner);
   function nextStep() {
     error.value = '';
     if (step.value === 0 && (!definition.value.name.trim() || !/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(definition.value.key))) {
@@ -303,10 +476,11 @@
     selectedField = ref(-1),
     busy = ref(false),
     error = ref('');
-  const steps = ['基础信息', '表单配置', '流程设计', '更多配置', '完成发布'];
+  const steps = computed(() => ['基础信息', isBusiness.value ? '业务表单' : '表单配置', '流程设计', '更多配置', '完成发布']);
   const issues = computed(() => {
     if (designBlockers.value.length) return designBlockers.value;
-    return validateDefinition({ ...definition.value, ...executableGraph(designNodes.value, !!definition.value.stages) });
+    const draft = { ...definition.value, ...executableGraph(designNodes.value, !!definition.value.stages) };
+    return [...validateDefinition(draft), ...validateBusinessDefinition(draft, currentBusiness.value)];
   });
   const activeField = computed(() => definition.value.formFields?.[selectedField.value]);
   const scopeOptions = [
@@ -317,14 +491,21 @@
     { value: 'ALL', label: '全部申请' },
   ];
   function addField(type: string, name: string) {
+    if (isBusiness.value) return;
     definition.value.formFields ||= [];
     definition.value.formFields.push({ key: newId('field'), name, type, required: false });
     selectedField.value = definition.value.formFields.length - 1;
   }
   function deleteField(key: string) {
+    if (isBusiness.value) return;
     try {
       for (const n of flatten(designNodes.value)) {
-        if (n.config.field === key || n.branches?.some((b) => !b.fallback && b.groups.some((g) => g.some((r) => r.field === key))))
+        if (
+          n.config.template?.includes('${' + key + '}') ||
+          n.approval?.approverRules?.some((r) => r.fieldKey === key) ||
+          n.config.field === key ||
+          n.branches?.some((b) => !b.fallback && b.groups.some((g) => g.some((r) => r.field === key)))
+        )
           throw new Error('该字段被流程设计条件或人员来源引用，请先调整节点设置');
       }
       removeField(definition.value, key);
@@ -335,6 +516,7 @@
     }
   }
   function moveField(index: number, delta: number) {
+    if (isBusiness.value) return;
     const fields = definition.value.formFields!;
     [fields[index], fields[index + delta]] = [fields[index + delta], fields[index]];
     selectedField.value = index + delta;
@@ -344,15 +526,21 @@
     else delete definition.value.policy![kind]![key];
   }
   async function persist() {
-    if (designBlockers.value.length) throw new Error('当前包含仅供设计的配置，请保存当前会话设计稿。');
+    if (!designReady.value || !capabilities.value) throw new Error('请先读取后端设计器能力，确认服务已加载新接口');
+    if (designBlockers.value.length) throw new Error(designBlockers.value[0]);
     syncDesign();
-    const errors = validateDefinition(definition.value);
+    applyBusinessFields();
+    const errors = [...validateDefinition(definition.value), ...validateBusinessDefinition(definition.value, currentBusiness.value)];
+    if (JSON.stringify(definition.value).length > capabilities.value.definitionMaxChars) errors.push('流程定义超过服务器大小限制');
+    if (definition.value.nodes.some((n) => !capabilities.value!.nodeKinds.includes(n.options?.behavior?.kind || 'APPROVAL')))
+      errors.push('当前服务不支持所选节点类型');
     if (errors.length) throw new Error(errors[0]);
     const saved = await saveModel(JSON.parse(JSON.stringify(definition.value)), savedModel.value?.revision);
     if (!saved || !Number.isInteger(saved.revision) || saved.process_key !== definition.value.key)
       throw new Error('保存响应缺少当前版本，请返回列表刷新后重试。');
     savedModel.value = saved;
     snapshot.value = serialized();
+    savedKind.value = '模型';
     if (draftKey) sessionStorage.removeItem(draftKey);
     localSaved.value = false;
     emit('saved', saved);

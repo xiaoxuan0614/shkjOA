@@ -1,120 +1,125 @@
 <template>
-  <BasicModal v-bind="$attrs" @register="register" destroyOnClose :title="title" :width="720" @ok="handleSubmit">
-    <!-- 地图选点: 拖动地图中心 pin 自动填充下方字段 -->
+  <a-modal
+    :open="open"
+    :title="record ? '编辑位置' : '添加位置'"
+    :width="720"
+    :confirm-loading="saving"
+    :mask-closable="!saving"
+    :closable="!saving"
+    :cancel-button-props="{ disabled: saving }"
+    destroy-on-close
+    @cancel="close"
+    @ok="handleSubmit"
+  >
     <AMapLocationMap
-      :lng="recordLng"
-      :lat="recordLat"
-      :address="recordAddress"
-      :auto-locate="!isUpdate"
+      v-if="open"
+      :lng="mapLng"
+      :lat="mapLat"
+      :address="mapAddress"
+      :auto-locate="!record"
       height="320px"
       style="margin-bottom: 16px"
       @select="onSelectLocation"
     />
-    <BasicForm @register="registerForm" />
-  </BasicModal>
+    <a-form ref="formRef" :model="form" :rules="rules" layout="vertical">
+      <a-form-item label="经度" name="longitude"><a-input v-model:value="form.longitude" placeholder="自动填充" /></a-form-item>
+      <a-form-item label="纬度" name="latitude"><a-input v-model:value="form.latitude" placeholder="自动填充" /></a-form-item>
+      <a-form-item label="实施位置" name="locationName"><a-input v-model:value="form.locationName" placeholder="自动填充" /></a-form-item>
+      <a-form-item label="位置描述" name="description"
+        ><a-textarea v-model:value="form.description" placeholder="请输入位置描述" :rows="3"
+      /></a-form-item>
+    </a-form>
+  </a-modal>
 </template>
 
 <script lang="ts" setup>
-  import { ref, computed, unref } from 'vue';
-  import { BasicModal, useModalInner } from '/@/components/Modal';
-  import { BasicForm, useForm } from '/@/components/Form/index';
-  import { useMessage } from '/@/hooks/web/useMessage';
+  import { reactive, ref, watch } from 'vue';
+  import { message } from 'ant-design-vue';
   import AMapLocationMap from '/@/components/jeecg/AMapLocationMap.vue';
-  import { AmapPoi } from '/@/components/jeecg/AMapPlaceSearch.vue';
+  import type { AmapPoi } from '/@/components/jeecg/AMapPlaceSearch.vue';
   import { addPosition, editPosition } from '../ProjectDetail.api';
 
-  const { createMessage } = useMessage();
-  const emit = defineEmits(['register', 'success']);
+  interface PositionRecord {
+    id?: string;
+    longitude?: string | number | null;
+    latitude?: string | number | null;
+    locationName?: string | null;
+    description?: string | null;
+  }
+  const props = defineProps<{ open: boolean; projectId: string; record?: PositionRecord | null }>();
+  const emit = defineEmits<{ (e: 'update:open', value: boolean): void; (e: 'success'): void }>();
+  const formRef = ref<{ validate: () => Promise<unknown> }>();
+  const form = reactive({ longitude: '', latitude: '', locationName: '', description: '' });
+  const rules = {
+    longitude: [{ required: true, message: '请输入经度' }],
+    latitude: [{ required: true, message: '请输入纬度' }],
+    locationName: [{ required: true, message: '请输入实施位置' }],
+  };
+  const mapLng = ref<number | null>(null);
+  const mapLat = ref<number | null>(null);
+  const mapAddress = ref('');
+  const saving = ref(false);
 
-  const isUpdate = ref(false);
-  const periodId = ref('');
-  const title = computed(() => (unref(isUpdate) ? '编辑位置' : '添加位置'));
+  function coordinate(raw: unknown): number | null {
+    if (raw == null || String(raw).trim() === '') return null;
+    const value = Number(raw);
+    return Number.isFinite(value) ? value : null;
+  }
 
-  // 地图回显: 打开弹窗时把已有经纬度/位置传给地图
-  const recordLng = ref<number | null>(null);
-  const recordLat = ref<number | null>(null);
-  const recordAddress = ref('');
+  watch(
+    () => props.open,
+    (open) => {
+      if (!open) return;
+      const record = props.record;
+      form.longitude = record?.longitude == null ? '' : String(record.longitude);
+      form.latitude = record?.latitude == null ? '' : String(record.latitude);
+      form.locationName = record?.locationName || '';
+      form.description = record?.description || '';
+      mapLng.value = coordinate(record?.longitude);
+      mapLat.value = coordinate(record?.latitude);
+      mapAddress.value = record?.locationName || '';
+    },
+    { immediate: true }
+  );
 
-  // 字段对齐后端 project_location: longitude/latitude/locationName/description
-  const [registerForm, { resetFields, setFieldsValue, validate }] = useForm({
-    labelWidth: 100,
-    showActionButtonGroup: false,
-    baseColProps: { span: 24 },
-    schemas: [
-      {
-        label: '经度',
-        field: 'longitude',
-        component: 'Input',
-        componentProps: { placeholder: '自动填充' },
-        dynamicRules: () => [{ required: true, message: '请输入经度!' }],
-      },
-      {
-        label: '纬度',
-        field: 'latitude',
-        component: 'Input',
-        componentProps: { placeholder: '自动填充' },
-        dynamicRules: () => [{ required: true, message: '请输入纬度!' }],
-      },
-      {
-        label: '实施位置',
-        field: 'locationName',
-        component: 'Input',
-        componentProps: { placeholder: '自动填充' },
-        dynamicRules: () => [{ required: true, message: '请输入实施位置!' }],
-      },
-      {
-        label: '位置描述',
-        field: 'description',
-        component: 'InputTextArea',
-        componentProps: { placeholder: '请输入位置描述', rows: 3 },
-      },
-    ],
-  });
+  function onSelectLocation(poi: AmapPoi | null) {
+    if (!props.open) return;
+    form.longitude = poi?.lng == null ? '' : String(poi.lng);
+    form.latitude = poi?.lat == null ? '' : String(poi.lat);
+    form.locationName = poi?.name || poi?.address || '';
+    form.description = poi?.address || '';
+  }
 
-  const [register, { closeModal }] = useModalInner(async (data) => {
-    await resetFields();
-    isUpdate.value = !!data?.isUpdate;
-    periodId.value = data?.projectId || '';
-    if (data?.record) {
-      recordLng.value = data.record.longitude ?? null;
-      recordLat.value = data.record.latitude ?? null;
-      recordAddress.value = data.record.locationName || '';
-      await setFieldsValue({ ...data.record });
-    } else {
-      recordLng.value = null;
-      recordLat.value = null;
-      recordAddress.value = '';
-    }
-  });
-
-  /**
-   * 地图选点后自动填充位置名/经纬度/描述
-   */
-  async function onSelectLocation(poi: AmapPoi | null) {
-    await setFieldsValue(
-      poi
-        ? { locationName: poi.name || poi.address, longitude: poi.lng, latitude: poi.lat, description: poi.address }
-        : { locationName: '', longitude: undefined, latitude: undefined, description: '' }
-    );
+  function close() {
+    if (!saving.value) emit('update:open', false);
   }
 
   async function handleSubmit() {
+    if (saving.value) return;
+    if (!formRef.value) return;
     try {
-      const values = await validate();
-      const payload = { ...values, periodId: periodId.value };
-      if (isUpdate.value) {
-        await editPosition(payload);
-        createMessage.success('编辑成功');
-      } else {
-        await addPosition(payload);
-        createMessage.success('新增成功');
-      }
-      closeModal();
+      await formRef.value.validate();
+    } catch {
+      return;
+    }
+    const lng = coordinate(form.longitude);
+    const lat = coordinate(form.latitude);
+    if (lng == null || lat == null || Math.abs(lng) > 180 || Math.abs(lat) > 90) {
+      message.error('请输入有效的经纬度');
+      return;
+    }
+    saving.value = true;
+    try {
+      const payload = { periodId: props.projectId, ...form, ...(props.record?.id ? { id: props.record.id } : {}) };
+      if (props.record) await editPosition(payload);
+      else await addPosition(payload);
+      message.success(props.record ? '编辑成功' : '新增成功');
+      emit('update:open', false);
       emit('success');
-    } catch ({ errorFields }) {
-      if (errorFields) {
-        return Promise.reject(errorFields);
-      }
+    } catch (error) {
+      message.error((error as Error)?.message || '保存位置失败，请重试');
+    } finally {
+      saving.value = false;
     }
   }
 </script>

@@ -128,11 +128,9 @@
                     />
                   </div>
                   <div class="stock-exec__material" role="cell">
-                    <div class="stock-exec__material-name">{{ record.materialName || '未命名物料' }}</div>
+                    <MaterialIdentityCell :record="record" />
                     <div class="stock-exec__material-meta">
-                      <span v-if="record.materialCode">{{ record.materialCode }}</span>
                       <span v-if="record.materialCategory">{{ record.materialCategory }}</span>
-                      <span v-if="formatBrand(record.brand)">{{ formatBrand(record.brand) }}</span>
                       <span v-if="record.model">{{ record.model }}</span>
                     </div>
                   </div>
@@ -245,11 +243,9 @@
           </template>
           <template v-else-if="column.key === 'material'">
             <div class="stock-exec__material">
-              <div class="stock-exec__material-name">{{ record.materialName || '未命名物料' }}</div>
+              <MaterialIdentityCell :record="record" />
               <div class="stock-exec__material-meta">
-                <span v-if="record.materialCode">{{ record.materialCode }}</span>
                 <span v-if="record.materialCategory">{{ record.materialCategory }}</span>
-                <span v-if="formatBrand(record.brand)">{{ formatBrand(record.brand) }}</span>
                 <span v-if="record.model">{{ record.model }}</span>
               </div>
             </div>
@@ -320,6 +316,7 @@
 </template>
 
 <script lang="ts" setup>
+  import MaterialIdentityCell from '/@/views/material/components/MaterialIdentityCell.vue';
   import { computed, nextTick, reactive, ref, watch } from 'vue';
   import { BasicModal, useModalInner } from '/@/components/Modal';
   import { useMessage } from '/@/hooks/web/useMessage';

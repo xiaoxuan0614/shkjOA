@@ -1,19 +1,25 @@
 // noinspection JSUnusedGlobalSymbols
 
-import { unref } from 'vue';
 import { useWebSocket, WebSocketResult } from '@vueuse/core';
 import { getToken } from '/@/utils/auth';
 
 let result: WebSocketResult<any>;
 const listeners = new Map();
 
+/** domainUrl 已包含后端上下文路径（/shouhuiApi），不要重复拼接。 */
+export function notificationWebSocketUrl(domainUrl: string, userId: string | number) {
+  const base = domainUrl.replace(/\/+$/, '').replace(/^https:/, 'wss:').replace(/^http:/, 'ws:');
+  return `${base}/websocket/${encodeURIComponent(String(userId))}`;
+}
+
 /**
  * 开启 WebSocket 链接，全局只需执行一次
  * @param url
  */
-export function connectWebSocket(url: string) {
+export function connectWebSocket(url: string, onConnected?: () => void) {
   // 代码逻辑说明: v2.4.6 的 websocket 服务端，存在性能和安全问题。 #3278
   const token = (getToken() || '') as string;
+  if (!token) return;
   result = useWebSocket(url, {
     // 自动重连 (遇到错误最多重复连接10次)
     autoReconnect: {
@@ -27,23 +33,24 @@ export function connectWebSocket(url: string) {
     },
     protocols: [token],
     // 代码逻辑说明: [issues/6662] 演示系统socket总断，换一个写法
-    onConnected: function (ws) {
-      console.log('[WebSocket] 连接成功', ws);
+    onConnected: function () {
+      if (getToken() === token) onConnected?.();
     },
-    onDisconnected: function (ws, event) {
-      console.log('[WebSocket] 连接断开：', ws, event);
+    onDisconnected: function () {
+      console.debug('[WebSocket] 连接断开');
     },
-    onError: function (ws, event) {
-      console.log('[WebSocket] 连接发生错误: ', ws, event);
+    onError: function () {
+      console.debug('[WebSocket] 连接发生错误');
     },
     onMessage: function (_ws, e) {
-      console.debug('[WebSocket] -----接收消息-------', e.data);
+      if (getToken() !== token) return;
       try {
         // 代码逻辑说明: 【issues/1161】前端websocket因心跳导致监听不起作用---
-        if (e.data === 'ping') {
+        if (e.data === 'ping' || e.data === 'pong') {
           return;
         }
         const data = JSON.parse(e.data);
+        if (!data || typeof data !== 'object' || Array.isArray(data)) return;
         for (const callback of listeners.keys()) {
           try {
             callback(data);
@@ -51,58 +58,12 @@ export function connectWebSocket(url: string) {
             console.error(err);
           }
         }
-      } catch (err) {
-        console.error('[WebSocket] data解析失败：', err);
+      } catch {
+        console.debug('[WebSocket] 忽略非 JSON 消息');
       }
     },
   });
-  // if (result) {
-  //   result.open = onOpen;
-  //   result.close = onClose;
-
-  //   const ws = unref(result.ws);
-  //   if(ws!=null){
-  //     ws.onerror = onError;
-  //     ws.onmessage = onMessage;
-  //     ws.onopen = onOpen;
-  //     ws.onclose = onClose;
-  //     
-  //   }
-  // }
 }
-
-function onOpen() {
-  console.log('[WebSocket] 连接成功');
-}
-
-function onClose(e) {
-  console.log('[WebSocket] 连接断开：', e);
-}
-
-function onError(e) {
-  console.log('[WebSocket] 连接发生错误: ', e);
-}
-
-function onMessage(e) {
-  console.debug('[WebSocket] -----接收消息-------', e.data);
-  try {
-    // 代码逻辑说明: 【issues/1161】前端websocket因心跳导致监听不起作用---
-    if(e==='ping'){
-      return;
-    }
-    const data = JSON.parse(e.data);
-    for (const callback of listeners.keys()) {
-      try {
-        callback(data);
-      } catch (err) {
-        console.error(err);
-      }
-    }
-  } catch (err) {
-    console.error('[WebSocket] data解析失败：', err);
-  }
-}
-
 
 /**
  * 添加 WebSocket 消息监听

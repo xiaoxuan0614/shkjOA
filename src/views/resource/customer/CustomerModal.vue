@@ -98,7 +98,7 @@
     // showFooter=false 表示只读详情
     isDetail.value = !!data?.showFooter;
     if (data?.record) {
-      await setFieldsValue({ ...data.record });
+      await setFieldsValue({ ...data.record, customerRole: data.record.customerRole ?? '', unitDepartment: data.record.unitDepartment ?? '' });
     }
     // 详情模式下禁用整个表单
     setProps({ disabled: !data?.showFooter });
@@ -110,7 +110,7 @@
     try {
       const values = await validate();
       setModalProps({ confirmLoading: true });
-      const payload = { ...values };
+      const payload = { ...values, customerRole: values.customerRole ?? '', unitDepartment: values.unitDepartment ?? '' };
       // 编号后端生成：为空则不传
       if (!payload.customerNo) delete payload.customerNo;
       await saveOrUpdate(payload, isUpdate.value);

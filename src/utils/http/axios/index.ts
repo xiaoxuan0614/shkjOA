@@ -5,6 +5,9 @@ import type { AxiosResponse } from 'axios';
 import type { RequestOptions, Result } from '/#/axios';
 import type { AxiosTransform, CreateAxiosOptions } from './axiosTransform';
 import { VAxios } from './Axios';
+import axios from 'axios';
+import { useUserStoreWithOut } from '/@/store/modules/user';
+import { stampSessionRequest, guardSessionRequest, finishSessionRequest, logoutRequest } from './sessionRequests';
 import { checkStatus } from './checkStatus';
 import { router } from '/@/router';
 import { useGlobSetting } from '/@/hooks/setting';
@@ -30,6 +33,7 @@ const transform: AxiosTransform = {
    * @description: 处理请求数据。如果数据不是预期格式，可直接抛出错误
    */
   transformRequestHook: (res: AxiosResponse<Result>, options: RequestOptions) => {
+    finishSessionRequest(res.config);
     const { t } = useI18n();
     const { isTransformResponse, isReturnNativeResponse } = options;
     // 是否返回原生响应头 比如：需要获取响应头时使用该属性
@@ -66,6 +70,7 @@ const transform: AxiosTransform = {
     switch (code) {
       case ResultEnum.TIMEOUT:
         timeoutMsg = t('sys.api.timeoutMessage');
+        if (logoutRequest(res.config)) break;
         const userStore = useUserStoreWithOut();
         userStore.setToken(undefined);
         userStore.logout(true);
@@ -89,6 +94,7 @@ const transform: AxiosTransform = {
 
   // 请求之前处理config
   beforeRequestHook: (config, options) => {
+    stampSessionRequest(config);
     const { apiUrl, joinPrefix, joinParamsToUrl, formatDate, joinTime = true, urlPrefix } = options;
 
     // http开头的请求url，不加前缀
@@ -155,6 +161,7 @@ const transform: AxiosTransform = {
   requestInterceptors: (config: Recordable, options) => {
     // 请求之前处理config
     const token = getToken();
+    guardSessionRequest(config, token);
 
     // 将签名和时间戳，添加在请求接口 Header
     config.headers[ConfigEnum.TIMESTAMP] = signMd5Utils.getTimestamp();
@@ -168,7 +175,7 @@ const transform: AxiosTransform = {
 
       // ========================================================================================
       // 代码逻辑说明: 添加低代码应用ID
-      let routeParams = router.currentRoute.value.params;
+      const routeParams = router.currentRoute.value.params;
       if (routeParams.appId) {
         config.headers[ConfigEnum.X_LOW_APP_ID] = routeParams.appId;
         // lowApp自定义筛选条件
@@ -187,6 +194,7 @@ const transform: AxiosTransform = {
    * @description: 响应拦截器处理
    */
   responseInterceptors: (res: AxiosResponse<any>) => {
+    finishSessionRequest(res.config);
     return res;
   },
 
@@ -194,6 +202,8 @@ const transform: AxiosTransform = {
    * @description: 响应错误处理
    */
   responseInterceptorsCatch: (error: any) => {
+    try { finishSessionRequest(error?.config); } catch (cancel) { return Promise.reject(cancel); }
+    if (axios.isCancel(error) || logoutRequest(error?.config)) return Promise.reject(error);
     const { t } = useI18n();
     const errorLogStore = useErrorLogStoreWithOut();
     errorLogStore.addAjaxErrorInfo(error);

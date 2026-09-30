@@ -1,6 +1,28 @@
 <template>
   <BasicModal v-bind="$attrs" @register="register" destroyOnClose :title="title" :width="800" @ok="handleSubmit">
-    <BasicForm @register="registerForm" />
+    <BasicForm @register="registerForm">
+      <template #brand="{ model, field }">
+        <a-select
+          v-model:value="model[field]"
+          :open="brandDropdownOpen"
+          :options="localBrandOptions"
+          :disabled="readOnly"
+          show-search
+          allow-clear
+          option-filter-prop="label"
+          placeholder="请选择或搜索品牌"
+          style="width: 100%"
+          @dropdown-visible-change="brandDropdownOpen = $event"
+        >
+          <template #dropdownRender="{ menuNode }">
+            <component :is="menuNode" />
+            <a-divider style="margin: 4px 0" />
+            <a-button v-if="!readOnly" type="link" block :loading="brandOpening" @mousedown.prevent @click="openBrandCreate">＋ 添加品牌</a-button>
+          </template>
+        </a-select>
+      </template>
+    </BasicForm>
+    <BrandManageModal ref="brandManager" @updated="updateBrands" @created="selectCreatedBrand" />
 
     <!-- 单位信息(子表格)：绑定多个单位，第一个单位即基准单位(固定不可移动/删除)，副单位可上移/下移调整顺序 -->
     <div class="unit-section">
@@ -76,9 +98,33 @@
   import { saveOrUpdate } from '../Goods.api';
   import { loadUnitOptions } from '../../material.util';
   import { UniqueRowSelect, useUniqueRowOptions, validateEditableRows } from '/@/components/EditableTable';
+  import BrandManageModal from './BrandManageModal.vue';
+  import { initDictOptions } from '/@/utils/dict';
 
   const { createMessage } = useMessage();
-  const emit = defineEmits(['register', 'success']);
+  const emit = defineEmits(['register', 'success', 'brandsUpdated']);
+  const props = defineProps<{ brandOptions?: { label: string; value: string }[] }>();
+  const brandManager = ref<InstanceType<typeof BrandManageModal>>();
+  const brandDropdownOpen = ref(false);
+  const brandOpening = ref(false);
+  async function openBrandCreate() {
+    if (readOnly.value || brandOpening.value) return;
+    brandDropdownOpen.value = false;
+    brandOpening.value = true;
+    try {
+      await brandManager.value?.openCreate();
+    } finally {
+      brandOpening.value = false;
+    }
+  }
+  const localBrandOptions = ref<{ label: string; value: string }[]>([]);
+  function updateBrands(rows: any[]) {
+    localBrandOptions.value = rows.filter(row => String(row.status) === '1').map(row => ({ label: row.itemText, value: String(row.itemValue) }));
+    emit('brandsUpdated', rows);
+  }
+  function selectCreatedBrand(value: string) {
+    if (!readOnly.value) setFieldsValue({ brand: value });
+  }
 
   const isUpdate = ref(false);
   const readOnly = ref(false); // 详情模式：整表只读
@@ -113,6 +159,7 @@
   const { canAdd: canAddUnit } = useUniqueRowOptions(unitList, unitOptionList, { field: 'unitName', rowKey: 'uid' });
 
   const [register, { setModalProps, closeModal }] = useModalInner(async (data) => {
+    brandDropdownOpen.value = false;
     await resetFields();
     // 单位下拉选项：从数据字典 inv_unit 加载（改字典重新登录即生效）
     unitOptionList.value = await loadUnitOptions();
@@ -124,6 +171,10 @@
       confirmLoading: false,
     });
     setProps({ disabled: readOnly.value });
+    localBrandOptions.value = props.brandOptions || ((await initDictOptions('material_brand')) as any[]).map(item => ({
+      label: item.text || item.label, value: String(item.value),
+    }));
+    await updateSchema({ field: 'brand', slot: 'brand' });
 
     // 编辑时：库存数量统一走「出入库」，这里禁用不允许直接改
     // 编号显示规则：新增隐藏，编辑/详情显示(只读)

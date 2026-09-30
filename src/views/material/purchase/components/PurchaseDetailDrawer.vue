@@ -19,7 +19,7 @@
       <!-- 订单明细 -->
       <div class="purchase-detail__title">采购明细</div>
       <a-table
-        :columns="columns"
+        :columns="columns" :scroll="{ x: 'max-content' }"
         :data-source="detail.itemList || []"
         :row-key="(r) => r.id || r.materialId"
         :pagination="false"
@@ -42,6 +42,7 @@
 </template>
 
 <script lang="ts" setup>
+  import { unifyMaterialColumns } from '/@/views/material/materialTableColumns';
   import { ref } from 'vue';
   import { BasicDrawer, useDrawerInner } from '/@/components/Drawer';
   import { queryOrderById } from '../Purchase.api';
@@ -70,7 +71,7 @@
   // 打开时加载状态字典
   loadDictMap('purchase_order_status').then((m) => (statusMap.value = m));
 
-  const columns = [
+  const columns = unifyMaterialColumns([
     { title: '物料名称', dataIndex: 'materialName', key: 'materialName', width: 160 },
     { title: '类别', dataIndex: 'materialCategory', key: 'materialCategory', width: 110 },
     { title: '型号', dataIndex: 'model', key: 'model', width: 120 },
@@ -79,7 +80,7 @@
     { title: '单价', dataIndex: 'unitPrice', key: 'unitPrice', width: 80 },
     { title: '金额', dataIndex: 'amount', key: 'amount', width: 110 },
     { title: '入库量', dataIndex: 'inboundQty', key: 'inboundQty', width: 100 },
-    { title: '未入库量', dataIndex: 'remainingQty', key: 'remainingQty', width: 100 },];
+    { title: '未入库量', dataIndex: 'remainingQty', key: 'remainingQty', width: 100 },], { source: 'detail', nameField: 'materialName' });
 
   function formatAmount(record: any): string {
     const qty = Number(record.quantity || 0);

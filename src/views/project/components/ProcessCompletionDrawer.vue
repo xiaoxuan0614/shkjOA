@@ -66,6 +66,45 @@
       </template>
     </a-table>
   </BasicDrawer>
+  <a-modal
+    v-model:open="returnOpen"
+    title="该项目剩余物料待还库"
+    :width="900"
+    :footer="null"
+    :mask-closable="false"
+    :closable="!submitting"
+    :keyboard="!submitting"
+  >
+    <a-alert type="warning" show-icon message="本次尚未完成工序，也未进入验收。请申请还料，或填写原因后强制提交。" />
+    <p>以下按应还数量非零展示；应还数量未扣除已回库和异常处置，请结合待处置数量查看。</p>
+    <a-alert v-if="returnError" type="error" :message="returnError" show-icon>
+      <template #action><a-button size="small" @click="loadReturnMaterials">重试</a-button></template>
+    </a-alert>
+    <a-table
+      :columns="returnColumns"
+      :data-source="returnRows"
+      :loading="returnLoading"
+      row-key="materialId"
+      :pagination="false"
+      :scroll="{ x: 760, y: 300 }"
+      size="small"
+    />
+    <a-form-item label="强制提交原因" required :validate-status="reasonError ? 'error' : undefined" :help="reasonError" style="margin-top: 16px">
+      <a-textarea
+        v-model:value="forceReason"
+        :maxlength="200"
+        :rows="3"
+        show-count
+        :disabled="submitting"
+        placeholder="例如：现场暂存，预计明日归还（1至200字）"
+      />
+    </a-form-item>
+    <a-space style="display: flex; justify-content: flex-end">
+      <a-button :disabled="submitting" @click="returnOpen = false">取消</a-button>
+      <a-button :disabled="submitting" @click="applyReturn">申请还料</a-button>
+      <a-button type="primary" danger :loading="submitting" :disabled="returnLoading || !!returnError" @click="forceComplete">强制提交</a-button>
+    </a-space>
+  </a-modal>
 </template>
 
 <script lang="ts" setup>
@@ -80,6 +119,9 @@
   import { readProjectMembership } from '../projectMembership';
   import { useUserStore } from '/@/store/modules/user';
   import { usePermission } from '/@/hooks/web/usePermission';
+  import { getProjectMaterialAccount } from '/@/views/material/return/Return.api';
+  import { completionOutcome, forceCompletionPayload, loadCompletionMaterials } from '../processCompletion';
+  import { unifyMaterialColumns } from '/@/views/material/materialTableColumns';
 
   const emit = defineEmits(['register', 'success']);
   const route = useRoute();
@@ -92,12 +134,82 @@
   const currentReworkId = ref('');
   const currentStatus = ref('');
   const submitting = ref(false);
+  const returnOpen = ref(false),
+    returnLoading = ref(false),
+    returnError = ref('');
+  const returnRows = ref<any[]>([]),
+    blockedProcessId = ref(''),
+    forceReason = ref(''),
+    reasonError = ref('');
+  const returnColumns = unifyMaterialColumns(
+    [
+      { title: '物料名称', dataIndex: 'materialName', width: 200, fixed: 'left' as const },
+      { title: '编码', dataIndex: 'materialCode', width: 150 },
+      { title: '单位', dataIndex: 'baseUnitName', width: 70 },
+      { title: '应还数量', dataIndex: 'shouldReturnQty', width: 110 },
+      { title: '已合格回库', dataIndex: 'actualReturnQty', width: 110 },
+      { title: '待处置数量', dataIndex: 'remainingReturnQty', width: 110 },
+    ],
+    { source: 'detail', nameField: 'materialName' }
+  );
+  let returnSequence = 0;
+  async function loadReturnMaterials() {
+    const sequence = ++returnSequence;
+    const id = periodId.value;
+    returnLoading.value = true;
+    returnError.value = '';
+    returnRows.value = [];
+    try {
+      const rows = await loadCompletionMaterials((pageNo, pageSize) => getProjectMaterialAccount({ periodId: id, pageNo, pageSize }));
+      if (sequence === returnSequence) returnRows.value = rows;
+    } catch (error) {
+      if (sequence === returnSequence) returnError.value = error instanceof Error ? error.message : '物料明细加载失败';
+    } finally {
+      if (sequence === returnSequence) returnLoading.value = false;
+    }
+  }
+  async function applyReturn() {
+    if (submitting.value) return;
+    await router.push({ path: '/material/return', query: { periodId: periodId.value, from: route.fullPath } });
+    returnOpen.value = false;
+    closeDrawer();
+  }
+  async function forceComplete() {
+    if (submitting.value || returnLoading.value || returnError.value || !blockedProcessId.value || !hasPermission('project:implement')) return;
+    reasonError.value = '';
+    let payload;
+    try {
+      payload = forceCompletionPayload(blockedProcessId.value, forceReason.value);
+    } catch (error) {
+      reasonError.value = (error as Error).message;
+      return;
+    }
+    submitting.value = true;
+    try {
+      const result = await changeProjectProcessStatus(payload);
+      if (completionOutcome(result) !== 'submitted') {
+        createMessage.warning('工序尚未提交，请核对还料情况后重试');
+        return;
+      }
+      returnOpen.value = false;
+      closeDrawer();
+      emit('success');
+      createMessage.success('工序已完成；项目状态以服务端最新结果为准');
+    } catch (error) {
+      reasonError.value = error instanceof Error ? error.message : '强制提交失败，请重试';
+    } finally {
+      submitting.value = false;
+    }
+  }
   function selectable(record: Recordable, verifyIdentity = false) {
-    return hasPermission('project:implement') && !!userId.value &&
+    return (
+      hasPermission('project:implement') &&
+      !!userId.value &&
       (!verifyIdentity || isManager.value || String(record.siteLeaderId || '') === userId.value) &&
       (!currentReworkId.value || String(record.reworkId || '') === currentReworkId.value) &&
       ['IMPLEMENTING', 'DEBUGGING', 'DEBUG_COMPLETED', 'REWORKING'].includes(currentStatus.value) &&
-      normalizeStatus(record.status) === 'IN_PROGRESS';
+      normalizeStatus(record.status) === 'IN_PROGRESS'
+    );
   }
 
   const periodId = ref('');
@@ -135,6 +247,9 @@
   }));
 
   const [register, { setDrawerProps, closeDrawer }] = useDrawerInner(async (data) => {
+    returnSequence++;
+    returnOpen.value = false;
+    blockedProcessId.value = '';
     const record = data?.record || data || {};
     periodId.value = String(data?.periodId || record.periodId || record.id || '');
     projectName.value = record.projectName || '';
@@ -263,10 +378,20 @@
           await loadProcesses(true);
           const fresh = processes.value.find((item) => String(item.id) === selectedId);
           if (loadError.value || !fresh || !selectable(fresh, true)) return createMessage.warning('工序状态或操作资格已变化，请重新选择');
-          await changeProjectProcessStatus({ processId: selectedId, status: 'COMPLETED' });
+          const result = await changeProjectProcessStatus({ processId: selectedId, status: 'COMPLETED' });
+          if (completionOutcome(result) === 'return-required') {
+            blockedProcessId.value = selectedId;
+            forceReason.value = '';
+            reasonError.value = '';
+            returnOpen.value = true;
+            void loadReturnMaterials();
+            return;
+          }
           createMessage.success(`工序“${getProcessName(selected.processName)}”已完成`);
           closeDrawer();
           emit('success');
+        } catch (error) {
+          createMessage.error(error instanceof Error ? error.message : '工序提交失败，请重试');
         } finally {
           submitting.value = false;
           setDrawerProps({ confirmLoading: false });

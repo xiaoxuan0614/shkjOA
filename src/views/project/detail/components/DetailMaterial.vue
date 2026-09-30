@@ -1,6 +1,6 @@
 <template>
   <div class="detail-material">
-    <a-table :columns="columns" :data-source="materials" :pagination="false" size="middle" bordered>
+    <a-table :columns="columns" :scroll="{ x: 'max-content' }" :data-source="materials" :pagination="false" size="middle" bordered>
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'purchaseStatus'">
           {{ purchaseStatusMap[String(record.purchaseStatus)] || record.purchaseStatus || '—' }}
@@ -11,6 +11,7 @@
 </template>
 
 <script lang="ts" setup>
+  import { unifyMaterialColumns } from '/@/views/material/materialTableColumns';
   import { ref, watch } from 'vue';
   import { getMaterials } from '../ProjectDetail.api';
   import { loadDictOptions } from '../../Project.data';
@@ -31,7 +32,7 @@
   ];
 
   // 后端 project_material_plan 字段
-  const columns = [
+  const columns = unifyMaterialColumns([
     { title: '物料编码', dataIndex: 'materialCode', width: 150 },
     { title: '类别', dataIndex: 'materialCategory' },
     { title: '名称', dataIndex: 'materialName' },
@@ -42,7 +43,7 @@
     { title: '计划用量', dataIndex: 'plannedQty' },
     { title: '实际用量', dataIndex: 'actualQty' },
     { title: '采购状态', dataIndex: 'purchaseStatus', key: 'purchaseStatus' },
-  ];
+  ], { source: 'detail', nameField: 'materialName' });
 
   async function load() {
     const [res, options, materialMap]: any[] = await Promise.all([

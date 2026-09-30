@@ -6,8 +6,11 @@
     size="small"
     bordered
   >
-    <a-descriptions-item label="主项目名称">{{ record.projectName || '—' }}</a-descriptions-item>
-    <a-descriptions-item :label="periodNameLabel">{{ record.periodName || '—' }}</a-descriptions-item>
+    <a-descriptions-item v-if="combineProjectName" label="项目名称">{{ [record.projectName, record.periodName].filter(Boolean).join('-') || '—' }}</a-descriptions-item>
+    <template v-else>
+      <a-descriptions-item label="主项目名称">{{ record.projectName || '—' }}</a-descriptions-item>
+      <a-descriptions-item :label="periodNameLabel">{{ record.periodName || '—' }}</a-descriptions-item>
+    </template>
     <a-descriptions-item label="甲方名称">{{ record.customerName || '—' }}</a-descriptions-item>
     <template v-if="showPlanFields">
       <a-descriptions-item label="项目经理">{{ record.projectManagerUserName || '—' }}</a-descriptions-item>
@@ -24,10 +27,12 @@
       record: Recordable;
       periodNameLabel?: string;
       showPlanFields?: boolean;
+      combineProjectName?: boolean;
     }>(),
     {
       periodNameLabel: '分期项目名称',
       showPlanFields: true,
+      combineProjectName: false,
     }
   );
 </script>

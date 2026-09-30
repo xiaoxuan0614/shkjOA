@@ -5,12 +5,20 @@
       class="notification-bell"
       type="button"
       :aria-label="countError ? '通知未读数加载失败，点击重试' : '站内通知，未读 ' + messageCount + ' 条'"
-      @click="center?.show()"
+      @click="showNotifications"
     >
       <Badge class="notification-badge" size="small" :count="messageCount" :overflow-count="99" :offset="[3, -2]"><BellOutlined /></Badge>
       <span v-if="countError" class="notification-warning" title="未读数加载失败">!</span>
     </button>
-    <NotificationCenter v-if="notificationsEnabled" :key="userStore.getUserInfo.id" ref="center" :unread="messageCount" @updated="loadCount" />
+    <NotificationCenter
+      v-if="notificationsEnabled"
+      :key="userStore.getUserInfo.id"
+      ref="center"
+      :unread="messageCount"
+      @updated="loadCount"
+      @count="setCount"
+      @read="onRead"
+    />
     <ChangePasswordModal @register="changePwdModal" />
   </div>
 </template>
@@ -21,17 +29,17 @@
   import { onMounted, onBeforeUnmount, ref, watch } from 'vue';
   import { Badge } from 'ant-design-vue';
   import { BellOutlined } from '@ant-design/icons-vue';
-  import md5 from 'crypto-js/md5';
   import { useDesign } from '/@/hooks/web/useDesign';
   import { useGlobSetting } from '/@/hooks/setting';
   import { useUserStore } from '/@/store/modules/user';
-  import { connectWebSocket, onWebSocket, offWebSocket, useMyWebSocket } from '/@/hooks/web/useWebSocket';
+  import { connectWebSocket, notificationWebSocketUrl, onWebSocket, offWebSocket, useMyWebSocket } from '/@/hooks/web/useWebSocket';
   import { getToken } from '/@/utils/auth';
   import { useModal } from '/@/components/Modal';
   import { defHttp } from '/@/utils/http/axios';
   import ChangePasswordModal from './ChangePasswordModal.vue';
   import NotificationCenter from './NotificationCenter.vue';
   import { notificationPage } from './notification.api';
+  import { isSessionExiting, onSessionEnd } from '/@/utils/http/axios/sessionRequests';
 
   const { prefixCls } = useDesign('header-notify');
   const notificationsEnabled = true;
@@ -43,8 +51,27 @@
   const [changePwdModal, { openModal: openPwdModal }] = useModal();
   let countVersion = 0;
   let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+  function setCount(count: number) {
+    countVersion++;
+    messageCount.value = Math.max(0, count);
+    countError.value = false;
+  }
+  function onRead() {
+    countVersion++;
+    messageCount.value = Math.max(0, messageCount.value - 1);
+  }
+  function showNotifications() {
+    clearTimeout(refreshTimer);
+    countVersion++;
+    center.value?.show();
+  }
+  const stopSessionListener = onSessionEnd(() => {
+    countVersion++;
+    clearTimeout(refreshTimer);
+    useMyWebSocket()?.close();
+  });
   async function loadCount() {
-    if (!notificationsEnabled || !getToken() || !userStore.getUserInfo.id) return;
+    if (isSessionExiting() || !notificationsEnabled || !getToken() || !userStore.getUserInfo.id) return;
     const version = ++countVersion;
     try {
       const data = await notificationPage({ pageNo: 1, pageSize: 1, readFlag: 0 });
@@ -56,11 +83,11 @@
     }
   }
   function refresh() {
-    if (!notificationsEnabled) return;
+    if (isSessionExiting() || !getToken() || !notificationsEnabled) return;
     clearTimeout(refreshTimer);
     refreshTimer = setTimeout(() => {
-      void loadCount();
-      center.value?.refreshList();
+      if (isSessionExiting() || !getToken()) return;
+      if (!center.value?.refreshList()) void loadCount();
     }, 300);
   }
   function onMessage(data: any) {
@@ -73,18 +100,20 @@
     useMyWebSocket()?.close();
     const token = getToken();
     const userId = userStore.getUserInfo.id;
-    if (token && userId && glob.domainUrl) {
-      const url = glob.domainUrl.replace('https://', 'wss://').replace('http://', 'ws://');
-      connectWebSocket(url + '/websocket/' + userId + '_' + md5(String(token)));
+    if (!isSessionExiting() && token && userId && glob.domainUrl) {
+      connectWebSocket(notificationWebSocketUrl(glob.domainUrl, userId), refresh);
     }
   }
-  watch(() => [userStore.getUserInfo.id, userStore.getToken], () => {
-    countVersion++;
-    messageCount.value = 0;
-    countError.value = false;
-    connectNotifications();
-    void loadCount();
-  });
+  watch(
+    () => [userStore.getUserInfo.id, userStore.getToken],
+    () => {
+      countVersion++;
+      messageCount.value = 0;
+      countError.value = false;
+      connectNotifications();
+      void loadCount();
+    }
+  );
   onMounted(() => {
     if (notificationsEnabled) {
       void loadCount();
@@ -106,6 +135,7 @@
       });
   });
   onBeforeUnmount(() => {
+    stopSessionListener();
     countVersion++;
     clearTimeout(refreshTimer);
     offWebSocket(onMessage);

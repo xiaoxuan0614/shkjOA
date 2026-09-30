@@ -17,9 +17,9 @@ enum Api {
   memberOutsource = '/project/memberOutsource/list',
   // 实施位置
   position = '/project/location/list',
-  positionAdd = '/project/location/add',
-  positionDelete = '/project/location/delete',
-  positionEdit = '/project/location/edit',
+  positionAddBatch = '/project/location/addBatch',
+  positionDeleteBatch = '/project/location/deleteBatch',
+  positionEditBatch = '/project/location/editBatch',
   // 实施记录
   implement = '/project/implementLog/list',
   implementLog = '/project/implementLog/queryById',
@@ -95,22 +95,60 @@ export const getMemberOutsources = (params) =>
  */
 export const getPositions = (params) => defHttp.get({ url: Api.position, params });
 
-/**
- * 新增实施位置
- */
-export const addPosition = (params) => defHttp.post({ url: Api.positionAdd, params }, { successMessageMode: 'success' });
+type PositionRecord = {
+  id?: string;
+  locationName?: string;
+  longitude?: string;
+  latitude?: string;
+  description?: string;
+};
+type PositionPayload = PositionRecord & { periodId: string };
 
-/**
- * 编辑实施位置
- */
-export const editPosition = (params) => defHttp.post({ url: Api.positionEdit, params }, { successMessageMode: 'success' });
+function positionFields(record: PositionRecord): PositionRecord {
+  return {
+    ...(record.id ? { id: record.id } : {}),
+    locationName: record.locationName || '',
+    longitude: record.longitude == null ? '' : String(record.longitude),
+    latitude: record.latitude == null ? '' : String(record.latitude),
+    description: record.description || '',
+  };
+}
 
-/**
- * 删除实施位置
- * @param params { id }
- */
-export const deletePosition = (params) =>
-  defHttp.delete({ url: Api.positionDelete, params }, { joinParamsToUrl: true, successMessageMode: 'success' });
+/** 新增位置：当前接口只提供批量新增。 */
+export const addPosition = ({ periodId, ...record }: PositionPayload) =>
+  defHttp.post({ url: Api.positionAddBatch, params: { periodId, records: [positionFields(record)] } }, { successMessageMode: 'none' });
+
+/** 编辑批量接口是全量同步，必须先读齐同分期记录，不能只提交当前行。 */
+export async function editPosition({ periodId, ...record }: PositionPayload) {
+  if (!record.id) throw new Error('缺少实施位置 ID，无法编辑');
+  const records: PositionRecord[] = [];
+  const pageSize = 100;
+  let total = Infinity;
+  for (let pageNo = 1; records.length < total; pageNo++) {
+    const page = await getPositions({ periodId, pageNo, pageSize });
+    const pageTotal = Number(page?.total);
+    if (!Array.isArray(page?.records) || !Number.isSafeInteger(pageTotal) || pageTotal < 0) {
+      throw new Error('实施位置分页信息异常，已取消保存');
+    }
+    const rows: PositionRecord[] = page.records;
+    if (!rows.length) {
+      if (records.length < pageTotal) throw new Error('实施位置列表未读取完整，已取消保存');
+      break;
+    }
+    records.push(...rows);
+    total = pageTotal;
+    if (total < records.length) throw new Error('实施位置分页信息异常，已取消保存');
+    if (pageNo > 1000) throw new Error('实施位置数据量异常，已取消保存');
+  }
+  const index = records.findIndex((item) => String(item.id) === String(record.id));
+  if (index < 0) throw new Error('该实施位置已不存在，请刷新列表');
+  records[index] = { ...records[index], ...record };
+  return defHttp.post({ url: Api.positionEditBatch, params: { periodId, records: records.map(positionFields) } }, { successMessageMode: 'none' });
+}
+
+/** 删除位置：当前接口接收逗号分隔的 ids。 */
+export const deletePosition = ({ id }: { id: string }) =>
+  defHttp.delete({ url: Api.positionDeleteBatch, params: { ids: id } }, { joinParamsToUrl: true, successMessageMode: 'none' });
 
 /**
  * 实施记录 tab(实施记录=实施日志, 按 periodId)
@@ -127,8 +165,7 @@ export const getImplementLog = (params) => defHttp.get({ url: Api.implementLog, 
  * 内部/外部验收记录 tab(分页)，acceptType 显式传 INTERNAL 或 CUSTOMER。
  */
 export const getAcceptance = (params) => defHttp.get({ url: Api.acceptance, params });
-export const getAcceptanceLatestStatus = (periodId: string) =>
-  defHttp.get({ url: '/project/acceptance/latestStatus', params: { periodId } });
+export const getAcceptanceLatestStatus = (periodId: string) => defHttp.get({ url: '/project/acceptance/latestStatus', params: { periodId } });
 export const getAcceptanceById = (id: string) => defHttp.get({ url: '/project/acceptance/queryById', params: { id } }, quietFeedback);
 
 /**

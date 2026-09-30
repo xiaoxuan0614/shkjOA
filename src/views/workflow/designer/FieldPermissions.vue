@@ -7,7 +7,7 @@
         ><td>{{ field.name }}</td
         ><td
           ><a-radio-group :value="value[field.key]" @change="(e) => emit('update:value', { ...value, [field.key]: e.target.value })"
-            ><a-radio value="EDITABLE">可编辑</a-radio><a-radio value="READ_ONLY">只读</a-radio><a-radio value="HIDDEN">隐藏</a-radio></a-radio-group
+            ><a-radio v-if="!businessFieldsLocked" value="EDITABLE">可编辑</a-radio><a-radio value="READ_ONLY">只读</a-radio><a-radio value="HIDDEN">隐藏</a-radio></a-radio-group
           ></td
         ></tr
       ></tbody
@@ -15,6 +15,8 @@
   >
 </template>
 <script setup lang="ts">
+  import { inject, ref, type Ref } from 'vue';
+  const businessFieldsLocked = inject<Ref<boolean>>('workflowBusinessFieldsLocked', ref(false));
   import type { FormField, FieldPermission } from '../workflow.types';
   defineProps<{ fields: FormField[]; value: Record<string, FieldPermission> }>();
   const emit = defineEmits<{ (e: 'update:value', value: Record<string, FieldPermission>): void }>();

@@ -1,4 +1,5 @@
 import { BasicColumn, FormSchema } from '/@/components/Table';
+import { unifyMaterialColumns } from '/@/views/material/materialTableColumns';
 
 /**
  * 盘存记录 - 列定义 / 搜索
@@ -18,7 +19,7 @@ export const searchFormSchema: FormSchema[] = [
   },
 ];
 
-export const columns: BasicColumn[] = [
+export const columns: BasicColumn[] = unifyMaterialColumns([
   {
     title: '盘存单号',
     align: 'center',
@@ -73,4 +74,4 @@ export const columns: BasicColumn[] = [
     align: 'center',
     dataIndex: 'remark',
   },
-];
+], { source: 'detail', nameField: 'materialName' });

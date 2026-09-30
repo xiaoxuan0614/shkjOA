@@ -1,8 +1,15 @@
 <template>
-  <div class="contract-page">
+  <ContractApproval v-if="approvalInstanceId" :key="approvalInstanceId" :instance-id="approvalInstanceId" :contract-id="approvalContractId" :period-id="periodId" @resubmit="editWorkflowContract" />
+  <a-result v-else-if="approvalResolveError" status="error" title="无法读取合同审批" :sub-title="approvalResolveError"><template #extra><a-button @click="initializeContract">重试</a-button></template></a-result>
+  <a-spin v-else-if="approvalResolving" tip="正在定位合同审批" />
+  <div v-else class="contract-page">
+    <a-alert v-if="isWorkflowContract" type="info" show-icon :message="workflowContractHint" />
+    <a-alert v-if="workflowIdentityError" type="warning" :message="workflowIdentityError">
+      <template #action><a-button @click="loadExistingContract">重新读取</a-button></template>
+    </a-alert>
     <!-- 项目基本信息 -->
     <a-card class="contract-page__card contract-page__project" title="项目基本信息">
-      <PlanProjectInfo :record="projectRecord" period-name-label="项目名称" :show-plan-fields="false" />
+      <PlanProjectInfo :record="projectRecord" combine-project-name :show-plan-fields="false" />
     </a-card>
 
     <!-- 合同信息 -->
@@ -45,7 +52,9 @@
           </a-descriptions-item>
           <a-descriptions-item label="关联报价单" :span="2">
             <a-button v-if="materialCandidateId" @click="openQuotation(false)">{{ selectedCandidate?.candidateName || '查看报价详情' }}</a-button>
-            <span v-else>—</span>
+            <span v-else-if="candidatesLoading">正在读取关联报价…</span>
+            <span v-else-if="candidatesFailed">关联报价读取失败 <a-button type="link" @click="loadContractCandidates(true)">重试</a-button></span>
+            <span v-else>未关联报价单</span>
           </a-descriptions-item>
           <a-descriptions-item label="备注" :span="2">{{ info.remark || '—' }}</a-descriptions-item>
         </a-descriptions>
@@ -95,6 +104,7 @@
         />
         <BasicForm @register="registerForm" name="ContractForm" :colon="false">
           <template #quotation>
+            <a-alert v-if="candidatesFailed" type="warning" message="关联报价读取失败，请重试后确认关联关系。"><template #action><a-button @click="loadContractCandidates(true)">重试</a-button></template></a-alert>
             <a-space wrap>
               <a-select
                 :value="materialCandidateId"
@@ -109,13 +119,9 @@
                 placeholder="可选：请选择已通过的报价单"
                 style="min-width: 240px"
               />
-              <a-button
-                v-if="materialCandidateId"
-                :disabled="submitting || quotationSaving || candidatesLoading"
-                @click="handleQuotationSelection(undefined)"
-                >取消选择</a-button
-              >
-              <a-button :disabled="!canAdjustQuotation || submitting" @click="openQuotation(true)">修改调整</a-button>
+              <a-tooltip v-if="selectedQuotationAccess.canEditPrice" :title="quotationAdjustDisabledReason">
+                <span><a-button :disabled="!!quotationAdjustDisabledReason" @click="openQuotation(true)">修改调整</a-button></span>
+              </a-tooltip>
               <a-popconfirm v-if="canReleaseQuotation" title="解除采用后可调整同一张报价单，确认解锁？" @confirm="releaseQuotation">
                 <a-button :loading="quotationSaving">解锁报价</a-button>
               </a-popconfirm>
@@ -311,6 +317,8 @@
     <div class="contract-page__footer">
       <template v-if="readonly && !editing">
         <a-button @click="goBack">返 回</a-button>
+        <a-button v-if="isWorkflowContract" @click="openWorkflowRecord">查看审批记录</a-button>
+        <a-button v-if="isWorkflowContract" @click="workflowRoundsOpen = true">历史审批轮次</a-button>
         <a-popconfirm v-if="canWithdrawContract" title="撤回后可修改合同并重新提交，确认撤回？" @confirm="handleWithdraw">
           <a-button danger :loading="actionSubmitting">撤 回</a-button>
         </a-popconfirm>
@@ -322,6 +330,8 @@
       </template>
     </div>
   </div>
+  <InstanceDrawer :open="workflowOpen" :instance-id="workflowRecordId" @close="workflowOpen = false" @processed="loadExistingContract" />
+  <InstanceRounds :open="workflowRoundsOpen" :instance-id="workflowInstanceId" @close="workflowRoundsOpen = false" @select="openWorkflowRound" />
   <a-modal
     v-model:open="quotationOpen"
     :title="quotationEditing ? '关联报价单修改调整' : '关联报价单详情'"
@@ -342,13 +352,24 @@
       mode="quotation"
       paginated
       :editable="quotationEditing && !quotationSaving"
+      :structure-editable="quotationEditing && !isQuotationAdopted(quotationSnapshot)"
+      snapshot-only
+      :quote-pricing="false"
+      :cost-visible="false"
+      :price-visible="false"
+      :base-price-editable="false"
+      :pricing-editable="false"
+      :busy="quotationSaving"
       :combined-material-identity="!quotationEditing"
     />
   </a-modal>
 </template>
 
 <script lang="ts" setup>
-  import { ref, computed, nextTick, onMounted } from 'vue';
+  import { ref, computed, nextTick, onMounted, watch } from 'vue';
+  import ContractApproval from './ContractApproval.vue';
+  import { currentContractApproval, contractApprovalActions, type ContractApprovalActions } from './approval.api';
+  import { readContractProjectContext } from './projectContext';
   import Big from 'big.js';
   import { useRoute, useRouter } from 'vue-router';
   import { BasicForm, useForm } from '/@/components/Form/index';
@@ -360,6 +381,8 @@
   import { useSessionDraft } from '/@/hooks/web/useSessionDraft';
   import { DOCUMENT_UPLOAD_ACCEPT, isAllowedDocumentFile, uploadProjectDocument } from '/@/utils/documentUpload';
   import { previewFileInModal } from '/@/utils/filePreview';
+  import InstanceDrawer from '/@/views/workflow/components/InstanceDrawer.vue';
+  import InstanceRounds from '/@/views/workflow/components/InstanceRounds.vue';
   import {
     addContractWithPaymentRecords,
     contractDetailByPeriodId,
@@ -403,6 +426,21 @@
   const pageMode = ref<ContractPageMode>(routeMode === 'view' || routeMode === 'edit' ? routeMode : 'create');
   const periodId = ref((route.query?.periodId as string) || '');
   const projectId = ref((route.query?.projectId as string) || '');
+  const approvalInstanceId = ref(String(route.query.instanceId || ''));
+  const approvalContractId = ref(String(route.query.contractId || ''));
+  const approvalResolving = ref(pageMode.value === 'view' && !!approvalContractId.value && !approvalInstanceId.value);
+  const approvalResolveError = ref('');
+  async function resolveApproval() {
+    if (approvalInstanceId.value || pageMode.value !== 'view' || !approvalContractId.value) return;
+    approvalResolving.value = true; approvalResolveError.value = '';
+    try {
+      const id = await currentContractApproval(approvalContractId.value);
+      if (id !== null && (typeof id !== 'string' || !id)) throw new Error('审批定位响应无效');
+      approvalInstanceId.value = id || '';
+    } catch (error: any) { approvalResolveError.value = error?.message || '合同审批读取失败'; }
+    finally { approvalResolving.value = false; }
+  }
+
   const projectRecord = ref<Recordable>({ periodId: periodId.value, projectId: projectId.value });
 
   // 页面状态由入口 mode 显式决定，不再通过合同列表猜测新增或查看。
@@ -462,17 +500,42 @@
   const selectedCandidate = computed(() => contractCandidates.value.find((item) => String(item.id) === materialCandidateId.value));
   const contractCandidateOptions = computed(() =>
     contractCandidates.value
-      .filter((item) => String(item.status) === QUOTATION_STATUS_APPROVED)
-      .map((item) => ({ value: String(item.id), label: item.candidateName }))
+      .filter((item) => String(item.status) === QUOTATION_STATUS_APPROVED || String(item.id) === materialCandidateId.value)
+      .map((item) => ({ value: String(item.id), label: item.candidateName || '未命名报价单' }))
   );
+  const selectedQuotationAccess = ref({ ...noQuotationAccess });
+  let quotationAccessSequence = 0;
+  async function refreshSelectedQuotationAccess(candidate = selectedCandidate.value) {
+    const sequence = ++quotationAccessSequence;
+    selectedQuotationAccess.value = { ...noQuotationAccess };
+    if (!candidate?.id) return;
+    try {
+      const access = await getQuotationAccess(periodId.value, String(candidate.id));
+      if (sequence === quotationAccessSequence) selectedQuotationAccess.value = access;
+    } catch (error: any) {
+      if (sequence === quotationAccessSequence) createMessage.error(error?.message || '报价修改权限读取失败，请刷新');
+    }
+  }
+  watch(selectedCandidate, () => { void refreshSelectedQuotationAccess(); }, { immediate: true });
   const canAdjustQuotation = computed(
     () =>
       !!selectedCandidate.value &&
-      quotationCapabilities(selectedCandidate.value, quotationAccess.value, userStore.getUserInfo, hasPermission).structure &&
+      selectedQuotationAccess.value.canEditPrice &&
       String(selectedCandidate.value.status) === QUOTATION_STATUS_APPROVED &&
       !isQuotationAdopted(selectedCandidate.value) &&
       (!readonly.value || editing.value)
   );
+
+  const quotationAdjustDisabledReason = computed(() => {
+    if (submitting.value || quotationSaving.value || candidatesLoading.value) return '正在处理，请稍候';
+    if (candidatesFailed.value) return '报价信息加载失败，请刷新后重试';
+    if (!selectedCandidate.value) return '请先选择报价单';
+    if (!selectedQuotationAccess.value.canEditPrice) return '当前未获报价修改权限，请联系授权管理员';
+    if (String(selectedCandidate.value.status) !== QUOTATION_STATUS_APPROVED) return '仅已通过的报价单可修改调整';
+    if (isQuotationAdopted(selectedCandidate.value)) return '请先按业务规则解除报价采用，再修改调整';
+    if (readonly.value && !editing.value) return '请先进入合同编辑状态';
+    return '';
+  });
 
   function filterQuotationByName(input: string, option: { label?: unknown }) {
     return String(option?.label || '')
@@ -508,12 +571,17 @@
     candidatesFailed.value = false;
     try {
       quotationAccess.value = { ...noQuotationAccess };
-      const [candidates, access] = await Promise.all([getAllMaterialCandidates(periodId.value), getQuotationAccess(periodId.value)]);
+      const candidates = await getAllMaterialCandidates(periodId.value);
       contractCandidates.value = candidates;
-      quotationAccess.value = access;
       const adopted = contractCandidates.value.filter((item) => isQuotationAdopted(item));
       if (adopted.length > 1) throw new Error('当前分期存在多张已采用报价，请联系管理员核对');
-      if (restoreSelection && adopted.length) materialCandidateId.value = String(adopted[0].id);
+      if (restoreSelection && !materialCandidateId.value && adopted.length) materialCandidateId.value = String(adopted[0].id);
+      try {
+        quotationAccess.value = await getQuotationAccess(periodId.value, materialCandidateId.value);
+      } catch {
+        // 价格授权读取失败不抹掉已经读取到的报价关联，所有编辑动作仍按无权限处理。
+        quotationAccess.value = { ...noQuotationAccess };
+      }
     } catch (error: any) {
       candidatesFailed.value = true;
       createMessage.error(error?.message || '关联报价加载失败');
@@ -525,6 +593,7 @@
   async function openQuotation(edit: boolean) {
     await loadContractCandidates();
     if (candidatesFailed.value || !selectedCandidate.value) return;
+    await refreshSelectedQuotationAccess();
     if (edit && !canAdjustQuotation.value) return createMessage.warning('当前报价不可修改');
     quotationSnapshot.value = { ...selectedCandidate.value };
     quotationEditing.value = edit;
@@ -542,6 +611,7 @@
       const records = quotationTable.value?.getData();
       if (!records?.length) throw new Error('报价至少需要一条物料');
       await loadContractCandidates();
+      await refreshSelectedQuotationAccess();
       if (candidatesFailed.value || !canAdjustQuotation.value) throw new Error('报价状态已变化，请重新打开');
       assertQuotationVersion(quotationSnapshot.value, selectedCandidate.value);
       await reviseMaterialCandidate({ candidateId: materialCandidateId.value, candidateName: quotationSnapshot.value.candidateName, version: quotationSnapshot.value.version, records });
@@ -692,13 +762,26 @@
     if (creator && defaultUser.value.username) return creator === defaultUser.value.username;
     return !!defaultUser.value.id && String(info.value.salesUserId ?? '') === defaultUser.value.id;
   });
+  const workflowOpen = ref(false), workflowRoundsOpen = ref(false), workflowRecordId = ref('');
+  const businessActions = ref<ContractApprovalActions | null>();
+  const workflowIdentityError = ref('');
+  const workflowInstanceId = computed(() => String(info.value.workflowInstanceId || '').trim());
+  const isWorkflowContract = computed(() => !!workflowInstanceId.value || !!businessActions.value);
+  const workflowContractHint = computed(() => info.value.workflowStatus === 'RUNNING'
+    ? '合同审批中，不能修改合同或回款计划；可在合同信息的申请操作中按权限撤回。'
+    : info.value.workflowStatus === 'APPROVED' ? '合同审批已通过，本试点不支持覆盖修改。'
+    : '此合同已接入审批中心，请查看审批记录；驳回或撤回后由原发起人修改重提。');
+  function openWorkflowRound(id: string) { workflowRecordId.value = id; workflowOpen.value = true; }
+  function openWorkflowRecord() { openWorkflowRound(workflowInstanceId.value); }
   const isContractRevisable = computed(
     () => isApprovalRejected(info.value.status) || isApprovalWithdrawn(info.value.status) || isApprovalPendingSubmit(info.value.status)
   );
   // 合同提交人可撤回待审批合同，并修改待提交、驳回或已撤回合同；审批人仅处理待审批合同。
-  const canEditContract = computed(() => isCurrentContractSubmitter.value && isContractRevisable.value);
-  const canWithdrawContract = computed(() => isCurrentContractSubmitter.value && isApprovalPending(info.value.status));
-  const canAuditContract = computed(() => isApprovalPending(info.value.status) && hasPermission('project:contract:approve'));
+  const canEditContract = computed(() => isWorkflowContract.value
+    ? businessActions.value?.canResubmit === true
+    : isCurrentContractSubmitter.value && isContractRevisable.value);
+  const canWithdrawContract = computed(() => !isWorkflowContract.value && isCurrentContractSubmitter.value && isApprovalPending(info.value.status));
+  const canAuditContract = computed(() => !isWorkflowContract.value && isApprovalPending(info.value.status) && hasPermission('project:contract:approve'));
   const showAuditPanel = computed(() => readonly.value && !editing.value && canAuditContract.value && !contractLoadFailed.value);
   const isContractFormRendered = computed(() => !readonly.value || editing.value);
 
@@ -802,7 +885,11 @@
     rowProps: { gutter: 24 },
   });
 
-  onMounted(async () => {
+  async function initializeContract() {
+    approvalResolveError.value = '';
+    if (approvalInstanceId.value) return;
+    await resolveApproval();
+    if (approvalInstanceId.value || approvalResolveError.value) return;
     const entryPermission = pageMode.value === 'create' ? 'project:contract' : 'project:contract:view';
     const approvalEntry = pageMode.value === 'view' && hasPermission('project:contract:approve');
     if (!hasPermission(entryPermission) && !approvalEntry) {
@@ -816,9 +903,8 @@
       return;
     }
 
-    const auxiliaryDataPromise = pageMode.value === 'view'
-      ? Promise.resolve([[], []])
-      : Promise.all([loadDictOptions('contract_type'), loadDictOptions('payback_node')]);
+    // 查看模式也需要字典：详情不保证返回 *_dictText，不能只回显原始编码。
+    const auxiliaryDataPromise = Promise.all([loadDictOptions('contract_type'), loadDictOptions('payback_node')]);
 
     if (pageMode.value === 'create') {
       const [contractTypes, nodes] = await auxiliaryDataPromise;
@@ -832,6 +918,7 @@
 
     // 详情接口一次返回合同、两个文件记录与回款计划。
     await loadExistingContract();
+    if (approvalInstanceId.value || approvalResolveError.value) return;
     // 审批权限仅为待审批合同提供入口，不替代普通合同查看权限。
     if (!contractLoadFailed.value && !hasPermission('project:contract:view') && !canAuditContract.value) {
       info.value = {};
@@ -858,7 +945,8 @@
       await fillContractForm();
     }
     await restoreContractDraft();
-  });
+  }
+  onMounted(initializeContract);
 
   /** 加载全量用户(销售负责人下拉) */
   let usersLoaded = false;
@@ -929,18 +1017,34 @@
 
   /** 查看/编辑模式按 Apifox 最新约定，仅使用 periodId 读取该分期唯一合同。 */
   async function loadExistingContract() {
+    businessActions.value = undefined;
+    workflowIdentityError.value = '';
     try {
       const detail: any = await contractDetailByPeriodId(periodId.value);
       const { contractFile, materialFile, records, ...contract } = detail || {};
       if (!contract?.id) throw new Error('合同详情不存在');
+      if (contractId.value && String(contract.id) !== contractId.value) throw new Error('合同与当前分期不匹配');
+      if (pageMode.value === 'view') {
+        approvalContractId.value = String(contract.id);
+        await resolveApproval();
+        if (approvalInstanceId.value || approvalResolveError.value) return;
+      }
 
+      if (pageMode.value !== 'view') {
+        const currentInstance = await currentContractApproval(String(contract.id));
+        if (currentInstance) {
+          businessActions.value = await contractApprovalActions(String(contract.id));
+          if (!businessActions.value || businessActions.value.instanceId !== currentInstance) throw new Error('合同审批轮次已变化，请重新打开合同信息');
+        } else businessActions.value = null;
+      } else businessActions.value = null;
       contractLoadFailed.value = false;
       paybackLoadFailed.value = false;
       contractId.value = String(contract.id);
       periodId.value = periodId.value || contract.periodId || '';
       projectId.value = projectId.value || contract.projectId || '';
       info.value = { ...contract, contractFile, materialFile, records: records || [] };
-      materialCandidateId.value = contract.materialCandidateId || undefined;
+      materialCandidateId.value = contract.materialCandidateId ? String(contract.materialCandidateId) : undefined;
+      await loadContractCandidates(true);
       if (contract.salesUserId && contract.salesUserName && !usersLoaded) {
         userOptions.value = [{ value: String(contract.salesUserId), label: contract.salesUserName }];
         userMap[String(contract.salesUserId)] = { name: contract.salesUserName };
@@ -949,11 +1053,15 @@
       approvalResult.value = undefined;
       approvalReason.value = '';
       projectManagerUserId.value = contract.projectManagerUserId || undefined;
-      projectRecord.value = { ...contract, periodId: periodId.value, projectId: projectId.value };
+      projectRecord.value = { ...contract,
+        ...readContractProjectContext(window.history.state?.contractProjectContext, periodId.value, String(userStore.getUserInfo?.id || '')),
+        periodId: periodId.value, projectId: projectId.value };
       await loadContractAttachments({ contract, contractFile, materialFile });
       setPaybackRows(records || []);
+
     } catch (error: any) {
       contractLoadFailed.value = true;
+      approvalResolveError.value = error?.message || '合同信息加载失败，请稍后重试';
       readonly.value = true;
       editing.value = false;
       createMessage.error(error?.message || '合同信息加载失败，请稍后重试');
@@ -1060,6 +1168,24 @@
 
   function removeContractAttachment(uid: string) {
     contractAttachments.value = contractAttachments.value.filter((item) => item.uid !== uid);
+  }
+
+  async function editWorkflowContract(targetPeriodId: string, targetContractId: string) {
+    try {
+    const capabilities = await contractApprovalActions(targetContractId);
+    if (!capabilities?.canResubmit || capabilities.instanceId !== approvalInstanceId.value) {
+      createMessage.warning(capabilities?.resubmitReason || '当前合同不能修改重提');
+      return;
+    }
+    periodId.value = targetPeriodId;
+    contractId.value = targetContractId;
+    pageMode.value = 'edit';
+    approvalInstanceId.value = '';
+    readonly.value = true;
+    editing.value = true;
+    await router.replace({ path: '/project/contract', query: { mode: 'edit', contractId: contractId.value, periodId: targetPeriodId } });
+    await initializeContract();
+    } catch (error: any) { createMessage.error(error?.message || '重提权限读取失败，请重试'); }
   }
 
   /** 从查看模式进入编辑，按最新接口约定仅保留分期与项目入口参数。 */
@@ -1332,6 +1458,10 @@
   /** 新增和编辑均以 JSON 提交已上传路径，由业务接口关联附件。 */
   async function handleSubmit() {
     if (submitting.value) return;
+    if (contractId.value && !canEditContract.value) {
+      createMessage.warning('当前合同不可修改，请刷新审批状态');
+      return;
+    }
     submitting.value = true;
     try {
       const values = await validate();
@@ -1341,6 +1471,7 @@
       if (contractAttachments.value.length < 1 || contractAttachments.value.length > CONTRACT_ATTACHMENT_LIMIT) {
         throw new Error(`合同附件至少上传 1 个、最多 ${CONTRACT_ATTACHMENT_LIMIT} 个`);
       }
+      if (candidatesFailed.value) throw new Error('关联报价读取失败，请重试后再保存合同');
       const requestedCandidateId = materialCandidateId.value;
       if (requestedCandidateId) {
         if (candidatesLoading.value) throw new Error('请等待报价加载完成');
@@ -1381,22 +1512,25 @@
         const savedContract = result?.contract;
         if (!savedContract?.id) throw new Error('合同与回款计划已提交，但接口未返回合同 ID，请刷新列表确认');
         contractId.value = String(savedContract.id);
-        info.value = { ...info.value, ...savedContract };
+        info.value = { ...info.value, ...savedContract, workflowInstanceId: result.workflowInstanceId, workflowStatus: result.workflowStatus };
       } else {
         const result: any = await editContractWithPaymentRecords({
           ...(requestedCandidateId ? { materialCandidateId: requestedCandidateId } : {}),
           contract: { ...buildChangedContract(values), contractFileId: contractAttachments.value.map((file) => file.fileId).join(',') },
           records: buildPaybackRecords(true, values.contractAmount),
         });
-        info.value = { ...info.value, ...(result?.contract || buildChangedContract(values)), status: '2', approvalReason: '' };
+        info.value = { ...info.value, ...result.contract, workflowInstanceId: result.workflowInstanceId, workflowStatus: result.workflowStatus };
       }
 
-      info.value.status = '2';
       createMessage.success(wasNewContract ? '合同已提交，等待审批' : '合同与回款计划已修改并重新提交审批');
       contractDraft.clear();
       readonly.value = true;
       editing.value = false;
-      router.push('/project/list');
+      if (isWorkflowContract.value) {
+        pageMode.value = 'view';
+        await router.replace({ path: '/project/contract', query: { mode: 'view', periodId: periodId.value } });
+        await loadExistingContract();
+      } else router.push('/project/list');
     } catch (error: any) {
       if (error?.errorFields) return Promise.reject(error.errorFields);
       createMessage.error(error?.message || '合同提交失败，请确认当前保存状态后重试');

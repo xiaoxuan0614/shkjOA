@@ -5,6 +5,7 @@
       <!-- 表格标题栏 -->
       <template #tableTitle>
         <a-button type="primary" v-auth="'mtl:goods:add'" @click="handleAdd" preIcon="ant-design:plus-outlined"> 新增 </a-button>
+        <a-button @click="openBrandModal(true, {})">品牌管理</a-button>
         <a-button preIcon="ant-design:import-outlined" @click="openImportModal(true, {})">导入</a-button>
         <a-dropdown>
           <template #overlay>
@@ -42,7 +43,8 @@
     </BasicTable>
 
     <!-- 新增/编辑物料弹窗(含单位子表) -->
-    <GoodsModal @register="registerModal" @success="handleSuccess" />
+    <GoodsModal :brand-options="freshBrandOptions" @register="registerModal" @success="handleSuccess" @brands-updated="handleBrandsUpdated" />
+    <BrandManageModal @register="registerBrandModal" @updated="handleBrandsUpdated" />
     <MaterialBasicInfoModal ref="basicInfoRef" />
     <GoodsPriceModal @register="registerPriceModal" @success="handleSuccess" />
     <!-- 物料Excel导入弹窗(下载模板按钮在弹窗内，由 JImportModal 的 template 配置提供) -->
@@ -57,20 +59,36 @@
   import { useListPage } from '/@/hooks/system/useListPage';
   import { useMessage } from '/@/hooks/web/useMessage';
   import GoodsModal from './components/GoodsModal.vue';
+  import BrandManageModal from './components/BrandManageModal.vue';
   import MaterialBasicInfoModal from '../components/MaterialBasicInfoModal.vue';
   import GoodsPriceModal from './components/GoodsPriceModal.vue';
   import { usePermission } from '/@/hooks/web/usePermission';
+  import { useUserStore } from '/@/store/modules/user';
   import { MATERIAL_PRICE_PERMISSION } from './Goods.api';
   import JImportModal from '/@/components/Form/src/jeecg/components/JImportModal.vue';
   import { columns, searchFormSchema } from './Goods.data';
   import { list, deleteOne, batchDelete, queryById, importExcel, importTemplate } from './Goods.api';
-  import { invalidateMaterialMap, loadDictMap } from '../material.util';
+  import { invalidateMaterialMap, invalidateDictMap, loadDictMap } from '../material.util';
 
   const { createMessage } = useMessage();
   const basicInfoRef = ref<InstanceType<typeof MaterialBasicInfoModal>>();
 
   const queryParam = reactive<any>({});
   const brandMap = ref<Record<string, { text: string; color: string }>>({});
+  const freshBrandOptions = ref<{ label: string; value: string }[]>();
+  const [registerBrandModal, { openModal: openBrandModal }] = useModal();
+  function handleBrandsUpdated(rows: any[]) {
+    brandMap.value = Object.fromEntries(rows.map(row => [String(row.itemValue), { text: row.itemText, color: row.itemColor || '' }]));
+    freshBrandOptions.value = rows.filter(row => String(row.status) === '1').map(row => ({ label: row.itemText, value: String(row.itemValue) }));
+    const userStore = useUserStore();
+    userStore.setAllDictItems({ ...userStore.getAllDictItems, material_brand: freshBrandOptions.value.map(option => ({
+      text: option.label, value: option.value,
+    })) });
+    invalidateDictMap('material_brand');
+    getForm().updateSchema({ field: 'brand', component: 'Select', componentProps: {
+      options: freshBrandOptions.value, showSearch: true, optionFilterProp: 'label', allowClear: true, placeholder: '请选择品牌',
+    } });
+  }
 
   onMounted(async () => {
     brandMap.value = await loadDictMap('material_brand');
@@ -111,7 +129,7 @@
     },
   });
 
-  const [registerTable, { reload }, { rowSelection, selectedRowKeys }] = tableContext;
+  const [registerTable, { reload, getForm }, { rowSelection, selectedRowKeys }] = tableContext;
 
   /**
    * 新增事件：打开新增物料弹窗(物料编码自动生成)

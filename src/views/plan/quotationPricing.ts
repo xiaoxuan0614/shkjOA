@@ -2,6 +2,31 @@ import Big from 'big.js';
 
 export const hasPrice = (value: unknown) => value !== null && value !== undefined && value !== '';
 
+/** 市场报价的只读加价百分比；不改写后端 markupRate 或价格。 */
+export function quotationPercent(cost: any, price: any): string {
+  if (!hasPrice(cost) || !hasPrice(price)) return '—';
+  try {
+    const base = decimalPrice(cost, '成本价');
+    const final = decimalPrice(price, '报价');
+    return base.eq(0) ? '—' : `${final.minus(base).div(base).times(100).round(2, Big.roundHalfUp).toFixed(2)}%`;
+  } catch {
+    return '—';
+  }
+}
+
+export function quotationApprovalItems(rows: any[]) {
+  if (!rows.length) throw new Error('报价明细为空，请刷新后审批');
+  const ids = new Set<string>();
+  return rows.map((row) => {
+    const itemId = String(row.id ?? '').trim();
+    if (!itemId || ids.has(itemId)) throw new Error('报价明细 ID 缺失或重复，请刷新后审批');
+    ids.add(itemId);
+    const approvalOpinion = String(row.approvalOpinion ?? '');
+    if (approvalOpinion.length > 500) throw new Error('每条物料的审批意见不能超过 500 字');
+    return { itemId, approvalOpinion };
+  });
+}
+
 export function validateDirectQuotation(basePrice: any, finalPrice: any) {
   decimalPrice(basePrice, '成本价');
   decimalPrice(finalPrice, '报价');

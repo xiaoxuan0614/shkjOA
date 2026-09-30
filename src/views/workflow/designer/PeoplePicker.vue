@@ -1,8 +1,22 @@
 <template>
-  <a-modal :open="open" title="请选择" :width="720" ok-text="确认" cancel-text="取消" @cancel="emit('cancel')" @ok="emit('confirm', [...selected])">
+  <a-modal
+    :open="open"
+    :title="kind === 'users' ? '选择审批成员' : '选择审批角色'"
+    :width="760"
+    :ok-text="`确认选择（${selected.length}）`"
+    cancel-text="取消"
+    @cancel="emit('cancel')"
+    @ok="emit('confirm', [...selected], { ...labels })"
+  >
     <div class="people-picker">
       <section class="candidates">
-        <a-input-search v-model:value="keyword" placeholder="搜索名称" allow-clear @search="load(1)" />
+        <a-input-search
+          v-model:value="keyword"
+          :placeholder="kind === 'users' ? '搜索成员姓名或账号' : '搜索角色名称'"
+          allow-clear
+          @search="load(1)"
+          @change="onKeywordChange"
+        />
         <a-tree
           v-if="kind === 'users' && departments.length"
           :tree-data="tree"
@@ -23,7 +37,9 @@
                 :checked="selected.includes(row.id)"
                 :disabled="!selected.includes(row.id) && selected.length >= 100"
                 @change="toggle(row.id, $event.target.checked)"
-              /><UserOutlined /><span>{{ label(row) }}</span></label
+              /><UserOutlined v-if="kind === 'users'" /><TeamOutlined v-else /><span
+                >{{ label(row) }}<small v-if="kind === 'users' && row.username && row.username !== label(row)">{{ row.username }}</small></span
+              ></label
             >
             <a-button v-if="page * 30 < total" type="link" :loading="loading" @click="load(page + 1)">加载更多</a-button>
           </div></a-spin
@@ -34,7 +50,8 @@
       </section>
       <section class="chosen"
         ><header
-          ><span>已选 {{ selected.length }} / 100</span><a-button type="link" size="small" @click="selected = []">清空</a-button></header
+          ><span>已选 {{ selected.length }} / 100</span
+          ><a-button type="link" size="small" :disabled="!selected.length" @click="selected = []">清空</a-button></header
         >
         <div class="people-list"
           ><a-empty v-if="!selected.length" description="请选择" />
@@ -49,12 +66,12 @@
 </template>
 <script setup lang="ts">
   import { ref, watch, computed, onBeforeUnmount } from 'vue';
-  import { UserOutlined, CloseOutlined } from '@ant-design/icons-vue';
+  import { UserOutlined, TeamOutlined, CloseOutlined } from '@ant-design/icons-vue';
   import { departmentTree } from '../directoryTree';
   import { directory } from '../Workflow.api';
   import type { DirectoryEntry } from '../workflow.types';
   const props = defineProps<{ open: boolean; kind: 'users' | 'roles'; value: string[] }>();
-  const emit = defineEmits<{ (e: 'cancel'): void; (e: 'confirm', ids: string[]): void }>();
+  const emit = defineEmits<{ (e: 'cancel'): void; (e: 'confirm', ids: string[], labels: Record<string, string>): void }>();
   const selected = ref<string[]>([]),
     rows = ref<DirectoryEntry[]>([]),
     labels = ref<Record<string, string>>({});
@@ -69,6 +86,9 @@
     departmentId = ref<string>(),
     departmentError = ref('');
   const tree = computed(() => departmentTree(departments.value));
+  function onKeywordChange(event: Event) {
+    if (!(event.target as HTMLInputElement).value) void load(1);
+  }
   function chooseDepartment(keys: (string | number)[]) {
     departmentId.value = keys[0] == null ? undefined : String(keys[0]);
     load(1);
@@ -97,6 +117,10 @@
     const current = ++generation;
     loading.value = true;
     error.value = '';
+    if (next === 1) {
+      rows.value = [];
+      total.value = 0;
+    }
     try {
       const result = await directory(props.kind, keyword.value.trim(), next, departmentId.value);
       if (current !== generation) return;
@@ -111,6 +135,7 @@
     }
   }
   function toggle(id: string, checked: boolean) {
+    if (checked && selected.value.length >= 100) return;
     selected.value = checked ? [...new Set([...selected.value, id])] : selected.value.filter((v) => v !== id);
   }
   watch(
@@ -124,11 +149,13 @@
       rows.value = [];
       labels.value = {};
       departmentId.value = undefined;
+      departments.value = [];
+      departmentError.value = '';
       if (props.kind === 'users') void loadDepartments(current);
       await load(1);
       // Preserve names for selections outside the currently displayed page without filtering out inaccessible IDs.
-      let next = 1,
-        remainingTotal = Infinity;
+      let next = 2,
+        remainingTotal = total.value;
       while (current === session && selected.value.some((id) => !labels.value[id]) && (next - 1) * 30 < remainingTotal) {
         try {
           const result = await directory(props.kind, '', next++);
@@ -152,7 +179,7 @@
 <style scoped>
   .people-picker {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     border: 1px solid #e8e9f0;
     min-height: 360px;
     margin-top: 24px;
@@ -189,8 +216,23 @@
     display: flex;
     gap: 10px;
     align-items: center;
-    min-height: 38px;
-    padding: 4px 0;
+    min-height: 42px;
+    padding: 6px 8px;
+    border-radius: 4px;
+  }
+  label.person-row {
+    cursor: pointer;
+  }
+  label.person-row:hover {
+    background: #f7f8fc;
+  }
+  .person-row small {
+    display: block;
+    font-size: 12px;
+    color: #545b6c;
+  }
+  .person-row :deep(.ant-btn) {
+    flex-shrink: 0;
   }
   .person-row > span:not(.anticon) {
     flex: 1;

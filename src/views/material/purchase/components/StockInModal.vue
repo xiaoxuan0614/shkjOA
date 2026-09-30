@@ -8,7 +8,7 @@
     <!-- 入库明细：仅可改「实际入库数量」，提交走采购入库接口 POST /project/purchaseOrder/inbound
          （{orderId, items:[{itemId, inboundQty}]}，按到货数量生成库存入库台账，后端统一算库存/金额）
          单价/型号等变更字段采购入库接口不接收，不再逐条手动台账，避免与采购明细脱节 -->
-    <a-table :columns="columns" :data-source="items" :row-key="(r) => r._key" :pagination="false" size="small" bordered>
+    <a-table :columns="columns" :scroll="{ x: 'max-content' }" :data-source="items" :row-key="(r) => r._key" :pagination="false" size="small" bordered>
       <template #bodyCell="{ column, record: it }">
         <template v-if="column.key === 'inQty'">
           <a-input-number v-model:value="it.inQty" :min="0" placeholder="实际入库数" style="width: 100%" />
@@ -19,6 +19,7 @@
 </template>
 
 <script lang="ts" setup>
+  import { unifyMaterialColumns } from '/@/views/material/materialTableColumns';
   import { ref } from 'vue';
   import { BasicModal, useModalInner } from '/@/components/Modal';
   import { useMessage } from '/@/hooks/web/useMessage';
@@ -30,7 +31,7 @@
   const record = ref<any>({});
   const items = ref<any[]>([]);
 
-  const columns = [
+  const columns = unifyMaterialColumns([
     { title: '物料名称', dataIndex: 'materialName', key: 'materialName', width: 130 },
     { title: '型号', dataIndex: 'model', key: 'model', width: 100 },
     { title: '单位', dataIndex: 'unit', key: 'unit', width: 70 },
@@ -38,7 +39,7 @@
     { title: '已入库数', dataIndex: 'inboundQty', key: 'inboundQty', width: 85 },
     { title: '未入库数', dataIndex: 'remainingQty', key: 'remainingQty', width: 85 },
     { title: '*操作入库', key: 'inQty', width: 95 },
-  ];
+  ], { source: 'detail', nameField: 'materialName' });
 
   const [register, { closeModal, setModalProps }] = useModalInner(async (data) => {
     record.value = data.record || {};
@@ -51,6 +52,8 @@
         _key: i,
         id: it.id, // 采购明细ID(采购入库接口 itemId)
         materialId: it.materialId,
+        materialCode: it.materialCode,
+        brand: it.brand,
         materialName: it.materialName,
         model: it.model || '',
         unit: it.unit || it.unitName,

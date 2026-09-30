@@ -12,7 +12,7 @@
         <span>物料明细</span>
         <a-button type="primary" preIcon="ant-design:plus-outlined" @click="handleAddMaterial"> 添加物料 </a-button>
       </div>
-      <a-table :columns="detailColumns" :data-source="detailList" :row-key="(record) => record._key" :pagination="false" size="middle" bordered>
+      <a-table :columns="detailColumns" :scroll="{ x: 'max-content' }" :data-source="detailList" :row-key="(record) => record._key" :pagination="false" size="middle" bordered>
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'stockQty'">
             <!-- 库存：接口 currentStockQty + baseUnitName（如 1个） -->
@@ -44,6 +44,7 @@
 </template>
 
 <script lang="ts" setup>
+  import { unifyMaterialColumns } from '/@/views/material/materialTableColumns';
   import { ref, onMounted } from 'vue';
   import { useRouter } from 'vue-router';
   import { BasicForm, useForm } from '/@/components/Form/index';
@@ -71,7 +72,7 @@
   const [registerDrawer, { openDrawer }] = useDrawer();
 
   // 明细表格列(对齐 StockApplyItem: materialCategory/materialName/brand/model/stockQty/unitQty/unitName)
-  const detailColumns = [
+  const detailColumns = unifyMaterialColumns([
     { title: '物料类别', dataIndex: 'materialCategory', key: 'materialCategory', width: 110 },
     { title: '物料名称', dataIndex: 'materialName', key: 'materialName', width: 160 },
     { title: '品牌', dataIndex: 'brand', key: 'brand', width: 120 },
@@ -80,7 +81,7 @@
     { title: '*使用数量', key: 'useNum', width: 140 },
     { title: '*单位', key: 'unit', width: 120 },
     { title: '操作', key: 'action', width: 90, align: 'center', fixed: 'right' },
-  ];
+  ], { source: 'master', nameField: 'materialName' });
 
   // 明细数据(本地数组)
   const detailList = ref<any[]>([]);
@@ -138,6 +139,7 @@
       detailList.value.push({
         _key: ++detailKeySeed,
         id: m.id,
+        materialCode: m.materialCode,
         materialCategory: m.materialCategory, // 物料类别
         materialName: m.materialName, // 物料名称
         brand: m.brand,

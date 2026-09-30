@@ -8,7 +8,7 @@
         <span>采购明细</span>
         <a-button type="link" size="small" @click="handleAddMaterial">+ 添加物料</a-button>
       </div>
-      <a-table :columns="detailColumns" :data-source="detailList" :row-key="(r) => r._key" :pagination="false" size="small" bordered>
+      <a-table :columns="detailColumns" :scroll="{ x: 'max-content' }" :data-source="detailList" :row-key="(r) => r._key" :pagination="false" size="small" bordered>
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'quantity'">
             <a-input-number v-model:value="record.quantity" :min="1" placeholder="采购数量" style="width: 100%" />
@@ -38,6 +38,7 @@
 </template>
 
 <script lang="ts" setup>
+  import { unifyMaterialColumns } from '/@/views/material/materialTableColumns';
   import { ref, computed } from 'vue';
   import { useDebounceFn } from '@vueuse/core';
   import { BasicModal, useModalInner } from '/@/components/Modal';
@@ -129,7 +130,7 @@
   const [registerDrawer, { openDrawer }] = useDrawer();
 
   // 明细列
-  const detailColumns = [
+  const detailColumns = unifyMaterialColumns([
     { title: '物料名称', dataIndex: 'materialName', key: 'materialName', width: 150 },
     { title: '类别', dataIndex: 'materialCategory', key: 'materialCategory', width: 100 },
     { title: '型号', dataIndex: 'model', key: 'model', width: 130 },
@@ -138,7 +139,7 @@
     { title: '*单位', key: 'unit', width: 100 },
     { title: '金额', key: 'amount', width: 110 },
     { title: '操作', key: 'action', width: 70, align: 'center' },
-  ];
+  ], { source: 'master', nameField: 'materialName' });
 
   const detailList = ref<any[]>([]);
   let detailKeySeed = 0;
@@ -163,6 +164,7 @@
       detailList.value.push({
         _key: ++detailKeySeed,
         id: m.id,
+        materialCode: m.materialCode,
         materialName: m.materialName,
         materialCategory: m.materialCategory,
         model: m.model,
@@ -240,6 +242,7 @@
         detailList.value = (detail.itemList || []).map((it: any) => ({
           _key: ++detailKeySeed,
           id: it.materialId,
+          materialCode: it.materialCode,
           materialName: it.materialName,
           materialCategory: it.materialCategory,
           model: it.model,

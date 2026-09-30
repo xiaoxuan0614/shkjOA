@@ -1,0 +1,17 @@
+const fs = require('node:fs');
+const vm = require('node:vm');
+const ts = require('typescript');
+const assert = require('node:assert/strict');
+const context = { exports: {} };
+vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/views/project/contract/projectContext.ts', 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText, context);
+const {contractProjectContext:build,readContractProjectContext:read}=context.exports;
+const value=build({periodId:'p',projectName:'主项目',periodName:'分期',customerName:'甲方',projectLiaisonUserName:'对接人',contractAmount:123,token:'secret'},'u');
+assert.equal(Object.keys(value.fields).length,4);
+assert.equal(JSON.stringify(value).includes('secret'),false);
+assert.equal(JSON.stringify(value).includes('contractAmount'),false);
+assert.equal(read(value,'p','u').projectName,'主项目');
+assert.equal(Object.keys(read(value,'other','u')).length,0);
+assert.equal(Object.keys(read(value,'p','other')).length,0);
+assert.equal(Object.keys(read(value,'p','')).length,0);
+assert.equal(Object.keys(read(null,'p','u')).length,0);
+console.log('PASS project context whitelist, account and period isolation, missing context');

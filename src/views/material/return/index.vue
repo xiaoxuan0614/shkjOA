@@ -67,6 +67,7 @@
 </template>
 
 <script lang="ts" setup>
+  import { unifyMaterialColumns } from '/@/views/material/materialTableColumns';
   import { computed, ref, onMounted } from 'vue';
   import { useRouter, useRoute } from 'vue-router';
   import { useTabs } from '/@/hooks/web/useTabs';
@@ -120,7 +121,7 @@
   let materialRequestSeed = 0;
 
   // 系统应还数量取总账 remainingReturnQty；本次还料数量由申请人确认，最终处置由库管执行。
-  const detailColumns = [
+  const detailColumns = unifyMaterialColumns([
     { title: '物料名称', dataIndex: 'materialName', key: 'materialName', width: 150 },
     { title: '类别', dataIndex: 'materialCategory', key: 'materialCategory', width: 100 },
     { title: '品牌', dataIndex: 'brand', key: 'brand', width: 100 },
@@ -129,7 +130,7 @@
     { title: '系统应还数量', dataIndex: 'shouldReturnQty', key: 'shouldReturnQty', width: 120 },
     { title: '*本次还料数量', key: 'returnQty', width: 150 },
     { title: '差异原因', key: 'differenceReason', width: 260 },
-  ];
+  ], { source: 'detail', nameField: 'materialName' });
 
   const detailList = ref<any[]>([]);
   let returnBaseline = '';
@@ -228,6 +229,7 @@
     return {
       _key: ++detailKeySeed,
       materialId: item.materialId,
+      materialCode: item.materialCode,
       materialName: item.materialName,
       materialCategory: item.materialCategory,
       brand: item.brand,
@@ -302,6 +304,14 @@
       draft.enable();
     } else if (draft.isAlive()) {
       const saved = draft.read();
+      const requestedPeriodId = String(route.query.periodId || '');
+      if (requestedPeriodId && requestedPeriodId !== String(saved?.periodId || '')) {
+        const requested = projectOptions.value.find((item: any) => String(item.value) === requestedPeriodId);
+        if (requested) await onProjectChange(requestedPeriodId, requested);
+        else createMessage.warning('该项目不在当前可还料范围，请重新选择');
+        draft.enable();
+        return;
+      }
       const option = projectOptions.value.find((item: any) => String(item.value) === String(saved?.periodId));
       if (saved && option) {
         await onProjectChange(String(saved.periodId), option);
@@ -364,6 +374,7 @@
         _key: ++detailKeySeed,
         applyItemId: it.id,
         materialId: it.materialId,
+        materialCode: it.materialCode,
         materialName: it.materialName,
         materialCategory: it.materialCategory,
         brand: it.brand,

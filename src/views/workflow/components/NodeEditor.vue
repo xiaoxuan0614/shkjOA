@@ -1,10 +1,10 @@
 <template>
-  <aside class="node-editor" aria-label="审批节点设置">
+  <aside class="node-editor" :class="{ 'people-only': peopleOnly }" aria-label="审批节点设置">
     <header
       ><h2>节点设置</h2><a-button type="text" aria-label="关闭节点设置" :disabled="false" @click="emit('close')"><CloseOutlined /></a-button
     ></header>
     <a-form layout="vertical">
-      <a-form-item label="节点名称" required><a-input v-model:value="node.name" :maxlength="100" /></a-form-item>
+      <a-form-item v-if="!peopleOnly" label="节点名称" required><a-input v-model:value="node.name" :maxlength="100" /></a-form-item>
       <a-tabs v-model:activeKey="tab">
         <a-tab-pane key="people" tab="审批人员">
           <p class="hint">合并所有来源后排除指定人员，实际候选人在节点激活时计算。</p>
@@ -22,6 +22,8 @@
                   delete rule.departmentIds;
                   delete rule.positionIds;
                   delete rule.includeChildren;
+                  delete rule.fieldKey;
+                  delete rule.levels;
                 }
               "
             />
@@ -29,6 +31,20 @@
               <DirectorySelect v-model:value="rule.departmentIds" kind="departments" placeholder="选择部门" />
               <a-checkbox v-model:checked="rule.includeChildren">包含下级部门</a-checkbox>
             </template>
+            <a-select
+              v-if="rule.type === 'FORM_USERS'"
+              v-model:value="rule.fieldKey"
+              placeholder="选择人员字段"
+              :options="fields.map((f) => ({ label: f.name, value: f.key }))"
+            />
+            <a-input-number
+              v-if="rule.type === 'SUPERVISOR_CHAIN'"
+              v-model:value="rule.levels"
+              :min="1"
+              :max="30"
+              :precision="0"
+              addon-after="级主管"
+            />
             <DirectorySelect v-if="rule.type === 'POSITION_USERS'" v-model:value="rule.positionIds" kind="positions" placeholder="选择岗位" />
           </section>
           <a-button block type="dashed" @click="node.approverRules!.push({ type: 'DIRECT_SUPERVISOR' })"><PlusOutlined />添加组织规则</a-button>
@@ -38,7 +54,7 @@
           /></a-form-item>
           <a-checkbox v-model:checked="node.allowSelf">允许发起人审批自己的申请</a-checkbox>
         </a-tab-pane>
-        <a-tab-pane key="rules" tab="审批规则">
+        <a-tab-pane v-if="!peopleOnly" key="rules" tab="审批规则">
           <a-form-item label="多人审批方式"
             ><a-select v-model:value="node.options!.mode" :options="modeOptions" @change="delete node.options!.threshold"
           /></a-form-item>
@@ -88,7 +104,7 @@
           <a-form-item label="超时升级通知人员"><DirectorySelect v-model:value="node.options!.escalationUserIds" kind="users" /></a-form-item>
           <a-form-item label="节点激活时抄送"><DirectorySelect v-model:value="node.options!.ccUserIds" kind="users" /></a-form-item>
         </a-tab-pane>
-        <a-tab-pane key="fields" tab="字段权限">
+        <a-tab-pane v-if="!peopleOnly" key="fields" tab="字段权限">
           <p class="hint">已有签署可能冻结编辑，实际操作以办理时的权限为准。</p>
           <a-empty v-if="!fields.length" description="请先在表单配置中添加字段" />
           <a-form-item v-for="field in fields" :key="field.key" :label="field.name">
@@ -112,7 +128,7 @@
   import DirectorySelect from './DirectorySelect.vue';
   import { modeOptions, permissionOptions } from '../workflow';
   import type { WorkflowNode, FormField, FieldPermission } from '../workflow.types';
-  defineProps<{ fields: FormField[] }>();
+  defineProps<{ fields: FormField[]; peopleOnly?: boolean }>();
   const node = defineModel<WorkflowNode>('node', { required: true });
   const emit = defineEmits(['close']);
   const tab = ref('people');
@@ -122,6 +138,8 @@
     { value: 'DEPARTMENT_MEMBERS', label: '指定部门成员' },
     { value: 'DEPARTMENT_HEADS', label: '指定部门负责人' },
     { value: 'POSITION_USERS', label: '指定岗位人员' },
+    { value: 'FORM_USERS', label: '表单内成员' },
+    { value: 'SUPERVISOR_CHAIN', label: '连续多级主管' },
   ];
   const operators = [
     { value: 'EQ', label: '等于' },
@@ -141,6 +159,9 @@
   }
 </script>
 <style scoped>
+  .people-only :deep(.ant-tabs-nav) {
+    display: none;
+  }
   .node-editor {
     background: var(--component-background, #fff);
     padding: 20px;

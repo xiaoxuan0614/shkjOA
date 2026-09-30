@@ -35,6 +35,8 @@ export interface DesignNode {
     emptyType?: string;
     callback?: boolean;
     delay?: boolean;
+    delayMinutes?: number;
+    levels?: number;
     task?: string;
   };
 }
@@ -66,29 +68,93 @@ export function createDesignNode(kind: NodeKind): DesignNode {
   return n;
 }
 export function fromNodes(nodes: WorkflowNode[]): DesignNode[] {
-  return nodes.map((n) => ({ id: n.key, kind: 'APPROVAL', name: n.name, approval: clone(n), config: {} }));
+  return nodes.map((n) => {
+    const behavior = n.options?.behavior;
+    const kind: NodeKind = behavior?.kind === 'WORK' ? 'TASK' : behavior?.kind || 'APPROVAL';
+    const config: DesignNode['config'] = {};
+    if (kind !== 'APPROVAL') {
+      config.users = clone(n.userIds || []);
+      const singleRule = !n.userIds?.length && !n.roleIds?.length && n.approverRules?.length === 1 ? n.approverRules[0] : undefined;
+      const field = singleRule?.type === 'FORM_USERS' ? singleRule : undefined;
+      config.source = field ? 'field' : singleRule?.type === 'INITIATOR' ? 'initiator' : 'users';
+      config.field = field?.fieldKey;
+      config.template = behavior?.notificationTemplate;
+      config.channels = clone(behavior?.channels || ['SITE']);
+      config.delayMinutes = behavior?.notificationDelayMinutes;
+      config.task = behavior?.description;
+    }
+    return { id: n.key, kind, name: n.name, approval: clone(n), config };
+  });
 }
 export function flatten(nodes: DesignNode[]): DesignNode[] {
   return nodes.flatMap((n) => [n, ...(n.branches || []).flatMap((b) => flatten(b.children))]);
 }
-// Never silently flatten visual branches or discard prototype-only settings into executable approvals.
+export const buttonCodes: Record<string, string> = {
+  保存: 'SAVE',
+  提交: 'SUBMIT',
+  同意: 'APPROVE',
+  拒绝: 'REJECT',
+  退回: 'RETURN',
+  加签: 'ADD_SIGN',
+  打印: 'PRINT',
+  转办: 'TRANSFER',
+};
 export function executionBlockers(nodes: DesignNode[]): string[] {
   const reasons = new Set<string>();
   for (const n of flatten(nodes)) {
-    if (!['APPROVAL', 'CONDITION', 'PARALLEL', 'SEQUENCE', 'SUBPROCESS'].includes(n.kind)) reasons.add('当前设计包含尚未接入发布的节点或分支');
-    if (
-      n.config.buttons !== undefined ||
-      Object.values(n.config).some((v) => v !== undefined && v !== false && v !== '' && (!Array.isArray(v) || v.length))
-    )
-      reasons.add('当前设计包含尚未接入发布的原型配置');
+    if (n.config.callback || n.approval?.options?.behavior?.callbackEnabled) reasons.add('节点回调尚未定义，请关闭后发布');
+    if (n.config.channels?.some((c) => !['SITE', '站内信'].includes(c))) reasons.add('仅支持站内信，请明确调整节点通知通道');
+    if (n.config.delay && n.config.delayMinutes == null) reasons.add('请填写延迟通知分钟数');
+    if (n.config.source === 'levels' && !Number.isInteger(n.config.levels)) reasons.add('请填写连续主管层级数');
+    if (n.config.emptyType === 'transfer' && n.config.users?.length !== 1) reasons.add('无人时转交必须选择一名人员');
+    if (n.config.source === 'field' && !n.config.field) reasons.add('请选择人员来源字段');
   }
   return [...reasons];
 }
 export function executableNodes(nodes: DesignNode[]): WorkflowNode[] {
-  if (executionBlockers(nodes).length) throw new Error('请先保存当前会话设计稿；当前设计尚不能发布运行。');
+  const blockers = executionBlockers(nodes);
+  if (blockers.length) throw new Error(blockers[0]);
   return flatten(nodes)
-    .filter((n) => n.kind === 'APPROVAL')
-    .map((n) => ({ ...clone(n.approval!), name: n.name }));
+    .filter((n) => ['APPROVAL', 'CC', 'NOTICE', 'TASK'].includes(n.kind))
+    .map((n) => {
+      const result = clone(n.approval || { ...newNode(), key: n.id });
+      result.name = n.name;
+      result.options ||= {};
+      const c = n.config;
+      const behavior = { ...result.options.behavior };
+      if (n.kind !== 'APPROVAL') {
+        behavior.kind = n.kind === 'TASK' ? 'WORK' : (n.kind as 'CC' | 'NOTICE');
+        result.userIds = c.users || [];
+        // Preserve existing roles/organization rules when the person source has not been changed.
+        if (c.source === 'initiator') result.approverRules = [{ type: 'INITIATOR' }];
+        if (c.source === 'field') result.approverRules = [{ type: 'FORM_USERS', fieldKey: c.field }];
+        if (c.task !== undefined) behavior.description = c.task;
+      }
+      if (n.kind === 'APPROVAL' && c.source === 'field') result.approverRules = [{ type: 'FORM_USERS', fieldKey: c.field }];
+      if (c.source === 'levels') {
+        result.approverRules = [{ type: 'SUPERVISOR_CHAIN', levels: c.levels }];
+        result.options.mode = 'SEQUENTIAL';
+      }
+      if (c.approvalType !== undefined) behavior.autoApprove = c.approvalType === 'auto';
+      if (c.returnType !== undefined) behavior.returnMode = c.returnType === 'choose' ? 'PREVIOUS' : c.returnType === 'start' ? 'START' : 'DISABLED';
+      if (c.emptyType !== undefined) {
+        behavior.emptyApprover = c.emptyType === 'auto' ? 'AUTO_APPROVE' : c.emptyType === 'transfer' ? 'TRANSFER' : 'FAIL';
+        if (c.emptyType === 'transfer') behavior.fallbackUserId = c.users?.[0];
+        else delete behavior.fallbackUserId;
+      }
+      if (c.buttons !== undefined)
+        behavior.buttons = {
+          ...behavior.buttons,
+          ...Object.fromEntries(Object.entries(buttonCodes).map(([label, code]) => [code, c.buttons!.includes(label)])),
+        };
+      if (c.channels !== undefined) behavior.channels = c.channels.map((v) => (v === '站内信' ? 'SITE' : v));
+      if (c.template !== undefined) behavior.notificationTemplate = c.template;
+      if (c.delayMinutes !== undefined) behavior.notificationDelayMinutes = c.delayMinutes;
+      if (c.delay === false) behavior.notificationDelayMinutes = 0;
+      if (c.callback !== undefined) behavior.callbackEnabled = c.callback;
+      if (Object.keys(behavior).length) result.options.behavior = behavior;
+      return result;
+    });
 }
 export function removeDesignNode(nodes: DesignNode[], id: string): boolean {
   const index = nodes.findIndex((n) => n.id === id);
@@ -113,11 +179,8 @@ export function fromDefinition(def: WorkflowDefinition): DesignNode[] {
       const approval = def.nodes.find((n) => n.key === stage.nodeKey);
       if (!approval) throw new Error(`结构引用不存在的审批节点：${stage.nodeKey}`);
       return {
+        ...fromNodes([approval])[0],
         id: stage.key,
-        kind: 'APPROVAL',
-        name: approval.name,
-        approval: clone(approval),
-        config: {},
         stageCondition: clone(stage.condition || null) || undefined,
       };
     }
@@ -160,7 +223,7 @@ export function executableGraph(nodes: DesignNode[], structured = false): Pick<W
         : { junction: 'OR' as const, children: b.groups.map((conditions) => ({ junction: 'AND' as const, conditions: clone(conditions) })) };
   const convert = (node: DesignNode): WorkflowStage => {
     const base = { key: node.id, ...(node.stageCondition ? { condition: clone(node.stageCondition) } : {}) };
-    if (node.kind === 'APPROVAL') return { ...base, kind: 'TASK', nodeKey: node.approval!.key };
+    if (['APPROVAL', 'CC', 'NOTICE', 'TASK'].includes(node.kind)) return { ...base, kind: 'TASK', nodeKey: node.approval?.key || node.id };
     if (node.kind === 'SEQUENCE' || node.kind === 'SUBPROCESS')
       return { ...base, kind: node.kind, children: (node.branches?.[0]?.children || []).map(convert) };
     return {

@@ -36,6 +36,14 @@
 <script setup lang="ts">
   import { ref, watch } from 'vue';
   import { getQuotationHistory } from '../Plan.api';
+  import { initDictOptions } from '/@/utils/dict';
+  const actionOptions = ref<any[]>([]);
+  const resultOptions = ref<any[]>([]);
+  function dictText(options: any[], value: unknown) {
+    if (value == null || value === '') return '—';
+    const item = options.find(item => String(item.value) === String(value));
+    return item?.text || item?.label || String(value);
+  }
   const props = defineProps<{ open: boolean; periodId: string; candidateId?: string }>();
   const emit = defineEmits(['update:open']);
   const rows = ref<Recordable[]>([]),
@@ -47,8 +55,8 @@
   const columns = [
     { title: '时间', dataIndex: 'createTime', width: 170 },
     { title: '操作人', dataIndex: 'actorName', width: 110 },
-    { title: '动作', dataIndex: 'action', width: 150 },
-    { title: '结果', dataIndex: 'result', width: 110 },
+    { title: '动作', dataIndex: 'action', width: 150, customRender: ({ text }) => dictText(actionOptions.value, text) },
+    { title: '结果', dataIndex: 'result', width: 110, customRender: ({ text }) => dictText(resultOptions.value, text) },
     { title: '原因', dataIndex: 'reason' },
   ];
   let sequence = 0;
@@ -76,6 +84,13 @@
     () => [props.open, props.periodId, props.candidateId],
     () => {
       if (props.open) {
+        Promise.all([initDictOptions('operation_log'), initDictOptions('approval_status')]).then(([actions, results]) => {
+          actionOptions.value = Array.isArray(actions) ? actions : [];
+          resultOptions.value = Array.isArray(results) ? results : [];
+        }).catch(() => {
+          actionOptions.value = [];
+          resultOptions.value = [];
+        });
         pageNo.value = 1;
         wholePeriod.value = false;
         load();

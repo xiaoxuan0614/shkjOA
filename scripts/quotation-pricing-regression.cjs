@@ -1,15 +1,32 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const vm = require('node:vm');
 const ts = require('typescript');
 const ExcelJS = require('exceljs');
 function load(file, overrides = {}) {
   const exports = {};
   const code = ts.transpileModule(fs.readFileSync(file, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, esModuleInterop: true } }).outputText;
-  vm.runInNewContext(code, { exports, require: (id) => overrides[id] || require(id) });
+  // ExcelJS uses instanceof Array: evaluate in the same realm as the library.
+  new Function('exports', 'require', code)(exports, (id) => overrides[id] || require(id));
   return exports;
 }
 const pricing = load('src/views/plan/quotationPricing.ts');
+assert.equal(pricing.quotationPercent(100, 120), '20.00%');
+assert.equal(pricing.quotationPercent(3, 4), '33.33%');
+assert.equal(pricing.quotationPercent(100, 80), '-20.00%');
+assert.equal(pricing.quotationPercent(100, 0), '-100.00%');
+assert.equal(pricing.quotationPercent(0, 120), '—');
+assert.equal(pricing.quotationPercent(0, 0), '—');
+assert.equal(pricing.quotationPercent(null, 120), '—');
+assert.equal(pricing.quotationPercent(100, null), '—');
+assert.equal(pricing.quotationPercent('NaN', 120), '—');
+const opinions = pricing.quotationApprovalItems([{ id: 'item1', materialId: 'material1', approvalOpinion: '同意' }, { id: 'item2' }]);
+assert.equal(JSON.stringify(opinions), JSON.stringify([{ itemId: 'item1', approvalOpinion: '同意' }, { itemId: 'item2', approvalOpinion: '' }]));
+assert.equal(pricing.quotationApprovalItems([{ id: '1', approvalOpinion: '' }])[0].approvalOpinion, '');
+assert.throws(() => pricing.quotationApprovalItems([]));
+assert.throws(() => pricing.quotationApprovalItems([{ materialId: '1' }]));
+assert.throws(() => pricing.quotationApprovalItems([{ id: '1' }, { id: '1' }]));
+assert.throws(() => pricing.quotationApprovalItems([{ id: '1', approvalOpinion: '字'.repeat(501) }]));
+assert.doesNotThrow(() => pricing.quotationApprovalItems([{ id: '1', approvalOpinion: '字'.repeat(500) }]));
 assert.doesNotThrow(() => pricing.validateDirectQuotation(0, '0.00'));
 assert.doesNotThrow(() => pricing.validateDirectQuotation('12.34', '12.34'));
 assert.doesNotThrow(() => pricing.validateDirectQuotation('12.34', '12.35'));
@@ -38,15 +55,30 @@ assert.equal('costPrice' in pricing.quotationPricePayload({ basePrice: 100, cost
 let buffer;
 const excel = load('src/views/plan/materialExcel.ts', { './quotationPricing': pricing, '/@/utils/file/download': { downloadByData: (data) => { buffer = data; } } });
 (async () => {
-  const rows = [{ quantity: 2, materialName: '测试物料', costPrice: 61, basePrice: 100, markupRate: 0.2, finalPrice: 120 }];
+  const rows = [{ serialNo: 1, quantity: 2, materialName: '测试物料', unit: '台', specificationParams: '高清摄像机\n分辨率：2688×1520\n防护等级：IP67', remark: '含安装调试\n按现场要求施工', approvalOpinion: '内部意见不导出', costPrice: 61, basePrice: 100, markupRate: 0.2, finalPrice: 120 }];
   await assert.rejects(() => excel.exportCandidateMaterials({}));
-  await excel.exportCandidateMaterials({ candidateId: 'test', candidateName: '测试报价', records: rows });
+  await excel.exportCandidateMaterials({ candidateId: 'test', candidateName: '测试报价', records: rows, serviceFees: [] });
   const workbook = new ExcelJS.Workbook(); await workbook.xlsx.load(buffer);
   const sheet = workbook.worksheets[0];
-  assert.equal(sheet.getCell('H1').value, '指导价格');
-  assert.equal(sheet.getCell('H2').value, 120);
-  assert(!JSON.stringify(sheet.getRow(1).values).match(/成本|底价|比例|备注/));
-  assert.equal(sheet.columnCount, 8);
+  assert.equal(sheet.getCell('A1').value, '测试报价');
+  assert.equal(sheet.getCell('H2').value, '单价（元）');
+  assert.equal(sheet.getCell('H3').value, 120);
+  assert.equal(sheet.getCell('I3').formula, 'ROUND(F3*H3,2)');
+  assert.equal(sheet.getCell('I3').result, 240);
+  assert.equal(sheet.getCell('I4').formula, 'SUM(I3:I3)');
+  assert.equal(sheet.getCell('I4').result, 240);
+  assert(!JSON.stringify(sheet.getRow(2).values).match(/成本|底价|比例|审批/));
+  assert.equal(sheet.getCell('E3').text, rows[0].specificationParams);
+  assert.equal(sheet.getCell('J3').text, rows[0].remark);
+  assert.equal(sheet.getCell('G3').text, '台');
+  assert.equal(sheet.getCell('E3').alignment.wrapText, true);
+  assert(sheet.getRow(3).height >= 56);
+  assert(!JSON.stringify(sheet.model).includes('内部意见不导出'));
+  assert.equal(sheet.columnCount, 10);
+  assert.equal(sheet.pageSetup.orientation, 'landscape');
+  assert.equal(sheet.views[0].ySplit, 2);
+  await assert.rejects(() => excel.exportCandidateMaterials({candidateId:'x', records:[{quantity:null,finalPrice:1}]}));
+  if (process.env.QUOTE_PREVIEW_PATH) fs.writeFileSync(process.env.QUOTE_PREVIEW_PATH, buffer);
   const vue = require('@vue/compiler-sfc');
   for (const path of ['src/views/plan/components/MaterialPlanTable.vue', 'src/views/plan/material-draft/editor.vue', 'src/views/plan/material-draft/index.vue', 'src/views/plan/material-draft/QuotationGrantModal.vue', 'src/views/plan/material-draft/QuotationHistoryModal.vue']) {
     const { descriptor, errors } = vue.parse(fs.readFileSync(path, 'utf8')); assert.equal(errors.length, 0);

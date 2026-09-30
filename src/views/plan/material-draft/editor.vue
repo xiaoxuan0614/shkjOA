@@ -57,18 +57,31 @@
         mode="quotation"
         quote-pricing
         :direct-quotation="directEntry"
+        show-approval-opinion
+        :approval-editable="reviewMode && loaded && caps.approve"
         paginated
         snapshot-only
+        include-service-fees
         :editable="canModify && !saving"
         :structure-editable="!record.id || caps.structure"
         :cost-visible="true"
         :price-visible="showMarketPricing"
         :base-price-editable="canModify && (!record.id || caps.editBase)"
-        :pricing-editable="directEntry ? canModify : canEditPricing"
+        :pricing-editable="directEntry ? canModify : (canEditPricing || (canModify && access.canEditPrice))"
         combined-material-identity
         :busy="saving"
         @loaded="restoreQuotationDraft"
+        @service-fees="receiveServiceFees"
       />
+      <ServiceFeeTable
+v-model="serviceFees" :ready="feesReady" :busy="saving" :editable="canModify"
+        :structure-editable="canModify && (!record.id || caps.structure)"
+        :cost-editable="canModify && (!record.id || caps.editBase)"
+        :price-editable="canModify || canEditPricing" />
+      <div v-if="showCostTotal" class="material-draft-editor__total" aria-live="polite">
+        <span>成本合计（物料＋服务费）：<strong>{{ totalText(totals.cost) }}</strong></span>
+        <span v-if="showMarketPricing">最终报价合计（物料＋服务费）：<strong>{{ totalText(totals.final) }}</strong></span>
+      </div>
     </div>
     <a-modal v-model:open="rejectOpen" title="驳回报价" :confirm-loading="saving" @ok="review('0')">
       <a-form layout="vertical"
@@ -90,6 +103,8 @@
   import { useMessage } from '/@/hooks/web/useMessage';
   import { projectDetail } from '/@/views/project/Project.api';
   import MaterialPlanTable from '../components/MaterialPlanTable.vue';
+  import ServiceFeeTable from '../components/ServiceFeeTable.vue';
+  import { quotationTotals, serviceFeePayload } from '../serviceFee';
   import QuotationGrantModal from './QuotationGrantModal.vue';
   import QuotationHistoryModal from './QuotationHistoryModal.vue';
   import { quotationListStatusMap as statusMeta } from '../Plan.data';
@@ -128,6 +143,26 @@
   const error = ref('');
   const tableRef = ref();
   const tableEpoch = ref(0);
+  const serviceFees = ref<Recordable[]>([]);
+  const feesReady = ref(false);
+  const materialsReady = ref(false);
+  function receiveServiceFees(rows: Recordable[]) {
+    serviceFees.value = rows.map((row, i) => ({ ...row, _key: row.id || `saved-${i}` }));
+    feesReady.value = true;
+  }
+  const totalsReady = computed(() => loaded.value && feesReady.value && materialsReady.value);
+  const totals = computed(() => totalsReady.value
+    ? quotationTotals(tableRef.value.getRows(), serviceFees.value)
+    : { cost: null, final: null });
+  function totalText(amount: string | null) {
+    if (!totalsReady.value) return '明细尚未加载完成';
+    return amount === null ? '价格或数量不完整，暂无法合计' : `${amount} 元`;
+  }
+  function feeRecords() {
+    if (!feesReady.value) throw new Error('服务费尚未加载完成，请刷新后再操作');
+    return serviceFees.value.map(row => serviceFeePayload(row, { structure: !record.value.id || caps.value.structure,
+      cost: !record.value.id || caps.value.editBase, price: true }));
+  }
   const candidateName = ref(String(route.query.candidateName || ''));
   const rejectOpen = ref(false);
   const rejectReason = ref('');
@@ -167,12 +202,14 @@
     return {
       id: candidateId.value, version: record.value.version,
       name: candidateName.value,
+      serviceFees: feesReady.value ? serviceFees.value : undefined,
       rows: (tableRef.value?.getRows() || []).map((row: any) => Object.fromEntries(
         ['id', 'materialId', 'materialName', 'materialCode', 'materialCategory', 'brand', 'model', 'unit', 'unitId', '_unitValue', 'plannedQty', 'basePrice', 'finalPrice', 'remark'].map((field) => [field, row[field]])
       )),
     };
   });
   async function restoreQuotationDraft() {
+    materialsReady.value = true;
     await nextTick();
     if (draftRestored || !loaded.value || !quotationDraft.isAlive() || reviewMode.value || pricingMode.value) return;
     draftRestored = true;
@@ -191,6 +228,7 @@
         if (canModify.value && Array.isArray(saved.rows)) {
           candidateName.value = saved.name || '';
           await tableRef.value?.restoreQuotationDraft(saved.rows);
+          if (feesReady.value && Array.isArray(saved.serviceFees)) receiveServiceFees(saved.serviceFees);
         }
       }
     } catch (error: any) {
@@ -206,18 +244,18 @@
   const simpleLoad = computed(() => detailOnly.value || editFromList.value);
   const viewOnly = computed(() => !editing.value || reviewMode.value || pricingMode.value);
   const caps = computed(() => {
-    if (!simpleLoad.value) return quotationCapabilities(record.value, access.value, userStore.getUserInfo, hasPermission);
+    if (!simpleLoad.value || String(record.value.status) === '1') return quotationCapabilities(record.value, access.value, userStore.getUserInfo, hasPermission);
     const list = quotationListCapabilities(record.value, hasPermission, userStore.getUserInfo);
     const structure = list.edit && String(record.value.adopted) !== '1';
     return { ...list, structure, editBase: structure, approve: false,
       price: quotationCapabilities(record.value, access.value, userStore.getUserInfo, hasPermission).price };
   });
   const canModify = computed(
-    () => loaded.value && !viewOnly.value && (!marketQuotation.value || ['-1', '0'].includes(String(record.value.status ?? '-1')))
+    () => loaded.value && !viewOnly.value && (!marketQuotation.value || ['-1', '0'].includes(String(record.value.status ?? '-1')) || (String(record.value.status) === '1' && access.value.canEditPrice))
       && (record.value.id ? caps.value.edit : !!creationRoute.value && hasPermission('plan:quotation:add'))
   );
-  const canUnlock = computed(() => loaded.value && !canPrice.value && !editing.value && !reviewMode.value && !pricingMode.value && !!record.value.id && caps.value.structure
-    && (!marketQuotation.value || ['-1', '0'].includes(String(record.value.status))));
+  const canUnlock = computed(() => loaded.value && !canPrice.value && !editing.value && !reviewMode.value && !pricingMode.value && !!record.value.id && caps.value.edit
+    && (!marketQuotation.value || ['-1', '0'].includes(String(record.value.status)) || (String(record.value.status) === '1' && access.value.canEditPrice)));
   const canSubmitSaved = computed(() => loaded.value && !editing.value && !reviewMode.value && !pricingMode.value && !!record.value.id && caps.value.submit);
   function unlockEditing() {
     if (!canUnlock.value || saving.value) return;
@@ -231,7 +269,11 @@
     if (!canPrice.value || saving.value) return;
     pricingUnlocked.value = true;
   }
-  const showMarketPricing = computed(() => directEntry.value || (canPrice.value && String(record.value.status) === '1'));
+  const showMarketPricing = computed(() => directEntry.value || access.value.canViewPrice || (canPrice.value && String(record.value.status) === '1'));
+  // 已审批且定价后的价格由后端有效权限控制，导出授权不等于查看价格授权。
+  const showCostTotal = computed(() => loaded.value && (
+    String(record.value.status) !== '1' || String(record.value.priced) !== '1' || access.value.canViewPrice
+  ));
   const title = computed(() =>
     reviewMode.value ? (marketQuotation.value ? '市场审批' : '技术审批') : pricingMode.value ? '市场定价' : viewOnly.value ? '查看报价' : record.value.id ? '修改报价' : '新增报价'
   );
@@ -268,6 +310,8 @@
     if (saving.value) return;
     pricingUnlocked.value = false;
     loaded.value = false;
+    feesReady.value = false;
+    materialsReady.value = false;
     access.value = { ...noQuotationAccess };
     error.value = '';
     try {
@@ -334,6 +378,7 @@
     if (!name) throw new Error('请输入报价单名称');
     const records = tableRef.value?.getData();
     if (!Array.isArray(records)) throw new Error('物料尚未加载完成');
+    const serviceFees = feeRecords();
     if (!record.value.id) {
       const created = await addMaterialCandidate({ periodId, candidateName: name }, false);
       if (!created?.id) {
@@ -344,12 +389,13 @@
       record.value = created;
       candidateId.value = String(created.id);
       quotationVersion(created.version);
-      await editMaterialCandidateItems({ candidateId: candidateId.value, version: created.version, records }, false);
+      await editMaterialCandidateItems({ candidateId: candidateId.value, version: created.version, records, serviceFees }, false);
     } else {
       await editMaterialCandidateItems({
         candidateId: candidateId.value,
         version: quotationVersion(record.value.version),
         records,
+        serviceFees,
       }, false);
     }
     // 写入成功即锁定；回查失败时不得用旧版本再次保存或提交。
@@ -376,6 +422,8 @@
     loaded.value = false;
     needsRecovery.value = true;
     record.value = await getCandidateRecord(periodId, candidateId.value);
+    feesReady.value = false;
+    materialsReady.value = false;
     void loadRejection();
     quotationVersion(record.value.version);
     candidateName.value = record.value.candidateName;
@@ -403,9 +451,12 @@
     await run(async () => {
       if (!hasPermission('plan:quotation:submit')) throw new Error('没有提交审批按钮权限');
       if (!canSubmitSaved.value) throw new Error('请先保存修改，再提交审核');
+      tableRef.value?.getData();
+      if (!feesReady.value) throw new Error('服务费尚未加载完成');
       if (directEntry.value) {
         const rows = tableRef.value?.getRows();
-        if (!rows?.length) throw new Error('报价明细为空');
+        if (!Array.isArray(rows) || !feesReady.value) throw new Error('报价明细尚未加载完成');
+        serviceFees.value.forEach(row => serviceFeePayload(row));
         rows.forEach((row: any) => {
           try { validateDirectQuotation(row.basePrice, row.finalPrice); }
           catch (error: any) { throw new Error(`${row.materialName}：${error.message}`); }
@@ -435,7 +486,10 @@
     await run(async () => {
       await verifyCurrent();
       if (!caps.value.approve) throw new Error('当前不可审批');
-      await candidateAction('approve', record.value, { result, ...(result === '0' ? { reason: rejectReason.value.trim() } : {}) });
+      if (!feesReady.value) throw new Error('服务费尚未加载完成，请刷新后审批');
+      const approvalItems = tableRef.value?.getApprovalItems(true);
+      if (!approvalItems) throw new Error('报价明细尚未就绪，请刷新后审批');
+      await candidateAction('approve', record.value, { result, approvalItems, ...(result === '0' ? { reason: rejectReason.value.trim() } : {}) });
       rejectOpen.value = false;
       await refreshAfterWrite();
       createMessage.success(result === '1' ? (marketQuotation.value ? '市场审批已通过' : '技术审批已通过，待市场部主管确认定价') : '报价审批已驳回');
@@ -448,13 +502,18 @@
       if (!caps.value.price) throw new Error('当前无定价资格');
       tableRef.value?.getData();
       const rows = tableRef.value?.getRows();
-      if (!rows?.length) throw new Error('报价明细为空');
+      if (!Array.isArray(rows) || !feesReady.value) throw new Error('报价明细尚未加载完成');
       const records = rows.map((row: any) => {
         if (!row.id) throw new Error('缺少明细 ID，请刷新');
         const values = quotationPricePayload(row, true);
         return { id: row.id, markupRate: values.markupRate, finalPrice: values.finalPrice };
       });
-      await candidateAction('price', record.value, { records });
+      const serviceFeePrices = serviceFees.value.map(row => {
+        if (!row.id) throw new Error('服务费缺少明细ID，请刷新');
+        const fee = serviceFeePayload(row, { structure: false, cost: false, price: true });
+        return { id: fee.id, guidePrice: fee.guidePrice, markupRate: fee.markupRate };
+      });
+      await candidateAction('price', record.value, { records, serviceFees: serviceFeePrices });
       pricingUnlocked.value = false;
       await refreshAfterWrite();
       createMessage.success('整单定价已确认');
@@ -473,6 +532,7 @@
 <style lang="less" scoped>
   .material-draft-editor {
     padding: 16px;
+    &__total { margin-top: 20px; text-align: right; font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
 
     &__header {
       display: flex;
@@ -532,6 +592,18 @@
 
     &__notice {
       margin-top: 8px;
+    }
+
+    &__total {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 12px 32px;
+      margin-top: 20px;
+      padding-top: 16px;
+      border-top: 1px solid #f0f0f0;
+      font-variant-numeric: tabular-nums;
+      overflow-wrap: anywhere;
     }
 
     &__content {

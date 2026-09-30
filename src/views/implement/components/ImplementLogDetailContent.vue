@@ -105,7 +105,7 @@
           <div class="implement-detail__section">
             <div class="implement-detail__section-title">实际用料</div>
             <a-table
-              :columns="materialColumns"
+              :columns="materialColumns" :scroll="{ x: 'max-content' }"
               :data-source="materialRecords"
               :pagination="false"
               :row-key="(record, index) => record.id || record.materialPlanId || index"
@@ -123,6 +123,7 @@
 </template>
 
 <script lang="ts" setup>
+  import { unifyMaterialColumns } from '/@/views/material/materialTableColumns';
   import { computed, onMounted, onBeforeUnmount, ref } from 'vue';
   import { getFileAccessHttpUrl } from '/@/utils/common/compUtils';
   import { logMediaUrl, isLogVideo } from '/@/utils/logMedia';
@@ -196,13 +197,13 @@
     return records;
   }
 
-  const materialColumns = [
+  const materialColumns = unifyMaterialColumns([
     { title: '物料名称', dataIndex: 'materialName', key: 'materialName', ellipsis: true },
     { title: '品牌', dataIndex: 'brand', key: 'brand', width: 130, ellipsis: true },
     { title: '规格型号', dataIndex: 'model', key: 'model', width: 150, ellipsis: true },
     { title: '实际用量', dataIndex: 'usedQty', key: 'usedQty', width: 110, align: 'center' },
     { title: '单位', dataIndex: 'unit', key: 'unit', width: 90, align: 'center' },
-  ];
+  ], { source: 'detail', nameField: 'materialName' });
 
   async function load() {
     if (!logId) {

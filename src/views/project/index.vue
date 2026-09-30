@@ -63,16 +63,24 @@
           </label>
         </a-radio-group>
 
-        <a-form-item v-if="createProjectMode === 'period'" label="所属主项目" required class="project-create-mode__parent">
+        <a-form-item v-if="createProjectMode === 'period'" label="所属主项目" html-for="create-parent-project" label-align="left" :label-col="{ span: 24 }" :wrapper-col="{ span: 24 }" required class="project-create-mode__parent">
           <a-select
+            id="create-parent-project"
             v-model:value="selectedMainProjectId"
             show-search
-            option-filter-prop="label"
-            placeholder="请选择所属主项目"
+            :filter-option="false"
+            placeholder="请选择主项目或输入分期名称搜索"
             :options="mainProjectOptions"
             :loading="mainProjectLoading"
-            not-found-content="暂无可选主项目"
+            :not-found-content="mainProjectLoading ? '加载中…' : mainProjectError || '暂无匹配主项目，请更换关键词'"
+            @dropdown-visible-change="mainProjectSearch.open"
+            @search="mainProjectSearch.search"
+            @popup-scroll="handleMainProjectScroll"
           />
+          <a-alert v-if="mainProjectError" type="error" :message="mainProjectError" show-icon>
+            <template #action><a-button size="small" @click="mainProjectSearch.retry">重试</a-button></template>
+          </a-alert>
+          <a-button v-if="mainProjectHasMore && !mainProjectError" type="link" :loading="mainProjectLoading" @click="mainProjectSearch.loadMore">加载更多主项目</a-button>
         </a-form-item>
       </div>
     </a-modal>
@@ -86,14 +94,15 @@
 </template>
 
 <script lang="ts" name="project-projectlist" setup>
-  import { reactive, ref, onMounted } from 'vue';
+  import { reactive, ref, onMounted, onBeforeUnmount, watch } from 'vue';
   import { useRouter } from 'vue-router';
   import { BasicTable, TableAction } from '/@/components/Table';
   import { useModal } from '/@/components/Modal';
   import { useDrawer } from '/@/components/Drawer';
   import { useListPage } from '/@/hooks/system/useListPage';
   import { columns, searchFormSchema, statusFlow, projectStatusMap, statusColorMap, loadProjectStatusMap, loadProjectTypeMap } from './Project.data';
-  import { projectList, deleteProject, changePeriodStatus, getMainProjectList } from './Project.api';
+  import { projectList, searchPeriod, deleteProject, changePeriodStatus, getCurrentParticipatedProjects } from './Project.api';
+  import { useMainProjectSearch } from './mainProjectSearch';
   import { projectActionLayout } from './projectActionLayout';
   import { useMessage } from '/@/hooks/web/useMessage';
   import { getApprovalStatusMeta, isApprovalApproved, isApprovalPending } from '/@/utils/approvalStatus';
@@ -106,8 +115,8 @@
   import ProcessCompletionDrawer from './components/ProcessCompletionDrawer.vue';
   import { refreshTodos } from '/@/views/todo/useTodoCenter';
   import { isArrivalStage, isPhysicalProject, isSoftwareProject } from './arrivalPayment';
-  import { readProjectMembership } from './projectMembership';
   import { useUserStore } from '/@/store/modules/user';
+  import { contractProjectContext } from './contract/projectContext';
 
   import { useAcceptanceAccess } from './useAcceptanceAccess';
 
@@ -137,8 +146,14 @@
   const createProjectModalOpen = ref(false);
   const createProjectMode = ref<'project' | 'period'>('project');
   const selectedMainProjectId = ref<string>();
-  const mainProjectOptions = ref<{ label: string; value: string }[]>([]);
-  const mainProjectLoading = ref(false);
+  const mainProjectSearch = useMainProjectSearch(searchPeriod, () => selectedMainProjectId.value);
+  const { options: mainProjectOptions, loading: mainProjectLoading, error: mainProjectError, hasMore: mainProjectHasMore } = mainProjectSearch;
+  watch(createProjectModalOpen, (open) => { if (!open) mainProjectSearch.close(); }, { flush: 'sync' });
+  onBeforeUnmount(mainProjectSearch.close);
+  function handleMainProjectScroll(event: Event) {
+    const target = event.target as HTMLElement;
+    if (target.scrollTop + target.clientHeight >= target.scrollHeight - 16) void mainProjectSearch.loadMore();
+  }
 
   async function loadLiaisonOptions() {
     liaisonOptionsPromise ||= loadUserOptions().catch(() => []);
@@ -194,23 +209,20 @@
           (row) =>
             ((isArrivalStage(row) && isPhysicalProject(row, projectTypeMeta.value)) || ['PENDING_ACCEPT', 'NOT_STARTED', 'PREPARING'].includes(row.status)) && (row.periodId || row.id)
         );
-        // 仅查询当前页可确认到货的分期经理身份，去重并限制三项并发。
-        const requests = new Map<string, Promise<boolean>>();
-        for (let offset = 0; offset < pending.length; offset += 3) {
-          await Promise.all(
-            pending.slice(offset, offset + 3).map(async (row) => {
-              const periodId = String(row.periodId || row.id);
-              if (!requests.has(periodId)) {
-                requests.set(
-                  periodId,
-                  readProjectMembership(periodId, managerUserId)
-                    .then((access) => access.manager)
-                    .catch(() => false)
-                );
-              }
-              row._isArrivalManager = await requests.get(periodId)!;
-            })
-          );
+        if (pending.length && managerUserId) {
+          try {
+            const memberships = await getCurrentParticipatedProjects();
+            if (!Array.isArray(memberships)) throw new Error('参与项目数据格式异常');
+            const managedPeriods = new Set(memberships.filter(member =>
+              String(member.userId || '') === managerUserId &&
+              String(member.memberRole || '').split(',').map(role => role.trim()).includes('2')
+            ).map(member => String(member.periodId || '')));
+            if (managerUserId === String(userStore.getUserInfo?.id || '')) {
+              pending.forEach(row => { row._isArrivalManager = managedPeriods.has(String(row.periodId || row.id)); });
+            }
+          } catch {
+            // 身份读取失败不开放经理专属操作，也不阻塞列表展示。
+          }
         }
         return result;
       },
@@ -228,18 +240,7 @@
     createProjectMode.value = 'project';
     selectedMainProjectId.value = undefined;
     createProjectModalOpen.value = true;
-    if (mainProjectOptions.value.length || mainProjectLoading.value) return;
-    mainProjectLoading.value = true;
-    try {
-      const res: any = await getMainProjectList({ pageNo: 1, pageSize: 1000 });
-      const records = res?.records || res || [];
-      mainProjectOptions.value = records.map((item: Recordable) => ({
-        label: [item.projectName || '未命名主项目', item.projectNo].filter(Boolean).join(' · '),
-        value: String(item.id),
-      }));
-    } finally {
-      mainProjectLoading.value = false;
-    }
+    mainProjectSearch.reset();
   }
 
   function handleCreateProjectConfirm() {
@@ -301,7 +302,8 @@
     }
     router.push({
       path: '/project/contract',
-      query: { mode: 'view', periodId: record.periodId || record.id, projectId: record.projectId },
+      query: { mode: 'view', periodId: record.periodId || record.id, projectId: record.projectId, ...(record.contractId ? { contractId: record.contractId } : {}) },
+      state: { contractProjectContext: contractProjectContext(record, String(userStore.getUserInfo?.id || '')) },
     });
   }
 
@@ -539,6 +541,19 @@
     &__parent {
       margin-top: 20px;
       margin-bottom: 0;
+
+      :deep(.ant-form-item-label) {
+        padding: 0 0 8px;
+        text-align: left;
+      }
+
+      :deep(.ant-form-item-label > label) {
+        height: auto;
+      }
+
+      :deep(.ant-select) {
+        width: 100%;
+      }
     }
   }
 </style>

@@ -4,6 +4,9 @@ import { ContentTypeEnum } from '/@/enums/httpEnum';
 import { normalizeProjectListParams } from './projectListFilters';
 import { useUserStoreWithOut } from '/@/store/modules/user';
 
+/** 列表按钮身份：一次读取当前账号已接受的分期参与记录，不逐行查询成员。 */
+export const getCurrentParticipatedProjects = () => defHttp.get({ url: '/project/member/participatedProjects' });
+
 enum Api {
   // 项目管理(主项目 + 分期 合并行)
   list = '/project/project/projectPeriodList',
@@ -129,8 +132,12 @@ export const changeArrivalStatus = (params) => defHttp.post({ url: Api.arrivalSt
 export const getProjectProcessDetail = (params: { periodId: string }) => defHttp.get({ url: Api.processDetail, params });
 
 /** 更新单道工序状态；最后一道完成后的项目状态由后端自动推进。 */
-export const changeProjectProcessStatus = (params: { processId: string; status: 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETED' }) =>
-  defHttp.post({ url: Api.processStatus, params }, { successMessageMode: 'none' });
+export const changeProjectProcessStatus = (params: {
+  processId: string;
+  status: 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETED';
+  forceSubmit?: boolean;
+  forceSubmitReason?: string;
+}) => defHttp.post({ url: Api.processStatus, params }, { successMessageMode: 'none' });
 
 /**
  * 状态流转推进(旧: 每个动作对应后端独立的流转接口, 保留兼容)

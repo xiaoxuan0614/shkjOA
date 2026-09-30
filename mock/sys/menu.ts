@@ -51,6 +51,7 @@ const materialRoute = {
   },
   children: [
     // 子路由数组
+    { path: 'service-fee', name: 'ServiceFeeMaintenance', component: 'plan/service-fee/index', meta: { title: '服务费维护', hideMenu: true } },
     {
       path: 'list', // 子路由路径，完整url：/material/list
       name: 'MaterialList', // 子路由name，全局唯一

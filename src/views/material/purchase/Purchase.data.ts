@@ -21,8 +21,8 @@ export const purchaseColumns: BasicColumn[] = [
 
 /**
  * 采购订单列表搜索表单
- * orderNo 采购单号(输入) / supplierName 供应商(远程模糊) / periodName 分期项目(远程模糊) / status 状态(数据字典 purchase_order_status)
- * 供应商/分期下拉选项由页面注入(预载首页 + 输入后服务端模糊查询，与 PurchaseModal 一致)
+ * orderNo 采购单号 / supplierName 供应商 / keyword 项目名称模糊查询 / status 状态
+ * 供应商下拉选项由页面注入；项目名称直接由列表接口分页前筛选。
  */
 export const searchFormSchema: FormSchema[] = [
   {
@@ -44,15 +44,12 @@ export const searchFormSchema: FormSchema[] = [
     },
   },
   {
-    label: '分期项目',
-    field: 'periodName',
-    component: 'Select',
+    label: '项目名称',
+    field: 'keyword',
+    component: 'Input',
     componentProps: {
-      placeholder: '选择分期项目',
-      showSearch: true,
+      placeholder: '请输入主项目名称或分期名称',
       allowClear: true,
-      filterOption: false, // 远程模糊搜索
-      options: [], // 页面 onMounted 注入
     },
   },
   {

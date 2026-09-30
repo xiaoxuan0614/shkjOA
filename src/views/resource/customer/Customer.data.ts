@@ -99,8 +99,23 @@ export const formSchema: FormSchema[] = [
   {
     label: '客户地址',
     field: 'address',
+    component: 'AMapLocationSelect',
+    colProps: { span: 24 },
+    componentProps: { placeholder: '请选择客户地址', inline: false, autoLocate: false, mapHeight: '320px' },
+  },
+  {
+    label: '客户角色',
+    field: 'customerRole',
+    component: 'JDictSelectTag',
+    componentProps: { dictCode: 'client_role', type: 'list', placeholder: '请选择客户角色', showSearch: true, allowClear: true },
+    rules: [{ max: 100, message: '客户角色不能超过100字' }],
+  },
+  {
+    label: '客户所属部门',
+    field: 'unitDepartment',
     component: 'Input',
-    componentProps: { placeholder: '请输入客户地址' },
+    componentProps: { placeholder: '请输入客户所属单位/部门', maxlength: 200, allowClear: true },
+    rules: [{ max: 200, message: '客户所属部门不能超过200字' }],
   },
   {
     label: '销售负责人',

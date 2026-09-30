@@ -15,6 +15,12 @@ const material: AppRouteModule = {
   },
   children: [
     {
+      path: 'service-fee',
+      name: 'ServiceFeeMaintenance',
+      component: () => import('/@/views/plan/service-fee/index.vue'),
+      meta: { title: '服务费维护', hideMenu: true },
+    },
+    {
       path: 'list',
       name: 'MaterialList',
       component: () => import('/@/views/material/goods/index.vue'),

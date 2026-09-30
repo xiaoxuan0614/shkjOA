@@ -8,6 +8,10 @@ function load(file, overrides = {}) {
   return exports;
 }
 const g = load('src/views/plan/quotationGovernance.ts');
+assert.equal(g.normalizeQuotationAccess({canRevise:true}).canRevise, true);
+for (const value of [{}, {canManage:true}, {canEditPrice:true}, {canRevise:false}, {canRevise:'true'}]) {
+  assert.equal(g.normalizeQuotationAccess(value).canRevise, false);
+}
 const withButtons = (...args) => g.quotationCapabilities(...args, () => true);
 const none = g.noQuotationAccess, manager = g.normalizeQuotationAccess({canManage:true}), owner={username:'owner'};
 const draft={id:'a',periodId:'p',version:0,createBy:'owner',status:'-1',adopted:0,priced:0};

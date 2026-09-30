@@ -50,6 +50,21 @@
             <span class="material-plan-table__model-clamp" :tabindex="record.model ? 0 : undefined">{{ record.model || '—' }}</span>
           </a-tooltip>
         </template>
+        <template v-else-if="column.key === 'quotationPercent'">
+          <span>{{ quotationPercent(record.basePrice, record.finalPrice) }}</span>
+        </template>
+        <template v-else-if="column.key === 'approvalOpinion'">
+          <a-textarea
+            v-if="approvalEditable"
+            v-model:value="record.approvalOpinion"
+            :disabled="busy || loading"
+            :maxlength="500"
+            :auto-size="{ minRows: 1, maxRows: 4 }"
+            :aria-label="`${record.materialName} 审批意见`"
+            placeholder="选填，最多500字"
+          />
+          <span v-else style="white-space: pre-wrap; overflow-wrap: anywhere">{{ record.approvalOpinion || '—' }}</span>
+        </template>
         <template v-else-if="['basePrice', 'markupRate', 'finalPrice'].includes(column.key)">
           <a-input-number
             v-if="column.key === 'basePrice' || pricingEditable || directQuotation"
@@ -113,7 +128,7 @@
 
     <div v-if="rows.length" class="material-plan-table__summary"> 共 {{ rows.length }} 种物料，{{ quantityText }}合计 {{ totalQty }} </div>
     <MaterialSelectDrawer
-      v-if="editable && structureEditable && showToolbar"
+      v-if="showToolbar"
       :show-selected-materials="mode === 'plan' || mode === 'quotation'"
       :show-select-all="mode === 'quotation'"
       :code-tooltip="mode === 'quotation'"
@@ -126,8 +141,9 @@
 </template>
 
 <script lang="ts" setup>
+  import { unifyMaterialColumns } from '/@/views/material/materialTableColumns';
   import { computed, ref, watch } from 'vue';
-  import { hasPrice, decimalPrice, quotationPricePayload, quotationSnapshot, guidancePrice, validateDirectQuotation } from '../quotationPricing';
+  import { hasPrice, decimalPrice, quotationPricePayload, quotationSnapshot, guidancePrice, validateDirectQuotation, quotationPercent, quotationApprovalItems } from '../quotationPricing';
   import { useDrawer } from '/@/components/Drawer';
   import { useMessage } from '/@/hooks/web/useMessage';
   import MaterialSelectDrawer from '/@/views/material/apply/components/MaterialSelectDrawer.vue';
@@ -147,10 +163,13 @@
       busy?: boolean;
       quotePricing?: boolean;
       directQuotation?: boolean;
+      approvalEditable?: boolean;
+      showApprovalOpinion?: boolean;
       pricingEditable?: boolean;
       basePriceEditable?: boolean;
       costVisible?: boolean;
       snapshotOnly?: boolean;
+      includeServiceFees?: boolean;
       priceVisible?: boolean;
       structureEditable?: boolean;
       mode?: 'plan' | 'quotation' | 'supplement' | 'rework';
@@ -177,7 +196,7 @@
   );
 
   const { createMessage } = useMessage();
-  const emit = defineEmits<{ loaded: [count: number] }>();
+  const emit = defineEmits<{ loaded: [count: number]; serviceFees: [rows: Recordable[]] }>();
   const [registerDrawer, { openDrawer }] = useDrawer();
   const rows = ref<any[]>([]);
   const currentPage = ref(1);
@@ -229,12 +248,12 @@
   });
 
   const tableScrollX = computed(() => {
-    if (props.mode === 'quotation' && props.combinedMaterialIdentity) return 1100;
+    if (props.mode === 'quotation' && props.combinedMaterialIdentity) return 1100 + (props.directQuotation && props.priceVisible ? 110 : 0) + (props.showApprovalOpinion ? 220 : 0);
     if (props.quotePricing) return props.combinedMaterialIdentity ? 1650 : 1800;
     return props.combinedMaterialIdentity ? 1050 : 1180;
   });
 
-  const columns = computed(() => [
+  const columns = computed(() => unifyMaterialColumns([
     ...(props.combinedMaterialIdentity
       ? [{ title: '物料名称', key: 'materialIdentity', width: props.mode === 'quotation' ? 220 : 130, fixed: 'left' }]
       : [{ title: '物料编码', dataIndex: 'materialCode', key: 'materialCode', width: 130, fixed: 'left' }]),
@@ -250,11 +269,13 @@
       ? [
           ...(!props.directQuotation ? [{ title: '指导比例', key: 'markupRate', width: 120 }] : []),
           { title: props.directQuotation ? '报价' : '指导价', key: 'finalPrice', width: 100, required: props.directQuotation && props.pricingEditable },
+          ...(props.directQuotation ? [{ title: '报价比例', key: 'quotationPercent', width: 110 }] : []),
         ]
       : []),
     ...(props.showRemark ? [{ title: '备注', key: 'remark', width: props.mode === 'quotation' ? undefined : 120 }] : []),
+    ...(props.showApprovalOpinion ? [{ title: '审批意见', key: 'approvalOpinion', width: 220 }] : []),
     ...(props.showAction ? [{ title: '操作', key: 'action', width: 80, align: 'center', fixed: 'right' }] : []),
-  ]);
+  ], { source: 'detail', nameField: 'materialName' }));
 
   const totalQty = computed(() =>
     rows.value.reduce((sum, item) => sum + (Number(item.plannedQty) || 0), 0).toLocaleString('zh-CN', { maximumFractionDigits: 2 })
@@ -323,6 +344,7 @@
       loading.value = false;
       loaded.value = false;
       loadFailed.value = false;
+      if (props.mode === 'quotation') emit('serviceFees', []);
       emit('loaded', 0);
       return;
     }
@@ -341,7 +363,9 @@
     try {
       const listRequest =
         props.mode === 'quotation'
-          ? getAllMaterialCandidateItems(props.candidateId!)
+          ? getAllMaterialCandidateItems(props.candidateId!, props.includeServiceFees ? (fees) => {
+              if (requestSequence === loadSequence) emit('serviceFees', fees);
+            } : undefined)
           : getPlanMaterialList({ periodId: props.periodId, pageNo: 1, pageSize: 1000 });
       if (props.snapshotOnly) {
         const result = await listRequest;
@@ -660,6 +684,11 @@
       });
     },
     getData,
+    getApprovalItems(allowEmpty = false) {
+      if (!props.approvalEditable || loading.value || !loaded.value || loadFailed.value) throw new Error('报价明细尚未就绪，请刷新后审批');
+      if (allowEmpty && !rows.value.length) return [];
+      return quotationApprovalItems(rows.value);
+    },
     getRows: () => rows.value,
     importRows,
     getMaterialIds: () => rows.value.map((item) => String(item.materialId)),
@@ -704,11 +733,11 @@
     min-width: 0;
 
     & {
-      :deep(.ant-input-number),
-      :deep(.ant-input-number-group-wrapper),
-      :deep(.ant-input-number-affix-wrapper),
-      :deep(.ant-select),
-      :deep(.ant-input) {
+      :deep(.ant-table-tbody .ant-input-number),
+      :deep(.ant-table-tbody .ant-input-number-group-wrapper),
+      :deep(.ant-table-tbody .ant-input-number-affix-wrapper),
+      :deep(.ant-table-tbody .ant-select),
+      :deep(.ant-table-tbody .ant-input) {
         min-width: 0;
         max-width: 100%;
         width: 100%;
@@ -721,6 +750,32 @@
 
       :deep(.ant-table-cell) {
         overflow-wrap: anywhere;
+      }
+    }
+
+    &--quotation {
+      :deep(.ant-pagination) {
+        align-items: center;
+      }
+      :deep(.ant-pagination-options) {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        white-space: nowrap;
+      }
+      :deep(.ant-pagination-options-size-changer.ant-select) {
+        flex: 0 0 100px;
+        width: 100px;
+        margin-inline-end: 0;
+      }
+      :deep(.ant-pagination-options-quick-jumper) {
+        display: inline-flex;
+        align-items: center;
+        white-space: nowrap;
+      }
+      :deep(.ant-pagination-options-quick-jumper input) {
+        flex: 0 0 48px;
+        width: 48px;
       }
     }
 

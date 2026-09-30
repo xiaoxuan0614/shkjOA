@@ -5,6 +5,7 @@ export interface NotificationRecord {
   anntId: string;
   titile?: string;
   msgContent?: string;
+  msgSummary?: string;
   msgAbstract?: string;
   sender?: string;
   sendTime?: string;

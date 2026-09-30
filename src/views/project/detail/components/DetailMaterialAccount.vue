@@ -49,9 +49,8 @@
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'material'">
           <div class="material-account__material">
-            <div class="material-account__material-name">{{ record.materialName || '未命名物料' }}</div>
+            <MaterialIdentityCell :record="record" />
             <div class="material-account__material-meta">
-              <span>{{ record.materialCode || '暂无编码' }}</span>
               <span>{{ record.baseUnitName ? `单位：${record.baseUnitName}` : '单位未配置' }}</span>
             </div>
           </div>
@@ -59,7 +58,7 @@
         <template v-else-if="column.key === 'spec'">
           <div class="material-account__spec">
             <span>{{ record.materialCategory || '—' }}</span>
-            <span>{{ [formatBrand(record.brand), record.model].filter(Boolean).join(' · ') || '—' }}</span>
+            <span>{{ record.model || '—' }}</span>
           </div>
         </template>
         <template v-else-if="quantityKeys.has(String(column.key))">
@@ -95,9 +94,9 @@
 </template>
 
 <script lang="ts" setup>
+  import MaterialIdentityCell from '/@/views/material/components/MaterialIdentityCell.vue';
   import { reactive, ref, watch } from 'vue';
   import { getMaterialAccounts } from '../ProjectDetail.api';
-  import { loadDictMap } from '/@/views/material/material.util';
 
   const props = defineProps<{
     projectId: string;
@@ -108,13 +107,12 @@
   const loadError = ref('');
   const keywordInput = ref('');
   const keyword = ref('');
-  const brandMap = ref<Record<string, { text: string; color: string }>>({});
   let loadSequence = 0;
 
   const quantityKeys = new Set(['plannedQty', 'outboundQty', 'consumedQty', 'remainingReturnQty']);
   const columns = [
     { title: '物料', key: 'material', width: 250, fixed: 'left' },
-    { title: '类别 / 品牌型号', key: 'spec', width: 190 },
+    { title: '类别 / 型号', key: 'spec', width: 190 },
     { title: '计划数量', dataIndex: 'plannedQty', key: 'plannedQty', width: 105, align: 'right' },
     { title: '实际出库', dataIndex: 'outboundQty', key: 'outboundQty', width: 105, align: 'right' },
     { title: '施工消耗', dataIndex: 'consumedQty', key: 'consumedQty', width: 105, align: 'right' },
@@ -132,12 +130,6 @@
     showTotal: (total: number) => `共 ${total} 种物料`,
   });
 
-  loadDictMap('material_brand').then((map) => (brandMap.value = map));
-
-  function formatBrand(value: unknown) {
-    const raw = String(value ?? '');
-    return brandMap.value[raw]?.text || raw;
-  }
 
   function formatQuantity(value: unknown) {
     if (value === null || value === undefined || value === '') return '—';

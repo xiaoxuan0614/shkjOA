@@ -1,7 +1,7 @@
 <template>
   <a-modal
     :open="open"
-    title="本分期报价导出授权"
+    title="本分期报价授权"
     :width="600"
     :footer="null"
     :mask-closable="!saving"
@@ -20,17 +20,23 @@
         </div>
         <div v-if="usersError" role="alert">{{ usersError }} <a-button type="link" @click="loadUsers">重试</a-button></div>
       </a-form-item>
+      <a-form-item label="授权权限" required>
+        <a-checkbox v-model:checked="canEditPrice" :disabled="loading || saving || !!failed">修改</a-checkbox>
+        <a-checkbox v-model:checked="canExport" :disabled="loading || saving || !!failed">导出</a-checkbox>
+      </a-form-item>
     </a-form>
-    <div class="authorized-users">
-      <span>已授权用户：</span>
-      <span v-if="!activeGrants.length">{{ loading ? '加载中…' : '暂无' }}</span>
-      <a-tag v-for="record in activeGrants" :key="record.userId">
-        {{ record.userName || record.userId }}
-        <a-popconfirm title="确认删除该用户的报价授权？" :disabled="saving || loading || !!failed" @confirm="removeGrant(record)">
-          <button type="button" class="remove-user" :aria-label="`删除${record.userName || record.userId}的授权`" :disabled="saving || loading || !!failed">×</button>
-        </a-popconfirm>
-      </a-tag>
-    </div>
+    <a-form layout="vertical">
+      <a-form-item label="已授权用户">
+        <a-select mode="multiple" :value="activeGrants.map(record => String(record.userId))" :open="false" :show-search="false"
+          :disabled="saving || loading || !!failed" :loading="loading" placeholder="暂无已授权用户" style="width: 100%">
+          <template #tagRender="{ value }">
+            <a-tag :closable="!saving && !loading && !failed" @close="event => removeSelectedGrant(event, String(value))">
+              {{ grantLabel(String(value)) }}
+            </a-tag>
+          </template>
+        </a-select>
+      </a-form-item>
+    </a-form>
   </a-modal>
 </template>
 <script setup lang="ts">
@@ -49,7 +55,9 @@
     userId = ref('');
   const grants = ref<Recordable[]>([]);
   const version = ref(0);
-  const activeGrants = computed(() => grants.value.filter(row => Number(row.canExport) === 1));
+  const canEditPrice = ref(false);
+  const canExport = ref(false);
+  const activeGrants = computed(() => grants.value.filter(row => [row.canViewPrice, row.canEditPrice, row.canExport].some(value => Number(value) === 1)));
   const userOptions = ref<{ label: string; value: string }[]>([]);
   const usersLoading = ref(false);
   const usersError = ref('');
@@ -92,6 +100,8 @@
   function applySelection() {
     const item = grants.value.find((row) => String(row.userId) === String(userId.value));
     version.value = item ? quotationVersion(item.version) : 0;
+    canEditPrice.value = Number(item?.canEditPrice) === 1;
+    canExport.value = Number(item?.canExport) === 1;
   }
   watch(userId, applySelection);
   watch(
@@ -106,6 +116,7 @@
       failed.value = '';
       userId.value = '';
       grants.value = [];
+      applySelection();
       try {
         const access = await getQuotationAccess(props.periodId);
         if (!access.canManage || !hasPermission('plan:quotation:grant')) throw new Error('当前无报价授权管理权限');
@@ -127,14 +138,26 @@
     if (saving.value || loading.value || failed.value || !userId.value) return;
     const target = String(userId.value);
     if (target.includes(',')) return createMessage.warning('每次请选择一个用户');
-    await updateGrant(target, version.value, true);
+    if (!canEditPrice.value && !canExport.value) return createMessage.warning('请至少选择一种权限；取消授权请删除已授权用户');
+    await updateGrant(target, version.value, canEditPrice.value, canExport.value);
+  }
+  function grantLabel(id: string) {
+    const record = grants.value.find(row => String(row.userId) === id);
+    if (!record) return id;
+    const permissions = [Number(record.canEditPrice) === 1 ? '修改' : '', Number(record.canExport) === 1 ? '导出' : '', Number(record.canViewPrice) === 1 && Number(record.canEditPrice) !== 1 ? '查看' : ''].filter(Boolean);
+    return `${record.userName || record.userId}（${permissions.join('、')}）`;
+  }
+  function removeSelectedGrant(event: Event, id: string) {
+    event.preventDefault();
+    const record = grants.value.find(row => String(row.userId) === id);
+    if (record) void removeGrant(record);
   }
   async function removeGrant(row: Recordable) {
     if (saving.value || loading.value || failed.value) return;
-    await updateGrant(String(row.userId), quotationVersion(row.version), false);
+    await updateGrant(String(row.userId), quotationVersion(row.version), false, false);
   }
-  async function updateGrant(target: string, expectedVersion: number, canExport: boolean) {
-    const payload = { periodId: props.periodId, userId: target, version: expectedVersion, canViewPrice: false, canEditPrice: false, canExport };
+  async function updateGrant(target: string, expectedVersion: number, canEditPrice: boolean, canExport: boolean) {
+    const payload = { periodId: props.periodId, userId: target, version: expectedVersion, canViewPrice: canEditPrice, canEditPrice, canExport };
     saving.value = true;
     try {
       if (!hasPermission('plan:quotation:grant') || !(await getQuotationAccess(props.periodId)).canManage) throw new Error('当前无报价授权管理权限');
@@ -144,7 +167,7 @@
       const current = latest.find((row) => String(row.userId) === target);
       if ((current ? quotationVersion(current.version) : 0) !== payload.version) throw new Error('授权已变化，请关闭后重新打开核对');
       await saveQuotationGrant(payload);
-      createMessage.success(canExport ? '已授权导出' : '已删除授权');
+      createMessage.success(canEditPrice || canExport ? '报价授权已保存' : '已删除授权');
       userId.value = '';
       emit('success');
       try {

@@ -36,7 +36,7 @@
         message="返工领料只使用本轮额外领料额度"
         description="列表不会混入原计划用料；当前可申请数量由本返工单的额外领料计划扣除已占用和已出库数量后计算。"
       />
-      <a-table :columns="detailColumns" :data-source="detailList" :row-key="(r) => r._key" :pagination="false" size="middle" bordered>
+      <a-table :columns="detailColumns" :scroll="{ x: 'max-content' }" :data-source="detailList" :row-key="(r) => r._key" :pagination="false" size="middle" bordered>
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'material'">
             <div class="pick-apply__material-identity">
@@ -90,6 +90,7 @@
 
     <!-- 选物料抽屉 -->
     <MaterialSelectDrawer
+      pick-layout
       :source-mode="isProjectMode ? 'project' : 'all'"
       :labor-only="usageType === MATERIAL_USAGE_TYPE.LABOR_PROTECTION"
       :period-id="selectedPeriodId"
@@ -100,6 +101,7 @@
 </template>
 
 <script lang="ts" setup>
+  import { unifyMaterialColumns } from '/@/views/material/materialTableColumns';
   import { computed, ref, onMounted } from 'vue';
   import { useRouter, useRoute } from 'vue-router';
   import { useTabs } from '/@/hooks/web/useTabs';
@@ -173,18 +175,18 @@
   ].join(',');
 
   // 明细表格列
-  const detailColumns = computed(() => [
+  const detailColumns = computed(() => unifyMaterialColumns([
     { title: '物料', key: 'material', width: 240 },
     { title: '类别', dataIndex: 'materialCategory', key: 'materialCategory', width: 110 },
     { title: '品牌', dataIndex: 'brand', key: 'brand', width: 120 },
     { title: '型号', dataIndex: 'model', key: 'model', width: 140 },
     ...(isProjectMode.value
-      ? [{ title: '当前可申请数量', dataIndex: 'availableApplyQty', key: 'availableApplyQty', width: 150 }]
+      ? [{ title: '可申请数量', dataIndex: 'availableApplyQty', key: 'availableApplyQty', width: 100 }]
       : [{ title: '库存', dataIndex: 'stockQty', key: 'stockQty', width: 100 }]),
     { title: '*申请数量', key: 'unitQty', width: 140 },
     { title: '*单位', key: 'unitName', width: 120 },
     { title: '操作', key: 'action', width: 90, align: 'center', fixed: 'right' },
-  ]);
+  ], { source: 'master', nameField: 'materialName' }));
 
   const detailList = ref<any[]>([]);
   let pickBaseline = '';
@@ -279,7 +281,7 @@
   }
 
   async function loadProjectOptions() {
-    const data: any = await getParticipatedProjects({ periodStatus: projectMaterialPeriodStatus });
+    const data: any = await getParticipatedProjects({ periodStatus: projectMaterialPeriodStatus, approvalStatus: '1' });
     const records = data?.records || data || [];
     const uniqueRecords = new Map<string, any>();
     records.forEach((item: any) => {

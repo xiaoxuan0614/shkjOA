@@ -1,6 +1,31 @@
 import type { AppRouteRecordRaw } from '/@/router/types';
 import { LAYOUT } from '/@/router/constant';
 
+export const workflowApplicationsFallback: AppRouteRecordRaw = {
+  path: '/workflow-applications-layout',
+  name: 'WorkflowApplicationsFallbackLayout',
+  component: LAYOUT,
+  meta: { title: '我的审批', hideMenu: true },
+  children: [{
+    path: '/workflow/applications', name: 'WorkflowApplications',
+    component: () => import('/@/views/workflow/applications.vue'),
+    meta: { title: '我的审批', hideMenu: true, ignoreKeepAlive: true },
+  }],
+};
+
+export const contractDetailFallback: AppRouteRecordRaw = {
+  path: '/contract-detail-layout',
+  name: 'ContractDetailFallbackLayout',
+  component: LAYOUT,
+  meta: { title: '合同信息', hideMenu: true },
+  children: [{
+    path: '/project/contract',
+    name: 'ProjectContract',
+    component: () => import('/@/views/project/contract/index.vue'),
+    meta: { title: '合同信息', hideMenu: true, ignoreKeepAlive: true, currentActiveMenu: '/project/list' },
+  }],
+};
+
 export const quotationDetailFallback: AppRouteRecordRaw = {
   path: '/quotation-detail-layout',
   name: 'QuotationDetailFallbackLayout',

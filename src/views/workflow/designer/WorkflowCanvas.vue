@@ -64,7 +64,7 @@
           ><FieldPermissions :fields="definition.formFields || []" v-model:value="starterFields" />
           <a-collapse ghost class="starter-scope"
             ><a-collapse-panel key="scope" header="发起范围"
-              ><a-form layout="vertical"><AudienceEditor v-model:value="starterAudience" /></a-form></a-collapse-panel
+              ><a-form layout="vertical"><AudienceEditor single-source v-model:value="starterAudience" /></a-form></a-collapse-panel
           ></a-collapse>
         </template>
         <FlowSettings
@@ -79,7 +79,9 @@
         ><div class="settings-actions"
           ><a-button type="primary" :disabled="readonly" @click="apply">保存</a-button
           ><a-button :disabled="false" @click="cancel">{{ readonly ? '关闭' : '取消' }}</a-button
-          ><span v-if="editing && ['CC', 'NOTICE', 'TASK'].includes(editing.kind)" class="design-only">保存到设计稿，尚未接入发布</span></div
+          ><span v-if="editing && ['CC', 'NOTICE', 'TASK'].includes(editing.kind)" class="design-only"
+            >保存节点设置后，请保存设计或发布流程</span
+          ></div
         ></template
       >
     </a-drawer>
@@ -105,6 +107,7 @@
   import FlowSettings from './FlowSettings.vue';
   import FieldPermissions from './FieldPermissions.vue';
   import AudienceEditor from '../components/AudienceEditor.vue';
+  import { starterSummary as describeStarters } from '../starterScope';
   import { clone, flatten } from './graph';
   import type { DesignNode, DesignBranch } from './graph';
   import type { WorkflowDefinition, Audience, FieldPermission } from '../workflow.types';
@@ -126,11 +129,9 @@
     editingStarter = ref(false),
     selected = ref('');
   const starterFields = ref<Record<string, FieldPermission>>({}),
-    starterAudience = ref<Audience>({});
+    starterAudience = ref<Audience | null>(null);
   let original = '';
-  const starterSummary = computed(() =>
-    Object.values(definition.value.policy?.starters || {}).some((v) => Array.isArray(v) && v.length) ? '已设置发起范围' : '所有人可发起'
-  );
+  const starterSummary = computed(() => describeStarters(definition.value.policy?.starters));
   const editingName = computed({
     get: () => editingLane.value?.name || editing.value?.name || '',
     set: (v) => {
@@ -148,7 +149,7 @@
     editingStarter.value = true;
     selected.value = 'starter';
     starterFields.value = clone(definition.value.policy?.initiatorFields || {});
-    starterAudience.value = clone(definition.value.policy?.starters || {});
+    starterAudience.value = clone(definition.value.policy?.starters ?? null);
     original = JSON.stringify([starterFields.value, starterAudience.value]);
   }
   function close() {

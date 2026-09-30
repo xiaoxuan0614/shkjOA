@@ -1,4 +1,5 @@
 import { BasicColumn, FormSchema } from '/@/components/Table';
+import { unifyMaterialColumns } from '/@/views/material/materialTableColumns';
 import {
   APPROVAL_APPROVED,
   APPROVAL_PENDING,
@@ -20,7 +21,7 @@ const approvalStatusOptions = [APPROVAL_PENDING_SUBMIT, APPROVAL_REJECTED, APPRO
 
 /**
  * 出入库申请搜索表单
- * 关联单号=项目分期编号(projectNo)
+ * 项目名称通过 keyword 查询；执行状态使用独立数据字典。
  */
 export const searchFormSchema: FormSchema[] = [
   {
@@ -42,16 +43,16 @@ export const searchFormSchema: FormSchema[] = [
     componentProps: { options: approvalStatusOptions, placeholder: '请选择审批状态' },
   },
   {
-    label: '关联单号',
-    field: 'projectNo',
-    component: 'Input',
-    componentProps: { placeholder: '请输入关联单号(分期编号)' },
+    label: '执行状态',
+    field: 'executeStatus',
+    component: 'JDictSelectTag',
+    componentProps: { dictCode: 'stock_execute_status', placeholder: '请选择执行状态', allowClear: true },
   },
   {
     label: '项目名称',
-    field: 'projectName',
+    field: 'keyword',
     component: 'Input',
-    componentProps: { placeholder: '请输入项目名称' },
+    componentProps: { placeholder: '请输入主项目名称或分期名称' },
   },
 ];
 
@@ -118,7 +119,9 @@ export const applyColumns: BasicColumn[] = [
     title: '项目名称',
     align: 'center',
     dataIndex: 'projectName',
-    width: 140,
+    width: 220,
+    customRender: ({ record }) =>
+      [record.projectName, record.periodName].map((name) => String(name ?? '').trim()).filter(Boolean).join(' - ') || '—',
   },
   {
     title: '备注',
@@ -132,7 +135,7 @@ export const applyColumns: BasicColumn[] = [
  * 台账只回 materialId，物料编码/名称由列表包装层按物料主表缓存富化(enrichMaterialInfo)；
  * 来源 sourceType 走数据字典 stock_io_source_type(apply 申请 / manual 手动 / stocktake 盘存)。
  */
-export const recordColumns: BasicColumn[] = [
+export const recordColumns: BasicColumn[] = unifyMaterialColumns([
   {
     title: '类型',
     align: 'center',
@@ -199,4 +202,4 @@ export const recordColumns: BasicColumn[] = [
     dataIndex: 'createTime',
     width: 170,
   },
-];
+], { source: 'detail', nameField: 'materialName' });
