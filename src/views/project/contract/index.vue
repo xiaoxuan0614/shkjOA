@@ -940,8 +940,7 @@
   async function initializeContract() {
     approvalResolveError.value = '';
     if (approvalInstanceId.value) return;
-    await resolveApproval();
-    if (approvalInstanceId.value || approvalResolveError.value) return;
+    // 新合同恢复原状态审批：先查业务详情，只有后端标记的历史流程合同才定位实例。
     const entryPermission = pageMode.value === 'create' ? 'project:contract' : 'project:contract:view';
     const approvalEntry = pageMode.value === 'view' && hasPermission('project:contract:approve');
     if (!hasPermission(entryPermission) && !approvalEntry) {
@@ -1094,13 +1093,14 @@
       const { contractFile, materialFile, records, ...contract } = detail || {};
       if (!contract?.id) throw new Error('合同详情不存在');
       if (contractId.value && String(contract.id) !== contractId.value) throw new Error('合同与当前分期不匹配');
-      if (pageMode.value === 'view') {
+      const hasWorkflowInstance = !!String(contract.workflowInstanceId || '').trim();
+      if (pageMode.value === 'view' && hasWorkflowInstance) {
         approvalContractId.value = String(contract.id);
         await resolveApproval();
         if (approvalInstanceId.value || approvalResolveError.value) return;
       }
 
-      if (pageMode.value !== 'view') {
+      if (pageMode.value !== 'view' && hasWorkflowInstance) {
         const currentInstance = await currentContractApproval(String(contract.id));
         if (currentInstance) {
           businessActions.value = await contractApprovalActions(String(contract.id));
@@ -1135,6 +1135,8 @@
       readonly.value = true;
       editing.value = false;
       createMessage.error(error?.message || '合同信息加载失败，请稍后重试');
+    } finally {
+      approvalResolving.value = false;
     }
   }
 
