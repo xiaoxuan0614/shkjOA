@@ -9,6 +9,7 @@
 
 <script lang="ts" setup>
   import { ref } from 'vue';
+  import Big from 'big.js';
   import { BasicModal, useModalInner } from '/@/components/Modal';
   import { BasicForm, useForm, type FormSchema } from '/@/components/Form';
   import { usePermission } from '/@/hooks/web/usePermission';
@@ -23,6 +24,14 @@
   const unit = ref('');
   const ready = ref(false);
   const saving = ref(false);
+  function formatPrice(value: unknown, info?: { userTyping?: boolean; input?: string }) {
+    if (info?.userTyping) return info.input ?? String(value ?? '');
+    if (value == null || String(value).trim() === '') return '';
+    try { return new Big(String(value)).toFixed(2); } catch { return String(value); }
+  }
+  function defaultPrice(value: unknown) {
+    return formatPrice(value == null || String(value).trim() === '' ? '0' : value);
+  }
   function guardNumericInput(event: InputEvent) {
     if (event.data && !/^[\d.]+$/.test(event.data)) event.preventDefault();
   }
@@ -33,7 +42,7 @@
   const schemas: FormSchema[] = [
     { label: '成本价', field: 'costPrice', digits: 2, integerDigits: 16 },
     { label: '基准单价', field: 'unitPrice', digits: 2, integerDigits: 16 },
-    { label: '报价比例', field: 'guideMarkupRate', digits: 4, integerDigits: 14 },
+    { label: '指导比例', field: 'guideMarkupRate', digits: 2, integerDigits: 14 },
   ].map(({ digits, integerDigits, ...field }) => ({
     ...field,
     component: 'InputNumber',
@@ -41,6 +50,7 @@
       min: 0,
       precision: digits,
       stringMode: true,
+      formatter: formatPrice,
       inputmode: 'decimal',
       addonAfter: field.field === 'guideMarkupRate' ? '%' : undefined,
       onBeforeinput: guardNumericInput,
@@ -48,7 +58,9 @@
       style: { width: '100%' },
     },
     helpMessage:
-      field.field === 'guideMarkupRate' ? '原值保存，不自动换算或计算价格；留空不修改，填写 0 可保存为零。' : '留空不修改，填写 0 可保存为零。',
+      field.field === 'unitPrice'
+        ? '留空不修改，填写 0 可保存为零。'
+        : '未维护时默认 0.00，保留两位小数；手动清空不修改原值。',
     rules: [
       {
         validator: async (_rule, value) => {
@@ -84,7 +96,7 @@
       materialId.value = String(detail.id || data.id);
       materialName.value = detail.materialName || '';
       unit.value = detail.unit || '';
-      await setFieldsValue({ costPrice: detail.costPrice, unitPrice: detail.unitPrice, guideMarkupRate: detail.guideMarkupRate });
+      await setFieldsValue({ costPrice: defaultPrice(detail.costPrice), unitPrice: detail.unitPrice, guideMarkupRate: defaultPrice(detail.guideMarkupRate) });
       ready.value = true;
       setProps({ disabled: false });
       setModalProps({ okButtonProps: { disabled: false } });

@@ -9,14 +9,16 @@ async function main() {
   const storage = new Map();
   const sessionStorage={getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k),get length(){return storage.size;},key:i=>[...storage.keys()][i]};
   const util=load('src/utils/sessionDraftStorage.ts',{}, {sessionStorage});
+  const lifetime=load('src/utils/tabDraftLifetime.ts',{}, {sessionStorage});
   const hooks={};
   const user={getToken:'a',getUserInfo:{id:'u',loginTenantId:'tenant'}};
   const api=load('src/hooks/web/useSessionDraft.ts',{
     vue:{onBeforeUnmount:fn=>hooks.unmount=fn,onDeactivated:fn=>hooks.deactivate=fn,onActivated:fn=>hooks.activate=fn},
-    'vue-router':{onBeforeRouteLeave:fn=>hooks.leave=fn},
+    'vue-router':{onBeforeRouteLeave:fn=>hooks.leave=fn,useRoute:()=>({path:'/contract'})},
     '/@/store/modules/user':{useUserStore:()=>user},
     '/@/hooks/web/useMessage':{useMessage:()=>({createMessage:{warning:()=>{}}})},
     '/@/utils/sessionDraftStorage':util,
+    '/@/utils/tabDraftLifetime':lifetime,
   },{sessionStorage,window:{addEventListener:()=>{},removeEventListener:()=>{}}});
   let form={name:'草稿',rows:[{qty:0}]};
   const a=api.useSessionDraft('contract:p',()=>form);
@@ -24,10 +26,15 @@ async function main() {
   user.getUserInfo.loginTenantId='other';assert.equal(a.read(),undefined);a.persist();
   user.getUserInfo.loginTenantId='tenant';
   user.getToken='b';form={name:'旧组件不得回写'};a.persist();assert.equal(a.read(),undefined);
-  util.clearSessionDrafts();assert.equal(storage.size,0);
+  util.clearSessionDrafts();lifetime.clearTabDrafts();assert.equal(storage.size,0);
   const b=api.useSessionDraft('contract:p',()=>({name:'new'}));b.enable();b.persist();b.clear();hooks.leave();assert.equal(b.read(),undefined);
   hooks.activate();b.persist();assert.equal(b.read().name,'new');
   const other=api.useSessionDraft('contract:other',()=>({}));assert.equal(other.read(),undefined);
+  lifetime.closeTabDrafts(['/contract?periodId=p']);
+  b.persist();hooks.activate();b.persist();assert.equal(b.read(),undefined,'关闭后不能由卸载或激活恢复草稿');
+  const reopened=api.useSessionDraft('contract:p',()=>({name:'fresh'}));
+  assert.equal(reopened.read(),undefined,'重开不能读取旧草稿');
+  reopened.enable();reopened.persist();assert.equal(reopened.read().name,'fresh');
 
   // 用 Vue 真正的 KeepAlive 验证路由名匹配和后台页签 route 注入隔离。
   const {createTabPage}=load('src/layouts/page/tabPage.ts',{vue,'vue-router':{routeLocationKey}});

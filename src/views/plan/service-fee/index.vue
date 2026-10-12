@@ -7,10 +7,12 @@
     </div>
     <a-alert v-if="error" type="error" :message="error" show-icon><template #action><a-button size="small" @click="load">重试</a-button></template></a-alert>
     <a-table
-row-key="id" bordered :columns="columns" :data-source="rows" :loading="loading" :scroll="{ x: 800 }"
+row-key="id" bordered :columns="columns" :data-source="rows" :loading="loading" :scroll="{ x: 900 }"
       :pagination="{ current: page, pageSize: 10, total, showSizeChanger: false, showTotal: n => `共 ${n} 条` }" @change="changePage">
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'markupRate'">{{ record.markupRate ?? '—' }}%</template>
+        <template v-else-if="column.key === 'guideMarkupRate'">{{ serviceFeeTaxText(record.guideMarkupRate) }}</template>
+        <template v-else-if="column.key === 'unit'">{{ record.unit || '—' }}</template>
         <template v-else-if="column.key === 'costPrice'">{{ record.costPrice == null ? '—' : Number(record.costPrice).toFixed(2) }}</template>
         <template v-else-if="column.key === 'action'">
           <a-space>
@@ -29,8 +31,13 @@ v-model:open="formOpen" :title="formReadonly ? '服务费详情' : form.id ? '�
         <a-alert v-if="formError" type="error" :message="formError" show-icon />
         <a-form layout="vertical" :disabled="formReadonly || saving || formLoading || !!formLoadError">
           <a-form-item label="费用名称" required><a-input v-model:value="form.name" :maxlength="100" placeholder="请输入费用名称" /></a-form-item>
-          <a-form-item label="税率" required><a-input-number v-model:value="form.markupRate" :precision="4" :min="0" :max="9999999999" addon-after="%" /></a-form-item>
+          <a-form-item label="单位" for="service-fee-unit" required>
+            <a-select id="service-fee-unit" v-model:value="form.unit" :options="unitOptions" :loading="unitLoading" show-search allow-clear option-filter-prop="label" placeholder="请选择单位" />
+            <div v-if="unitError" role="alert">{{ unitError }} <a-button type="link" size="small" :disabled="unitLoading" @click="loadUnits">重试</a-button></div>
+          </a-form-item>
+          <a-form-item label="税率" required><a-input-number v-model:value="form.markupRate" :precision="2" :min="0" :max="9999999999" addon-after="%" /></a-form-item>
           <a-form-item label="成本价（元）" required><a-input-number v-model:value="form.costPrice" :precision="2" :min="0" :max="9999999999" /></a-form-item>
+          <a-form-item label="报价指导比例"><a-input-number v-model:value="form.guideMarkupRate" :precision="2" :min="0" :max="9999999999" addon-after="%" placeholder="未配置时选入报价默认0" /></a-form-item>
           <a-form-item label="描述"><a-textarea v-model:value="form.description" :rows="3" :maxlength="1000" show-count /></a-form-item>
         </a-form>
       </a-spin>
@@ -42,7 +49,9 @@ v-model:open="formOpen" :title="formReadonly ? '服务费详情' : form.id ? '�
   import { usePermission } from '/@/hooks/web/usePermission';
   import { useMessage } from '/@/hooks/web/useMessage';
   import { serviceFeeList, serviceFeeDetail, saveServiceFee, deleteServiceFee } from './ServiceFee.api';
-  import { serviceFeePayload, serviceFeePrice } from '../serviceFee';
+  import { serviceFeePayload, serviceFeePrice, serviceFeeTaxText } from '../serviceFee';
+  import { decimalPrice, hasPrice } from '../quotationPricing';
+  import { initDictOptions } from '/@/utils/dict';
   defineOptions({ name: 'ServiceFeeMaintenance' });
   defineProps<{ embedded?: boolean }>();
   const emit = defineEmits<{ busy: [value: boolean] }>();
@@ -50,11 +59,27 @@ v-model:open="formOpen" :title="formReadonly ? '服务费详情' : form.id ? '�
   const { createMessage } = useMessage();
   const keyword = ref(''), page = ref(1), total = ref(0), loading = ref(false), saving = ref(false), error = ref('');
   const rows = ref<Recordable[]>([]), form = ref<Recordable>({});
+  const unitOptions = ref<{ label: string; value: string }[]>([]);
+  const unitLoading = ref(false), unitError = ref('');
+  async function loadUnits() {
+    if (unitLoading.value) return;
+    unitLoading.value = true; unitError.value = '';
+    try {
+      const items = await initDictOptions('inv_unit');
+      if (!Array.isArray(items)) throw new Error('单位字典格式异常');
+      const names = items.map(item => String(item.text ?? item.label ?? '').trim()).filter(Boolean);
+      unitOptions.value = [...new Set(names)].map(name => ({ label: name, value: name }));
+      if (!unitOptions.value.length) unitError.value = '单位字典暂无选项，请在数据字典中配置';
+    } catch { unitError.value = '单位字典加载失败，请重试'; }
+    finally { unitLoading.value = false; }
+  }
   const formOpen = ref(false), formReadonly = ref(false), formLoading = ref(false), formLoadError = ref(''), formError = ref('');
   watch([saving, formOpen], ([pending, editing]) => emit('busy', pending || editing), { immediate: true });
   let sequence = 0, formSequence = 0;
   const columns = [
-    { title: '费用名称', dataIndex: 'name', width: 220 }, { title: '税率', key: 'markupRate', width: 130 },
+    { title: '费用名称', dataIndex: 'name', width: 160 }, { title: '单位', key: 'unit', dataIndex: 'unit', width: 100, ellipsis: true },
+    { title: '税率', key: 'markupRate', width: 90 },
+    { title: '报价指导比例', key: 'guideMarkupRate', width: 120 },
     { title: '成本价（元）', key: 'costPrice', width: 160 }, { title: '描述', dataIndex: 'description', ellipsis: true },
     { title: '操作', key: 'action', width: 230 },
   ];
@@ -75,8 +100,9 @@ v-model:open="formOpen" :title="formReadonly ? '服务费详情' : form.id ? '�
     if (saving.value || (!readonly && !hasPermission(id ? 'mtl:serviceFee:edit' : 'mtl:serviceFee:add'))) return;
     const request = ++formSequence;
     formReadonly.value = readonly; formError.value = ''; formLoadError.value = '';
-    form.value = { name: '', markupRate: 0, costPrice: 0, description: '', unit: '项', quantity: 1, remark: '' };
+    form.value = { name: '', markupRate: 0, guideMarkupRate: 0, costPrice: 0, description: '', unit: undefined, quantity: 1, remark: '' };
     formOpen.value = true;
+    void loadUnits();
     if (!id) return;
     formLoading.value = true;
     try {
@@ -93,6 +119,8 @@ v-model:open="formOpen" :title="formReadonly ? '服务费详情' : form.id ? '�
     formError.value = '';
     try {
       const payload = serviceFeePayload({ ...form.value, guidePrice: serviceFeePrice(form.value.costPrice, form.value.markupRate) });
+      // 基础库税率仍为markupRate；新增默认比例单独维护，不与报价明细字段混用。
+      if (hasPrice(form.value.guideMarkupRate)) payload.guideMarkupRate = Number(decimalPrice(form.value.guideMarkupRate, '报价指导比例', 4));
       saving.value = true;
       await saveServiceFee(payload);
       formOpen.value = false; createMessage.success('服务费已保存'); await load();

@@ -1,5 +1,6 @@
 <template>
   <BasicModal v-bind="$attrs" @register="register" destroyOnClose :title="title" :width="800" @ok="handleSubmit">
+    <a-alert type="info" show-icon message="物料基本信息不设置库存数量，请通过采购出入库或盘存流程调整库存。" style="margin-bottom: 16px" />
     <BasicForm @register="registerForm">
       <template #brand="{ model, field }">
         <a-select
@@ -176,10 +177,8 @@
     }));
     await updateSchema({ field: 'brand', slot: 'brand' });
 
-    // 编辑时：库存数量统一走「出入库」，这里禁用不允许直接改
     // 编号显示规则：新增隐藏，编辑/详情显示(只读)
     updateSchema([
-      { field: 'stockQty', componentProps: { disabled: isUpdate.value } },
       { field: 'materialCode', ifShow: () => !!isUpdate.value },
     ]);
 
@@ -195,7 +194,6 @@
       }));
     } else {
       // 新增：物料编码由后端生成(前端不预填，新增后自动带出)；默认给一行基准单位
-      await setFieldsValue({ stockQty: 0 });
       unitList.value = [{ uid: ++uidSeq, materialId: undefined, unitName: undefined, conversionQty: 1, isBaseUnit: true }];
     }
   });
@@ -280,13 +278,14 @@
       }));
       // 编辑时不回传乐观锁 version（后端 add/edit 契约不接收该字段，回了反而可能报错）
       const { version: _omitVersion, ...rest } = values;
+      // 库存由采购出入库/盘存流程维护，新增、编辑均不回传（也不补零）。
+      delete rest.stockQty;
+      delete rest.stockAmount;
       await saveOrUpdate(
         {
           ...rest,
           // 物料编码后端生成：为空则不传
           materialCode: rest.materialCode || undefined,
-          // 基本信息不提交价格；初始库存未填默认 0。
-          stockQty: rest.stockQty ?? 0,
           unit: baseUnit?.unitName, // 主表基准单位冗余字段(第一个单位)
           unitList: unitListPayload,
         },

@@ -7,6 +7,8 @@
     "url": "https://www.jeecg.com"
   },
   "scripts": {
+    "package:test": "node scripts/package-dual.mjs test",
+    "package:production": "node scripts/package-dual.mjs production",
     "pinstall": "pnpm install",
     "clean:cache": "rimraf node_modules/.cache/ && rimraf node_modules/.vite",
     "dev": "vite",

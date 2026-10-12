@@ -3,7 +3,7 @@ import MaterialIdentityCell from './components/MaterialIdentityCell.vue';
 
 /** 仅转换物料展示列，不改数据、业务渲染、权限或提交字段。 */
 export function unifyMaterialColumns<T extends Record<string, any>>(
-  columns: T[], options: { source?: 'master' | 'detail'; nameField?: string } = {},
+  columns: T[], options: { source?: 'master' | 'detail'; nameField?: string; secondaryField?: 'materialCode' | 'model' } = {},
 ): T[] {
   const identityKeys = new Set(['material', 'materialIdentity', 'materialName', 'materialCode', 'brand', options.nameField || 'materialName']);
   const remaining = columns.filter((column) => !identityKeys.has(String(column.key || column.dataIndex || '')));

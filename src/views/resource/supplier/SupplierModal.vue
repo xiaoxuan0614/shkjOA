@@ -4,10 +4,12 @@
     @register="registerModal"
     destroyOnClose
     :title="title"
-    :width="620"
+    width="min(900px, calc(100vw - 32px))"
+    wrapClassName="counterparty-modal"
+    :minHeight="0"
     @ok="handleSubmit"
   >
-    <BasicForm @register="registerForm" name="SupplierForm" />
+    <BasicForm @register="registerForm" name="SupplierForm" :class="formClass" />
   </BasicModal>
 </template>
 
@@ -19,6 +21,8 @@
   import { saveOrUpdate } from './Supplier.api';
   import { loadUserOptions } from '../userOptions';
   import { useFuzzySelect } from '/@/utils/fuzzySelect';
+  import { buildCounterpartyPayload } from '../counterpartyForm';
+  import { useCounterpartySections } from '../useCounterpartySections';
 
   // Emits声明
   const emit = defineEmits(['register', 'success']);
@@ -34,11 +38,12 @@
   const liaison = useFuzzySelect();
 
   // 表单配置
+  const { schemas, formClass, resetSections, revealField } = useCounterpartySections(formSchema, () => redoModalHeight());
   const [registerForm, { setProps, resetFields, setFieldsValue, validate, scrollToField, updateSchema }] = useForm({
-    labelWidth: 100,
-    schemas: formSchema,
+    labelWidth: 140,
+    schemas,
     showActionButtonGroup: false,
-    baseColProps: { span: 12 },
+    baseColProps: { xs: 24, md: 12 },
   });
 
   /**
@@ -64,7 +69,8 @@
 
   /** 供应商编号由后端生成，新增时留空；提交时若为空则不传(后端生成) */
   // 弹窗打开时赋值
-  const [registerModal, { setModalProps, closeModal }] = useModalInner(async (data) => {
+  const [registerModal, { setModalProps, closeModal, redoModalHeight }] = useModalInner(async (data) => {
+    resetSections();
     await resetFields();
     setModalProps({
       confirmLoading: false,
@@ -87,7 +93,7 @@
     try {
       const values = await validate();
       setModalProps({ confirmLoading: true });
-      const payload = { ...values };
+      const payload = buildCounterpartyPayload(values);
       // 编号后端生成：为空则不传
       if (!payload.supplierNo) delete payload.supplierNo;
       await saveOrUpdate(payload, isUpdate.value);
@@ -95,6 +101,7 @@
       emit('success');
     } catch ({ errorFields }) {
       if (errorFields && errorFields.length) {
+        await revealField(errorFields[0].name);
         scrollToField(errorFields[0].name, { behavior: 'smooth', block: 'center' });
       }
       return Promise.reject(errorFields);
@@ -105,6 +112,7 @@
 </script>
 
 <style lang="less" scoped>
+  @import '../counterpartyModal.less';
   :deep(.ant-input-number) {
     width: 100%;
   }

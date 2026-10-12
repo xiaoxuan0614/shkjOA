@@ -1,5 +1,12 @@
 import { defHttp } from '/@/utils/http/axios';
 import { Modal } from 'ant-design-vue';
+import { useUserStore } from '/@/store/modules/user';
+
+// Maintenance invalidates both the login snapshot and on-demand cache.
+function invalidateDictionary<T>(result: T): T {
+  useUserStore().setAllDictItems(null);
+  return result;
+}
 enum Api {
   list = '/sys/dict/list',
   save = '/sys/dict/add',
@@ -42,6 +49,7 @@ export const list = (params) => defHttp.get({ url: Api.list, params });
  */
 export const deleteDict = (params, handleSuccess) => {
   return defHttp.delete({ url: Api.deleteDict, params }, { joinParamsToUrl: true }).then(() => {
+    invalidateDictionary(undefined);
     handleSuccess();
   });
 };
@@ -57,6 +65,7 @@ export const batchDeleteDict = (params, handleSuccess) => {
     cancelText: '取消',
     onOk: () => {
       return defHttp.delete({ url: Api.deleteBatch, data: params }, { joinParamsToUrl: true }).then(() => {
+        invalidateDictionary(undefined);
         handleSuccess();
       });
     },
@@ -67,8 +76,8 @@ export const batchDeleteDict = (params, handleSuccess) => {
  * @param params
  */
 export const saveOrUpdateDict = (params, isUpdate) => {
-  let url = isUpdate ? Api.edit : Api.save;
-  return defHttp.post({ url: url, params });
+  const url = isUpdate ? Api.edit : Api.save;
+  return defHttp.post({ url: url, params }).then(invalidateDictionary);
 };
 /**
  * 唯一校验
@@ -87,6 +96,7 @@ export const getRecycleBinList = (params) => defHttp.get({ url: Api.recycleBinLi
  */
 export const batchPutRecycleBin = (params, handleSuccess) => {
   return defHttp.put({ url: Api.batchPutRecycleBin, params}).then(() => {
+    invalidateDictionary(undefined);
     handleSuccess();
   });
 };
@@ -96,6 +106,7 @@ export const batchPutRecycleBin = (params, handleSuccess) => {
  */
 export const putRecycleBin = (id, handleSuccess) => {
   return defHttp.put({ url: Api.putRecycleBin + `/${id}` }).then(() => {
+    invalidateDictionary(undefined);
     handleSuccess();
   });
 };
@@ -128,6 +139,7 @@ export const itemList = (params) => defHttp.get({ url: Api.itemList, params });
  */
 export const deleteItem = (params, handleSuccess) => {
   return defHttp.delete({ url: Api.deleteItem, params }, { joinParamsToUrl: true }).then(() => {
+    invalidateDictionary(undefined);
     handleSuccess();
   });
 };
@@ -136,8 +148,8 @@ export const deleteItem = (params, handleSuccess) => {
  * @param params
  */
 export const saveOrUpdateDictItem = (params, isUpdate) => {
-  let url = isUpdate ? Api.itemEdit : Api.itemSave;
-  return defHttp.post({ url: url, params });
+  const url = isUpdate ? Api.itemEdit : Api.itemSave;
+  return defHttp.post({ url: url, params }).then(invalidateDictionary);
 };
 /**
  * 校验字典数据值

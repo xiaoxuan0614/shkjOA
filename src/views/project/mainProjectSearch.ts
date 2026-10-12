@@ -1,7 +1,7 @@
 import { ref } from 'vue';
 
-type Option = { value: string; label: string };
-type Page = { records: { projectId?: string; projectName?: string }[]; total: number };
+type Option = { value: string; label: string; customerId?: string };
+type Page = { records: { projectId?: string; projectName?: string; customerId?: string | null }[]; total: number };
 
 /** The endpoint pages periods; selector identity is always the parent projectId. */
 export function useMainProjectSearch(fetchPage: (params: { pageNo: number; pageSize: number; keyword?: string }) => Promise<Page>, selected: () => string | undefined) {
@@ -22,7 +22,7 @@ export function useMainProjectSearch(fetchPage: (params: { pageNo: number; pageS
       const merged = new Map(keep.map((item) => [item.value, item]));
       for (const item of data.records) {
         const id = String(item.projectId || '').trim();
-        if (id) merged.set(id, { value: id, label: item.projectName?.trim() || '未命名主项目' });
+        if (id) merged.set(id, { value: id, label: item.projectName?.trim() || '未命名主项目', customerId: item.customerId || undefined });
       }
       options.value = [...merged.values()];
       page = nextPage;

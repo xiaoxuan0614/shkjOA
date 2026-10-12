@@ -221,7 +221,8 @@ v-if="isBusiness" type="info" show-icon message="发布并启用后，合同签�
   import { computed, onBeforeUnmount, onMounted, provide, ref } from 'vue';
   import MoreSettings from './MoreSettings.vue';
   const permissionsOpen = ref(false);
-  import { onBeforeRouteLeave } from 'vue-router';
+  import { onBeforeRouteLeave, useRoute } from 'vue-router';
+  import { bindTabDraft } from '/@/utils/tabDraftLifetime';
   import { Modal, message } from 'ant-design-vue';
   import { ArrowLeftOutlined, ArrowUpOutlined, ArrowDownOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons-vue';
   import { Icon } from '/@/components/Icon';
@@ -290,6 +291,7 @@ v-if="isBusiness" type="info" show-icon message="发布并启用后，合同签�
   const designNodes = ref(fromDefinition(definition.value));
   const userId = useUserStore().getUserInfo?.id;
   const draftKey = userId ? `workflow-design:v1:${userId}:${props.model?.process_key || 'new'}` : '';
+  const draftLifetime = draftKey ? bindTabDraft(useRoute().path, draftKey) : undefined;
   let restored = false;
   try {
     const raw = draftKey && sessionStorage.getItem(draftKey);
@@ -322,7 +324,7 @@ v-if="isBusiness" type="info" show-icon message="发布并启用后，合同签�
     }
   }
   function saveDesign() {
-    if (!draftKey) {
+    if (!draftKey || !draftLifetime?.isOpen()) {
       message.error('登录身份未就绪，无法保存当前会话设计稿');
       return;
     }
@@ -608,6 +610,7 @@ v-if="isBusiness" type="info" show-icon message="发布并启用后，合同签�
   }
   window.addEventListener('beforeunload', beforeUnload);
   onBeforeUnmount(() => window.removeEventListener('beforeunload', beforeUnload));
+  onBeforeUnmount(() => draftLifetime?.release());
 </script>
 <style scoped>
   .workflow-editor {

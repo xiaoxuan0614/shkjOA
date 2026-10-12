@@ -1,7 +1,7 @@
 import { BasicColumn } from '/@/components/Table';
 import { FormSchema } from '/@/components/Table';
 import { projectDisplayName } from '../project/projectListFilters';
-import { loadDictOptions, loadProjectStatusOptions, loadProjectTypeOptions } from '../project/Project.data';
+import { loadDictOptions, loadProjectStatusOptions, loadProjectTypeOptions, loadProductOptions } from '../project/Project.data';
 
 /**
  * 计划方案管理 - 常量选项(字段对齐后端 /project/project 项目分期列表)
@@ -44,6 +44,7 @@ export const searchFormSchema: FormSchema[] = [
 
 /** 项目用料候选清单状态：直接使用后端字典编码及状态值。 */
 export const loadQuotationStatusOptions = () => loadDictOptions('project_material_candidate_status');
+export const loadQuotationYesNoOptions = () => loadDictOptions('yes_no_status');
 
 export const loadQuotationStatusMap = async (): Promise<Record<string, { text: string; color?: string }>> => {
   const options = await loadQuotationStatusOptions();
@@ -52,6 +53,10 @@ export const loadQuotationStatusMap = async (): Promise<Record<string, { text: s
 
 export const quotationColumns: BasicColumn[] = [
   { title: '项目名称', align: 'center', dataIndex: 'projectName', customRender: ({ record }) => projectDisplayName(record) },
+  { title: '客户名称', align: 'center', dataIndex: 'customerName', width: 200, ellipsis: true, customRender: ({ text }) => String(text ?? '').trim() || '—' },
+  { title: '项目对接人', align: 'center', dataIndex: 'projectLiaisonUserName', width: 130, ellipsis: true, customRender: ({ text }) => String(text ?? '').trim() || '—' },
+  { title: '项目类型', align: 'center', dataIndex: 'projectType', width: 130 },
+  { title: '涉及产品', align: 'center', dataIndex: 'involvedProducts', width: 200, ellipsis: true },
   { title: '报价单名称', align: 'center', dataIndex: 'candidateName' },
   { title: '最后更新人', align: 'center', dataIndex: 'lastUpdatedBy', width: 130 },
   { title: '审批状态', align: 'center', dataIndex: 'status', width: 100 },
@@ -60,6 +65,9 @@ export const quotationColumns: BasicColumn[] = [
 
 export const quotationSearchFormSchema: FormSchema[] = [
   { label: '项目名称', field: 'keyword', component: 'Input', componentProps: { placeholder: '请输入项目或分期名称关键词', allowClear: true } },
+  { label: '客户名称', field: 'customerName', component: 'Input', componentProps: { placeholder: '请输入客户名称关键词', allowClear: true } },
+  { label: '项目类型', field: 'projectType', component: 'ApiSelect', componentProps: { api: loadProjectTypeOptions, placeholder: '全部项目类型', allowClear: true } },
+  { label: '涉及产品', field: 'involvedProducts', component: 'ApiSelect', helpMessage: '按所选产品完整组合精确匹配', componentProps: { api: loadProductOptions, mode: 'multiple', placeholder: '请选择完整产品组合', allowClear: true, maxTagCount: 'responsive' } },
   {
     label: '审批状态',
     field: 'status',
@@ -79,19 +87,16 @@ export const quotationSearchFormSchema: FormSchema[] = [
   {
     label: '采用状态',
     field: 'adopted',
-    component: 'Select',
+    component: 'ApiSelect',
     componentProps: {
       allowClear: true,
       placeholder: '全部采用状态',
-      options: [
-        { label: '未采用', value: 0 },
-        { label: '已采用', value: 1 },
-      ],
+      api: loadQuotationYesNoOptions,
     },
   },
 ];
 
-/** 列表只请求候选分页接口，按候选生命周期契约显示，不加载额外字典。 */
+/** 审批状态按候选生命周期契约显示，与采用/定价字典分开。 */
 export const quotationListStatusMap: Record<string, { text: string; color: string }> = {
   '-1': { text: '草稿', color: 'default' },
   '0': { text: '驳回', color: 'error' },

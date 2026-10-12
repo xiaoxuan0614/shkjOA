@@ -50,6 +50,10 @@ function createConfig(params: CreateConfigParams) {
 
 export function runBuildConfig() {
   const config = getEnvConfig();
+  // The release runner supplies these public URLs to both Vite and postBuild.
+  for (const key of ['VITE_GLOB_API_URL', 'VITE_GLOB_DOMAIN_URL', 'VITE_GLOB_API_URL_PREFIX']) {
+    if (process.env[key] !== undefined) config[key] = process.env[key];
+  }
   const configFileName = getConfigFileName(config);
   createConfig({ config, configName: configFileName, configFileName: GLOB_CONFIG_FILE_NAME });
 }

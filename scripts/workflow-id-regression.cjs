@@ -13,8 +13,10 @@ function load(browserCrypto) {
 }
 const uuid = '12345678-1234-4234-8234-123456789abc';
 assert.equal(load({ randomUUID: () => uuid }).newId('flow'), `flow_${uuid.replace(/-/g, '')}`);
+assert.equal(load({ randomUUID: () => uuid }).newUUID(), uuid);
 const http = load({ getRandomValues: bytes => crypto.getRandomValues(bytes) });
 const ids = new Set();
+assert.match(http.newUUID(), /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
 for (let i = 0; i < 1000; i++) {
   const id = http.newId('flow');
   assert.match(id, /^flow_[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}$/);

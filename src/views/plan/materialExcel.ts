@@ -36,9 +36,9 @@ export async function exportCandidateMaterials(record: Recordable) {
   if (!record?.candidateId || !Array.isArray(record.records)) throw new Error('导出数据不完整');
   if (!Array.isArray(record.serviceFees)) throw new Error('服务费导出数据不完整，请刷新后重试');
   const fees: Recordable[] = record.serviceFees;
-  const rows: Recordable[] = [...record.records, ...fees.map((fee, index) => ({
+  const rows: Recordable[] = [...record.records, ...fees.map((fee) => ({
     materialName: fee.name, specificationParams: fee.description, quantity: fee.quantity, unit: fee.unit,
-    finalPrice: fee.guidePrice, remark: fee.remark, serialNo: index + 1,
+    finalPrice: fee.guidePrice, remark: fee.remark,
   }))];
   if (!rows.length) throw new Error('报价没有可导出的明细');
   rows.forEach((row) => {
@@ -54,24 +54,19 @@ export async function exportCandidateMaterials(record: Recordable) {
   worksheet.getRow(2).values = ['序号', '名称', '品牌', '型号', '规格参数', '数量', '单位', '单价（元）', '小计（元）', '备注'];
   let total = new Big(0);
   rows.forEach((item, index) => {
-    const n = index + 3 + (fees.length && index >= record.records.length ? 1 : 0);
-    if (fees.length && index === record.records.length) {
-      worksheet.mergeCells(`A${n - 1}:J${n - 1}`);
-      worksheet.getCell(`A${n - 1}`).value = '服务费';
-      worksheet.getRow(n - 1).height = 26;
-    }
+    const n = index + 3;
     const subtotal = new Big(item.quantity).times(item.finalPrice).round(2, Big.roundHalfUp);
     total = total.plus(subtotal);
     // 仅使用受控导出字段；单位未返回时留空，不从其他接口补查。
     const row = worksheet.getRow(n);
-    row.values = [item.serialNo ?? index + 1, item.materialName || null, item.brand || null, item.model || null, item.specificationParams || null,
+    row.values = [index + 1, item.materialName || null, item.brand || null, item.model || null, item.specificationParams || null,
       Number(item.quantity), item.unit || null, Number(item.finalPrice),
       { formula: `ROUND(F${n}*H${n},2)`, result: Number(subtotal) }, item.remark || null];
     const lines = Math.max(...[item.materialName, item.brand, item.model, item.specificationParams, item.remark].map((value, i) =>
       String(value || '').split('\n').reduce((sum, line) => sum + Math.max(1, Math.ceil(Array.from(line).reduce((len, char) => len + (/[^\x00-\xff]/.test(char) ? 2 : 1), 0) / [24, 18, 24, 62, 18][i])), 0)));
     row.height = Math.min(409, Math.max(30, lines * 16 + 8));
   });
-  const totalRow = rows.length + 3 + (fees.length ? 1 : 0);
+  const totalRow = rows.length + 3;
   worksheet.mergeCells(`A${totalRow}:H${totalRow}`);
   worksheet.getCell(`A${totalRow}`).value = '合计';
   worksheet.getCell(`I${totalRow}`).value = { formula: `SUM(I3:I${totalRow - 1})`, result: Number(total) };

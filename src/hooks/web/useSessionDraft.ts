@@ -1,8 +1,9 @@
 import { onBeforeUnmount, onDeactivated, onActivated } from 'vue';
-import { onBeforeRouteLeave } from 'vue-router';
+import { onBeforeRouteLeave, useRoute } from 'vue-router';
 import { useUserStore } from '/@/store/modules/user';
 import { useMessage } from '/@/hooks/web/useMessage';
 import { SESSION_DRAFT_PREFIX } from '/@/utils/sessionDraftStorage';
+import { bindTabDraft } from '/@/utils/tabDraftLifetime';
 
 /** 由业务页面显式选择可缓存输入，不缓存权限、审批状态或后端版本。 */
 export function useSessionDraft<T>(scope: string, snapshot: () => T | undefined) {
@@ -12,8 +13,9 @@ export function useSessionDraft<T>(scope: string, snapshot: () => T | undefined)
   const identity = () => JSON.stringify([user.getUserInfo?.id, (user.getUserInfo as any)?.loginTenantId]);
   const owner = identity();
   const key = SESSION_DRAFT_PREFIX + owner + ':' + scope;
+  const lifetime = bindTabDraft(useRoute().path, key);
   let ready = false, initialized = false, disposed = false, warned = false;
-  const sameOwner = () => token === user.getToken && owner === identity();
+  const sameOwner = () => lifetime.isOpen() && token === user.getToken && owner === identity();
   function read(): T | undefined {
     if (!sameOwner()) return;
     try { const raw = sessionStorage.getItem(key); return raw ? JSON.parse(raw) : undefined; }
@@ -40,6 +42,7 @@ export function useSessionDraft<T>(scope: string, snapshot: () => T | undefined)
   window.addEventListener('pagehide', persist);
   onBeforeUnmount(() => {
     persist(); disposed = true;
+    lifetime.release();
     window.removeEventListener('pagehide', persist);
   });
   return { read, persist, clear, enable, isAlive: () => !disposed && sameOwner() };

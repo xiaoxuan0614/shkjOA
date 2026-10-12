@@ -51,6 +51,7 @@
   import { ensureSupplierOptions } from '../material.options';
   import { purchaseEditProjectOption, filterPurchaseProject, loadPurchaseProjects } from './purchaseProjectOptions';
   import { validateEditableRows } from '/@/components/EditableTable';
+  import { isProjectPurchase, purchaseProjectPayload } from './purchaseType';
 
   const { createMessage } = useMessage();
   const emit = defineEmits(['register', 'success']);
@@ -85,7 +86,7 @@
   }
 
   // 表单
-  const [registerForm, { resetFields, validate, updateSchema, setFieldsValue }] = useForm({
+  const [registerForm, { resetFields, validate, updateSchema, setFieldsValue, getFieldsValue }] = useForm({
     labelWidth: 100,
     schemas: purchaseFormSchema,
     showActionButtonGroup: false,
@@ -102,7 +103,7 @@
     if (!visible) projectSequence++;
   }
   async function onProjectOpen(open: boolean) {
-    if (!open || projectLoading.value || projectLoaded.value) return;
+    if (!open || !isProjectPurchase(getFieldsValue().purchaseType) || projectLoading.value || projectLoaded.value) return;
     const sequence = projectSequence;
     projectLoading.value = true;
     try {
@@ -121,6 +122,16 @@
   function onProjectSelect(_periodId: string, option: any) {
     projectIdRef.value = option?.projectId || '';
     setFieldsValue({ projectName: option?.projectName || '' });
+  }
+
+  function onPurchaseTypeChange(value: unknown) {
+    if (isProjectPurchase(value)) return;
+    projectSequence++;
+    projectLoading.value = false;
+    projectLoaded.value = false;
+    projectOptions.value = [];
+    projectIdRef.value = '';
+    setFieldsValue({ periodId: undefined, projectName: '' });
   }
 
   function onSupplierSelect(_name: string, option: any) {
@@ -200,6 +211,7 @@
     supplierOptions.value = [...suppliers]; // 打开即展示预载的供应商首页
     await resetFields();
     await updateSchema([
+      { field: 'purchaseType', componentProps: { onChange: onPurchaseTypeChange } },
       {
         field: 'supplierName',
         componentProps: { options: supplierOptions, onSearch: onSupplierSearch, onSelect: onSupplierSelect },
@@ -225,13 +237,11 @@
         projectOptions.value = detail.periodId
           ? [purchaseEditProjectOption(detail, record)]
           : [];
-        if (detail.periodId && (!projectOptions.value[0]?.projectName || !projectOptions.value[0]?.periodName)) {
-          await onProjectOpen(true);
-        }
         supplierIdRef.value = detail.supplierId || '';
         projectIdRef.value = detail.projectId || '';
         preselectSupplier(detail.supplierName);
         setFieldsValue({
+          purchaseType: detail.purchaseType == null ? undefined : String(detail.purchaseType),
           supplierName: detail.supplierName,
           periodId: detail.periodId == null ? undefined : String(detail.periodId),
           projectName: detail.projectName,
@@ -280,11 +290,10 @@
       return;
     }
     const payload = {
+      purchaseType: String(values.purchaseType),
       supplierId: supplierIdRef.value,
       supplierName: values.supplierName,
-      projectId: projectIdRef.value,
-      periodId: values.periodId,
-      projectName: values.projectName,
+      ...purchaseProjectPayload(values, projectIdRef.value, isUpdate.value),
       orderDate: values.orderDate,
       expectedArrivalDate: values.expectedArrivalDate,
       remark: values.remark,

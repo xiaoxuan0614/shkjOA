@@ -35,8 +35,7 @@
   import { useListPage } from '/@/hooks/system/useListPage';
   import { useMessage } from '/@/hooks/web/useMessage';
   import { purchaseColumns, searchFormSchema } from './Purchase.data';
-  import { list, listPurchaseProjects, changeStatus, getSuppliers } from './Purchase.api';
-  import { loadPurchaseProjects } from './purchaseProjectOptions';
+  import { list, changeStatus, getSuppliers } from './Purchase.api';
   import { loadDictMap } from '../material.util';
   import { ensureSupplierOptions } from '../material.options';
   import PurchaseModal from './PurchaseModal.vue';
@@ -80,37 +79,10 @@
   const [registerCloseModal, { openModal: openCloseModal }] = useModal();
   const [registerDetailDrawer, { openDrawer: openDetailDrawer }] = useDrawer();
 
-  // 分期映射：列表 periodId → periodName 解析（后端列表/详情只回 periodId 时兜底）
-  const periodMap = ref<Record<string, { projectName: string; periodName: string }>>({});
-  let periodMapLoaded = false;
-  async function ensurePeriodMap() {
-    if (periodMapLoaded) return;
-    try {
-      const recs = await loadPurchaseProjects(listPurchaseProjects);
-      periodMap.value = Object.fromEntries(recs.map((p) => [p.value, { projectName: p.projectName, periodName: p.periodName }]));
-      periodMapLoaded = true;
-    } catch (e) {
-      // 失败不阻塞列表，仅 periodName 留空
-    }
-  }
-
-  /** 列表包装：查询后按 periodMap 补 periodName */
-  async function listWithPeriod(params: any) {
-    await ensurePeriodMap();
-    const res: any = await list(params);
-    const records = res?.records || (Array.isArray(res) ? res : []);
-    (records || []).forEach((r: any) => {
-      const names = periodMap.value[r.periodId];
-      if (!r.periodName) r.periodName = names?.periodName || '';
-      if (!r.projectName) r.projectName = names?.projectName || '';
-    });
-    return res;
-  }
-
   const { tableContext } = useListPage({
     tableProps: {
       title: '采购入库',
-      api: listWithPeriod,
+      api: list,
       columns: purchaseColumns,
       canResize: true,
       // 列表筛选：采购单号/供应商/项目名称/状态

@@ -9,13 +9,16 @@
         <TableAction :actions="getTableAction(record)" />
       </template>
       <template #bodyCell="{ column, record }">
-        <template v-if="column.dataIndex === 'status'">
+        <template v-if="column.dataIndex === 'projectType' || column.dataIndex === 'involvedProducts'">
+          {{ dictText(record[column.dataIndex], column.dataIndex) }}
+        </template>
+        <template v-else-if="column.dataIndex === 'status'">
           <a-tag :color="statusMeta[record.status]?.color || 'default'">
             {{ statusMeta[record.status]?.text || record.status || '—' }}
           </a-tag>
         </template>
-        <template v-else-if="column.dataIndex === 'adopted'">
-          <a-tag :color="isQuotationAdopted(record) ? 'success' : 'default'">{{ isQuotationAdopted(record) ? '已采用' : '未采用' }}</a-tag>
+        <template v-else-if="column.dataIndex === 'adopted' || column.dataIndex === 'priced'">
+          <a-tag :color="yesNoColor(record[column.dataIndex])">{{ dictText(record[column.dataIndex], 'yesNo') }}</a-tag>
         </template>
       </template>
     </BasicTable>
@@ -28,7 +31,7 @@ v-model:open="serviceFeeOpen" title="服务费维护" :width="1000" :footer="nul
 
     <a-modal v-model:open="addModalOpen" title="新增报价" ok-text="下一步" cancel-text="取消" :confirm-loading="periodLoading" :ok-button-props="{ disabled: periodLoading || !selectedPeriodId }" @ok="confirmAdd">
       <a-form layout="vertical">
-        <a-form-item label="项目分期" required>
+        <a-form-item label="项目名称" required>
           <a-select
             v-model:value="selectedPeriodId"
             show-search
@@ -37,22 +40,23 @@ v-model:open="serviceFeeOpen" title="服务费维护" :width="1000" :footer="nul
             :options="periodOptions"
             :loading="periodLoading"
             @dropdown-visible-change="loadPeriods"
-            placeholder="请选择需要报价的项目分期"
+            placeholder="请选择需要报价的项目名称"
           >
             <template #notFoundContent>
-              <span v-if="periodLoading" role="status"><a-spin size="small" /> 正在加载项目分期…</span>
-              <span v-else>{{ periodFailed ? '加载失败，请重新展开重试' : '暂无匹配的项目分期' }}</span>
+              <span v-if="periodLoading" role="status"><a-spin size="small" /> 正在加载项目名称…</span>
+              <span v-else>{{ periodFailed ? '加载失败，请重新展开重试' : '暂无匹配的项目名称' }}</span>
             </template>
           </a-select>
         </a-form-item>
       </a-form>
-      <a-empty v-if="periodLoaded && !periodLoading && !periodOptions.length" description="当前没有可新增报价的项目分期" />
+      <a-empty v-if="periodLoaded && !periodLoading && !periodOptions.length" description="当前没有可新增报价的项目名称" />
     </a-modal>
   </div>
 </template>
 
 <script lang="ts" name="quotation-management-list" setup>
-  import { computed, defineAsyncComponent, ref, watch } from 'vue';
+  import { computed, defineAsyncComponent, onMounted, ref, watch } from 'vue';
+  import { loadProjectTypeOptions, loadProductOptions } from '/@/views/project/Project.data';
   import { useRouter } from 'vue-router';
   import { BasicTable, TableAction } from '/@/components/Table';
   import type { ActionItem } from '/@/components/Table';
@@ -60,11 +64,10 @@ v-model:open="serviceFeeOpen" title="服务费维护" :width="1000" :footer="nul
   import { useMessage } from '/@/hooks/web/useMessage';
   import { usePermission } from '/@/hooks/web/usePermission';
   import { useUserStore } from '/@/store/modules/user';
-  import { quotationListStatusMap, quotationColumns, quotationSearchFormSchema } from '../Plan.data';
+  import { quotationListStatusMap, quotationColumns, quotationSearchFormSchema, loadQuotationYesNoOptions } from '../Plan.data';
   import { exportCandidateMaterials } from '../materialExcel';
   import {
     getQuotationPeriods,
-    isQuotationAdopted,
     quotationList,
     candidateAction,
     checkCandidateExport,
@@ -87,24 +90,47 @@ v-model:open="serviceFeeOpen" title="服务费维护" :width="1000" :footer="nul
   const serviceFeeBusy = ref(false);
   const canMaintainServiceFees = computed(() => ['mtl:serviceFee:add', 'mtl:serviceFee:edit', 'mtl:serviceFee:delete'].some(code => hasPermission(code)));
   const statusMeta = quotationListStatusMap;
+  const dictionaries = ref<Record<string, Record<string, string>>>({ projectType: {}, involvedProducts: {}, yesNo: {} });
+  const yesNoColors = ref<Record<string, string>>({});
+  function yesNoColor(value: unknown) {
+    const code = String(value ?? '').trim();
+    return yesNoColors.value[code] || (code === '1' ? 'success' : 'default');
+  }
+  function dictText(value: unknown, field: string) {
+    const raw = String(value ?? '').trim();
+    if (!raw) return '—';
+    const map = dictionaries.value[field] || {};
+    return map[raw] || raw.split(',').map(code => map[code.trim()] || code.trim()).join('、');
+  }
+  onMounted(async () => {
+    const [types, products, yesNo] = await Promise.all([loadProjectTypeOptions(), loadProductOptions(), loadQuotationYesNoOptions()]);
+    yesNoColors.value = Object.fromEntries(yesNo.map(item => [String(item.value), item.color || '']));
+    dictionaries.value = {
+      projectType: Object.fromEntries(types.map(item => [String(item.value), item.label])),
+      involvedProducts: Object.fromEntries(products.map(item => [String(item.value), item.label])),
+      yesNo: Object.fromEntries(yesNo.map(item => [String(item.value), item.label])),
+    };
+  });
   const operatingId = ref('');
   const exportingId = ref('');
   const addModalOpen = ref(false);
   const selectedPeriodId = ref<string>();
   const candidateName = ref('');
-  const periodOptions = ref<{ label: string; value: string; projectName: string }[]>([]);
+  const periodOptions = ref<{ label: string; value: string; projectName: string; periodName: string }[]>([]);
   const periodLoading = ref(false);
   const periodLoaded = ref(false);
   const periodFailed = ref(false);
   let periodSequence = 0;
 
+  function defaultCandidateName(periodId?: string) {
+    const period = periodOptions.value.find(item => item.value === periodId);
+    return period ? `${period.projectName}${period.periodName}报价单` : '';
+  }
   // 仅更新空名称或上次自动生成的名称，保留用户手动填写的内容。
   watch(selectedPeriodId, (periodId, previousPeriodId) => {
-    const previousProjectName = periodOptions.value.find((item) => item.value === previousPeriodId)?.projectName;
-    const previousDefaultName = previousProjectName ? `${previousProjectName}报价单` : '';
+    const previousDefaultName = defaultCandidateName(previousPeriodId);
     if (candidateName.value.trim() && candidateName.value !== previousDefaultName) return;
-    const projectName = periodOptions.value.find((item) => item.value === periodId)?.projectName;
-    candidateName.value = projectName ? `${projectName}报价单` : '';
+    candidateName.value = defaultCandidateName(periodId);
   });
 
   const { tableContext } = useListPage({
@@ -114,7 +140,8 @@ v-model:open="serviceFeeOpen" title="服务费维护" :width="1000" :footer="nul
       rowKey: 'id',
       columns: [
         ...quotationColumns,
-        { title: '定价状态', dataIndex: 'priced', width: 100, customRender: ({ text }) => (String(text) === '1' ? '已定价' : '未定价') },
+        { title: '创建人', dataIndex: 'createBy', width: 120, customRender: ({ text }) => String(text ?? '').trim() || '—' },
+        { title: '定价状态', dataIndex: 'priced', width: 100 },
       ],
       actionColumn: { width: 390, fixed: 'right', title: '操作', dataIndex: 'action', slots: { customRender: 'action' } },
       canResize: true,
@@ -152,9 +179,10 @@ v-model:open="serviceFeeOpen" title="服务费维护" :width="1000" :footer="nul
     try {
       const periods = await getQuotationPeriods();
       if (sequence !== periodSequence) return;
-      periodOptions.value = periods.map((item: any) => ({
+      periodOptions.value = periods.filter((item: any) => item.periodId != null && String(item.periodId).trim()).map((item: any) => ({
         value: String(item.periodId),
         projectName: String(item.projectName || '').trim(),
+        periodName: String(item.periodName || '').trim(),
         label: `${item.projectName || '未命名主项目'} / ${item.periodName || '未命名分期'}（${item.periodId}）`,
       }));
       periodLoaded.value = true;

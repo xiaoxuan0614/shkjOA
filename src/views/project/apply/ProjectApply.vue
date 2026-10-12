@@ -5,7 +5,7 @@
       <a-alert v-if="!editId" type="info" show-icon class="project-apply__mode">
         <template #message>{{ createModeTitle }}</template>
         <template #description>
-          <span v-if="isPeriodCreate">所属主项目：{{ selectedMainProjectName || '加载中…' }}</span>
+          <span v-if="isPeriodCreate">所属主项目：{{ selectedMainProjectName || '加载中…' }}；甲方信息继承自主项目，不可修改。</span>
           <span v-else>请填写新的主项目及首个分期信息，保存后将一次创建完成。</span>
         </template>
       </a-alert>
@@ -49,6 +49,7 @@
   import { loadUserOptions } from '/@/views/resource/userOptions';
   import { previewFileInModal } from '/@/utils/filePreview';
   import { projectCreateDraftKey, readProjectCreateDraft, saveProjectCreateDraft, removeProjectCreateDraft } from '/@/utils/projectCreateDraft';
+  import { bindTabDraft } from '/@/utils/tabDraftLifetime';
 
   const router = useRouter();
   const route = useRoute();
@@ -66,6 +67,7 @@
   const isPeriodCreate = computed(() => !editId.value && createMode.value === 'period');
   const selectedParentProjectId = computed(() => String(route.query?.parentProjectId || ''));
   const selectedMainProjectName = ref('');
+  const inheritedCustomer = ref<Recordable>();
   const createModeTitle = computed(() => (isPeriodCreate.value ? '已有主项目下新增分期' : '新建主项目'));
 
   // 客户列表(甲方选择带出)
@@ -81,7 +83,8 @@
   const [registerForm, { setFieldsValue, getFieldsValue, resetFields, validate, updateSchema }] = useForm({
     labelWidth: 120,
     schemas: projectFormSchema.map((schema) =>
-      schema.field === 'projectName' ? { ...schema, dynamicDisabled: () => isPeriodCreate.value } : schema
+      ['projectName', 'customerId', 'contactPerson', 'contactPhone', 'customerInfo'].includes(schema.field)
+        ? { ...schema, dynamicDisabled: () => isPeriodCreate.value } : schema
     ),
     showActionButtonGroup: false,
     baseColProps: { span: 12 },
@@ -91,13 +94,14 @@
   const draftToken = userStore.getToken;
   const draftUser: any = userStore.getUserInfo;
   const draftKey = projectCreateDraftKey(String(draftUser.id || draftUser.userId || ''), String(draftUser.loginTenantId || ''), createMode.value, selectedParentProjectId.value);
+  const draftLifetime = bindTabDraft(route.path, draftKey, () => removeProjectCreateDraft(draftKey));
   let draftReady = false;
   let disposed = false;
   let draftFinished = false;
   let draftTimer: ReturnType<typeof setTimeout> | undefined;
   let storageWarningShown = false;
   function persistDraft() {
-    if (editId.value || !draftReady || draftFinished || userStore.getToken !== draftToken) return;
+    if (!draftLifetime.isOpen() || editId.value || !draftReady || draftFinished || userStore.getToken !== draftToken) return;
     try { saveProjectCreateDraft(draftKey, getFieldsValue(), selectedAttachment.value); }
     catch {
       if (!storageWarningShown) createMessage.warning('浏览器草稿缓存不可用，请保存后再离开页面');
@@ -127,6 +131,7 @@
   onBeforeUnmount(() => {
     persistDraft();
     disposed = true;
+    draftLifetime.release();
     clearTimeout(draftTimer);
     window.removeEventListener('pagehide', persistDraft);
   });
@@ -135,7 +140,11 @@
    * 加载主项目列表, 注入「所属主项目」下拉(未选/不选则为新建主项目)
    */
   async function loadMainProjects() {
-    const res: any = await getMainProjectList({ pageNo: 1, pageSize: 1000 });
+    inheritedCustomer.value = undefined;
+    // 新增分期沿用搜索接口选中记录，不再补查主项目列表。
+    const res: any = isPeriodCreate.value
+      ? { records: [{ id: selectedParentProjectId.value, projectName: String(route.query.parentProjectName || ''), customerId: String(route.query.parentCustomerId || '') }] }
+      : await getMainProjectList({ pageNo: 1, pageSize: 1000 });
     const data = res?.records || res || [];
     mainProjectMap = (data || []).reduce((map, p) => {
       map[p.id] = p;
@@ -161,6 +170,27 @@
       }
       selectedMainProjectName.value = parent.projectName || '';
       await setFieldsValue({ projectId: parent.id, projectName: parent.projectName || '' });
+      try {
+        if (!parent.customerId) throw new Error('主项目未关联甲方，请先维护主项目甲方信息');
+        const customerPage = await getCustomerList({ id: String(parent.customerId), pageNo: 1, pageSize: 1 });
+        const customer = (customerPage?.records || []).find((item) => String(item.id) === String(parent.customerId));
+        if (!customer?.id || String(customer.id) !== String(parent.customerId)) throw new Error('主项目甲方不存在或不可访问');
+        if (!customer.customerName || !customer.contactPerson || !customer.contactPhone) {
+          throw new Error('主项目甲方名称、联系人或电话不完整，请先在客户维护中补齐');
+        }
+        customerMap[customer.id] = customer;
+        inheritedCustomer.value = {
+          customerId: customer.id,
+          customerName: customer.customerName,
+          contactPerson: customer.contactPerson,
+          contactPhone: customer.contactPhone,
+          customerInfo: customer.customerInfo ?? '',
+        };
+        await updateSchema({ field: 'customerId', componentProps: { options: [{ label: customer.customerName, value: customer.id }] } });
+        await setFieldsValue(inheritedCustomer.value);
+      } catch (error) {
+        createMessage.error(error instanceof Error ? error.message : '甲方信息加载失败，请刷新重试');
+      }
     }
   }
 
@@ -198,6 +228,7 @@
    * 选客户后带出联系人/电话/甲方信息
    */
   async function handleCustomerChange(id: any) {
+    if (isPeriodCreate.value) return;
     const c = customerMap[id];
     if (!c) return;
     await setFieldsValue({
@@ -323,6 +354,13 @@
   async function handleSave() {
     try {
       saving.value = true;
+      if (isPeriodCreate.value) {
+        if (!inheritedCustomer.value) {
+          createMessage.warning('甲方信息未完整加载，请先维护主项目关联客户或刷新重试');
+          return;
+        }
+        await setFieldsValue(inheritedCustomer.value);
+      }
       const values = await validate();
       if (isPeriodCreate.value && !selectedParentProjectId.value) {
         createMessage.warning('缺少所属主项目，请返回项目列表重新选择');
@@ -381,14 +419,14 @@
   }
 
   onMounted(async () => {
-    await loadCustomers();
+    if (!isPeriodCreate.value) await loadCustomers();
     await loadMainProjects();
     await loadLiaisons();
     await loadAddressSelect();
     if (disposed) return;
     if (editId.value) {
       await loadDetail();
-    } else if (userStore.getToken === draftToken) {
+    } else if (draftLifetime.isOpen() && userStore.getToken === draftToken) {
       const draft = readProjectCreateDraft(draftKey);
       if (draft) {
         const values = { ...draft.values };
@@ -398,6 +436,8 @@
         if (isPeriodCreate.value) {
           values.projectId = selectedParentProjectId.value;
           values.projectName = selectedMainProjectName.value;
+          for (const field of ['customerId', 'customerName', 'contactPerson', 'contactPhone', 'customerInfo']) delete values[field];
+          Object.assign(values, inheritedCustomer.value || {});
         }
         await setFieldsValue(values);
         await updateSchema({ field: 'projectAddress', componentProps: { lng: values.longitude ?? null, lat: values.latitude ?? null } });

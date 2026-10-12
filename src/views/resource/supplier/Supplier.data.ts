@@ -1,4 +1,5 @@
 import { BasicColumn, FormSchema } from '/@/components/Table';
+import { extendCounterpartyForm } from '../counterpartyForm';
 
 /**
  * 供应商管理 - 列定义 / 表单
@@ -73,79 +74,82 @@ export const searchFormSchema: FormSchema[] = [
 ];
 
 /** 新增/编辑表单 */
-export const formSchema: FormSchema[] = [
-  {
-    label: '供应商编号',
-    field: 'supplierNo',
-    component: 'Input',
-    componentProps: { placeholder: '新增后自动生成', disabled: true },
-  },
-  {
-    label: '供应商名称',
-    field: 'supplierName',
-    component: 'Input',
-    componentProps: { placeholder: '请输入供应商名称' },
-    dynamicRules: () => [{ required: true, message: '请输入供应商名称!' }],
-  },
-  {
-    label: '对接人',
-    field: 'liaisonUserId',
-    component: 'Select',
-    componentProps: {
-      showSearch: true,
-      allowClear: true,
-      placeholder: '输入姓名模糊搜索',
-      options: [], // 输入后模糊加载(SupplierModal onSearch 注入)
-      filterOption: false,
+export const formSchema: FormSchema[] = extendCounterpartyForm(
+  [
+    {
+      label: '供应商编号',
+      field: 'supplierNo',
+      component: 'Input',
+      componentProps: { placeholder: '新增后自动生成', disabled: true },
     },
-  },
-  {
-    label: '',
-    field: 'liaisonUserName',
-    component: 'Input',
-    show: false,
-  },
-  {
-    label: '联系人',
-    field: 'contactPerson',
-    component: 'Input',
-    componentProps: { placeholder: '请输入联系人' },
-  },
-  {
-    label: '联系电话',
-    field: 'contactPhone',
-    component: 'Input',
-    componentProps: { placeholder: '请输入联系电话' },
-  },
-  {
-    label: '地址',
-    field: 'address',
-    component: 'Input',
-    componentProps: { placeholder: '请输入地址' },
-  },
-  {
-    label: '开户银行',
-    field: 'bankName',
-    component: 'Input',
-    componentProps: { placeholder: '请输入开户银行' },
-  },
-  {
-    label: '银行账号',
-    field: 'bankAccount',
-    component: 'Input',
-    componentProps: { placeholder: '请输入银行账号' },
-  },
-  {
-    label: '备注',
-    field: 'remark',
-    component: 'InputTextArea',
-    componentProps: { placeholder: '请输入备注', rows: 2 },
-  },
-  // 主键隐藏字段(编辑回显 id，保存时更新而非新增)
-  {
-    label: '',
-    field: 'id',
-    component: 'Input',
-    show: false,
-  },
-];
+    {
+      label: '供应商名称',
+      field: 'supplierName',
+      component: 'Input',
+      componentProps: { placeholder: '请输入供应商名称' },
+      dynamicRules: () => [{ required: true, message: '请输入供应商名称!' }],
+    },
+    {
+      label: '对接人',
+      field: 'liaisonUserId',
+      component: 'Select',
+      componentProps: {
+        showSearch: true,
+        allowClear: true,
+        placeholder: '输入姓名模糊搜索',
+        options: [], // 输入后模糊加载(SupplierModal onSearch 注入)
+        filterOption: false,
+      },
+    },
+    {
+      label: '',
+      field: 'liaisonUserName',
+      component: 'Input',
+      show: false,
+    },
+    {
+      label: '联系人',
+      field: 'contactPerson',
+      component: 'Input',
+      componentProps: { placeholder: '请输入联系人' },
+    },
+    {
+      label: '联系电话',
+      field: 'contactPhone',
+      component: 'Input',
+      componentProps: { placeholder: '请输入联系电话' },
+    },
+    {
+      label: '地址',
+      field: 'address',
+      component: 'Input',
+      componentProps: { placeholder: '请输入地址' },
+    },
+    {
+      label: '开户银行',
+      field: 'bankName',
+      component: 'Input',
+      componentProps: { placeholder: '请输入开户银行' },
+    },
+    {
+      label: '银行账号',
+      field: 'bankAccount',
+      component: 'Input',
+      componentProps: { placeholder: '请输入银行账号' },
+    },
+    {
+      label: '备注',
+      field: 'remark',
+      component: 'InputTextArea',
+      componentProps: { placeholder: '请输入备注', rows: 2 },
+    },
+    // 主键隐藏字段(编辑回显 id，保存时更新而非新增)
+    {
+      label: '',
+      field: 'id',
+      component: 'Input',
+      show: false,
+    },
+  ],
+  '供应商'
+);

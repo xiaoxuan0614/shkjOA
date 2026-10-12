@@ -1,0 +1,74 @@
+const fs = require('node:fs');
+const assert = require('node:assert/strict');
+const ts = require('typescript');
+const sfc = require('@vue/compiler-sfc');
+const { ref } = require('vue');
+const source = fs.readFileSync('src/views/plan/material-draft/QuotationGrantModal.vue', 'utf8');
+const { descriptor, errors } = sfc.parse(source);
+assert.deepEqual(errors, []);
+sfc.compileScript(descriptor, { id: 'grant' });
+assert.deepEqual(sfc.compileTemplate({ source: descriptor.template.content, filename: 'grant.vue', id: 'grant' }).errors, []);
+assert(source.includes('title="报价单授权"'));
+assert(!source.includes('canViewPrice'));
+const ast = ts.createSourceFile('grant.ts', descriptor.scriptSetup.content, ts.ScriptTarget.Latest, true);
+const functions = ast.statements.filter(n => ts.isFunctionDeclaration(n) && ['applySelection', 'save', 'updateGrant', 'removeGrant'].includes(n.name?.text));
+const state = { props: { periodId: 'period' }, grants: ref([]), userId: ref('user'), version: ref(0),
+  canViewCost: ref(false), canViewQuote: ref(false), canRevise: ref(false), canExport: ref(false),
+  saving: ref(false), loading: ref(false), failed: ref('') };
+const requests = [], warnings = [], errorsSeen = [];
+let latest = [];
+const mocks = { hasPermission: () => true, getQuotationAccess: async () => ({ canManage: true }),
+  getQuotationGrants: async () => latest, saveQuotationGrant: async p => requests.push(p),
+  quotationVersion: value => { assert(Number.isSafeInteger(value)); return value; },
+  createMessage: { warning: m => warnings.push(m), error: m => errorsSeen.push(m), success() {} }, emit() {} };
+const scope = { ...state, ...mocks };
+const run = new Function(...Object.keys(scope), ts.transpile(functions.map(n => n.getText(ast)).join('\n')) + '\nreturn { applySelection, save, removeGrant };')(...Object.values(scope));
+(async () => {
+  state.grants.value = [{ userId: 'user', version: 4, canViewCost: 1, canViewQuote: 0, canEditPrice: 0, canExport: 0 }];
+  latest = state.grants.value;
+  run.applySelection();
+  assert.equal(state.canViewCost.value, true);
+  assert.equal(state.canViewQuote.value, false);
+  await run.save();
+  assert.deepEqual(requests.pop(), { periodId: 'period', userId: 'user', version: 4, canViewCost: true, canViewQuote: false, canRevise: false, canEditPrice: false, canExport: false });
+  state.userId.value = 'user';
+  state.canViewCost.value = false;
+  state.canViewQuote.value = true;
+  await run.save();
+  const quote = requests.pop();
+  assert.equal(quote.canViewCost, false);
+  assert.equal(quote.canViewQuote, true);
+  assert.equal(quote.canViewRate, undefined, 'ordinary update preserves unmanaged flags');
+  assert.equal(quote.canRevise, false);
+  state.userId.value = 'user';
+  state.canRevise.value = true;
+  await run.save();
+  const revision = requests.pop();
+  assert.equal(revision.canRevise, true, '合同修改勾选提交修订权限');
+  assert.equal(revision.canEditPrice, false, '不附带价格编辑授权');
+  latest[0].canEditPrice = 1;
+  latest[0].canRevise = 0;
+  state.userId.value = 'user';
+  run.applySelection();
+  assert.equal(state.canRevise.value, false, '价格编辑权限不能回显为合同修改');
+  state.canViewQuote.value = true;
+  await run.save();
+  assert.equal(requests.pop().canEditPrice, true, '普通保存保留独立旧权限');
+  state.userId.value = 'user';
+  state.canViewQuote.value = false;
+  state.canExport.value = true;
+  await run.save();
+  assert.equal(requests.length, 0);
+  assert(warnings.at(-1).includes('查看指导价'));
+  await run.removeGrant(latest[0]);
+  const revoked = requests.pop();
+  for (const key of ['canViewCost', 'canViewQuote', 'canViewRate', 'canEditPrice', 'canExport', 'canRevise']) assert.equal(revoked[key], false);
+  state.userId.value = 'user';
+  state.canExport.value = false;
+  state.canViewCost.value = true;
+  state.version.value = 3;
+  await run.save();
+  assert.equal(requests.length, 0);
+  assert(errorsSeen.at(-1).includes('授权已变化'));
+  console.log('PASS grant fields: hydration, independent save/revoke, version conflict and SFC');
+})().catch(e => { console.error(e); process.exitCode = 1; });

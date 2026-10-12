@@ -1,0 +1,63 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const ts = require('typescript');
+const { parse, compileScript, compileTemplate } = require('@vue/compiler-sfc');
+function load(file, deps = {}) {
+  const source = fs.readFileSync(file, 'utf8');
+  const result = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } });
+  const mod = { exports: {} };
+  new Function('require', 'module', 'exports', result.outputText)((key) => {
+    if (deps[key]) return deps[key];
+    throw Error(`Unexpected runtime dependency: ${key}`);
+  }, mod, mod.exports);
+  return mod.exports;
+}
+const shared = load('src/views/resource/counterpartyForm.ts');
+const sections = load('src/views/resource/useCounterpartySections.ts', { vue: require('vue') });
+for (const [folder, name] of [['customer', 'Customer'], ['supplier', 'Supplier']]) {
+  const { formSchema } = load(`src/views/resource/${folder}/${name}.data.ts`, { '../counterpartyForm': shared });
+  const fields = new Map(formSchema.map((item) => [item.field, item]));
+  const grouped = sections.useCounterpartySections(formSchema, () => {});
+  assert(grouped.formClass.value.includes('counterparty-open-basic'));
+  assert(!grouped.formClass.value.includes('counterparty-open-finance'));
+  assert(!grouped.formClass.value.includes('counterparty-open-other'));
+  assert.equal(grouped.schemas.length, formSchema.length + 3);
+  const email = grouped.schemas.find((item) => item.field === 'contactEmail');
+  assert.equal(email.show, fields.get('contactEmail').show, 'collapse must not disable validation');
+  assert.equal(email.rules, fields.get('contactEmail').rules);
+  const heading = grouped.schemas.find((item) => item.field === '_section_finance');
+  heading.renderColContent().props.onClick();
+  assert(grouped.formClass.value.includes('counterparty-open-finance'));
+  grouped.resetSections();
+  assert(!grouped.formClass.value.includes('counterparty-open-finance'));
+  grouped.revealField(['contactEmail']);
+  assert(grouped.formClass.value.includes('counterparty-open-other'), 'validation reveals collapsed field');
+  assert.equal(fields.size, formSchema.length, 'no duplicate fields');
+  for (const field of ['counterpartyCategory', 'contactFax', 'contactEmail', 'bankRoutingNo', 'paymentTerms', 'legalRepresentative', 'taxNo', 'createBy', 'sourceCreatedOn', 'sourceStatus', 'taxRate', 'invoiceType', 'longitude', 'latitude']) assert(fields.has(field), field);
+  assert.equal(fields.get('taxNo').label, '社会信用代码');
+  assert.equal(fields.get('createBy').componentProps.disabled, true);
+  assert.deepEqual(fields.get('invoiceType').componentProps.options.map((item) => item.value), ['专票', '普票']);
+  assert.equal(fields.get('sourceCreatedOn').componentProps.valueFormat, 'YYYY-MM-DD');
+  const model = { address: '原地址', longitude: 0, latitude: 0 };
+  const props = fields.get('address').componentProps({ formModel: model, formActionType: { setFieldsValue: (values) => Object.assign(model, values) } });
+  assert.equal(props.lng, 0);
+  assert.equal(props.lat, 0);
+  assert.equal(props.autoLocate, false);
+  props.onSelect(null);
+  assert.equal(model.address, '原地址');
+  props.onSelect({ address: '新地址', lng: 120.123456, lat: 30.123456 });
+  assert.deepEqual(model, { address: '新地址', longitude: 120.123456, latitude: 30.123456 });
+  props.onSelect({ address: '无效', lng: NaN, lat: 30 });
+  assert.equal(model.address, '新地址');
+  const filename = `src/views/resource/${folder}/${name}Modal.vue`;
+  const source = fs.readFileSync(filename, 'utf8');
+  assert(source.includes('buildCounterpartyPayload(values)'));
+  assert(source.includes('await revealField(errorFields[0].name)'));
+  assert(source.includes('calc(100vw - 32px)'));
+  const { descriptor } = parse(source);
+  compileScript(descriptor, { id: folder });
+  assert.deepEqual(compileTemplate({ source: descriptor.template.content, filename, id: folder }).errors, []);
+}
+assert.deepEqual(shared.buildCounterpartyPayload({ id: '1', taxRate: 0, longitude: 0, latitude: 0, invoiceType: '专票', contactEmail: '', sourceStatus: null, remark: '  ', sourceCreatedOn: undefined, createBy: 'ignored', sourceCreatedBy: 'ignored', updateBy: 'ignored' }), { id: '1', taxRate: 0, longitude: 0, latitude: 0, invoiceType: '专票' });
+assert.deepEqual(shared.buildCounterpartyPayload({ taxRate: 13, sourceCreatedOn: '2026-09-30', invoiceType: '普票' }), { taxRate: 13, sourceCreatedOn: '2026-09-30', invoiceType: '普票' });
+console.log('Customer/supplier fields, map confirmation, omission, zero values, and SFC regression passed');

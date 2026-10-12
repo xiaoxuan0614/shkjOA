@@ -17,3 +17,26 @@ assert.equal(label(options, null), '—');
 assert.equal(label(options, 'unknown'), 'unknown');
 assert.equal(label([], '1'), '1');
 console.log('Contract readonly dictionary loading, labels and fallback regression passed');
+
+const detailFile = 'src/views/project/detail/components/DetailContract.vue';
+const detailSource = fs.readFileSync(detailFile, 'utf8');
+const detailDescriptor = parse(detailSource).descriptor;
+compileScript(detailDescriptor, { id: 'detail-contract-dict' });
+assert.deepEqual(compileTemplate({ source: detailDescriptor.template.content, filename: detailFile, id: 'detail-contract-dict' }).errors, []);
+assert.match(detailSource, /getContractDetail\(\{ periodId \}\),\s*Promise.resolve\(\[\]\),\s*loadDictOptions\('contract_type'\),\s*loadDictOptions\('payback_node'\)/);
+assert.match(detailSource, /record.paymentNode_dictText \|\| record.node_dictText \|\| getPaymentNodeText\(record.paymentNode\)/);
+assert.match(detailSource, /paymentNode: record.paymentNode \?\? record.node/);
+const ts = require('typescript');
+function detailFunction(name) {
+  const fn = detailSource.match(new RegExp(`function ${name}\\([^]*?\\n  \\}`))[0];
+  return new Function(ts.transpile(fn) + `; return ${name};`)();
+}
+const optionMap = detailFunction('toOptionMap')([{ value: '0', text: '首款' }, { value: '2', label: '到货款' }]);
+const display = detailFunction('mapDictionaryValue');
+assert.equal(display(0, optionMap), '首款');
+assert.equal(display('2', optionMap), '到货款');
+assert.equal(display(null, optionMap), '—');
+assert.equal(display('', optionMap), '—');
+assert.equal(display('unknown', optionMap), 'unknown');
+assert.equal(display('2', {}), '2');
+console.log('Project detail contract dictionary loading and numeric/string/empty/fallback regression passed');

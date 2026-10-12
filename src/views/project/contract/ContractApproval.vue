@@ -18,7 +18,12 @@
             <a-descriptions-item label="审批状态"><a-tag>{{ statusLabels[instance.status] || instance.status }}</a-tag></a-descriptions-item>
             <a-descriptions-item v-for="key in contractFields.filter(hasField)" :key="key" :label="labels[key]">{{ displayField(key) }}</a-descriptions-item>
             <a-descriptions-item v-for="key in attachments.filter(hasField)" :key="key" :label="labels[key]" :span="2">
-              <a-space v-if="files(key).length" direction="vertical"><a-button v-for="file in files(key)" :key="file.id" :loading="downloading === file.id" :disabled="!!downloading" @click="download(file)">{{ file.fileName || '下载附件' }}</a-button></a-space><span v-else>—</span>
+              <a-space v-if="files(key).length" direction="vertical">
+                <a-space v-for="file in files(key)" :key="file.id" wrap>
+                  <a-button type="link" :loading="downloading === file.id" :disabled="!!downloading" @click="download(file, true)">{{ file.fileName || '预览合同附件' }}</a-button>
+                  <a-button size="small" :disabled="!!downloading" @click="download(file)">下载</a-button>
+                </a-space>
+              </a-space><span v-else>—</span>
             </a-descriptions-item>
             <a-descriptions-item v-if="hasField('quotation')" label="关联报价单" :span="2"><a-button v-if="snapshot.quotation" @click="quotationOpen = true">{{ snapshot.quotation.candidateName || '查看报价详情' }}</a-button><span v-else>未关联报价单</span></a-descriptions-item>
             <a-descriptions-item v-if="hasField('remark')" label="备注" :span="2">{{ snapshot.remark || '—' }}</a-descriptions-item>
@@ -42,7 +47,6 @@
             <a-button v-for="action in task.actions.filter(a => ['APPROVE','REJECT'].includes(a))" :key="action" :type="action === 'APPROVE' ? 'primary' : 'default'" :danger="action === 'REJECT'" :disabled="busy || loading || !!error || !!pending || !!withdrawal" @click="submit(task.taskId, action)">{{ action === 'APPROVE' ? '同意' : '驳回' }}</a-button>
           </a-space>
         </a-card>
-        <a-alert v-else type="info" message="当前没有可办理的审批任务，页面仅供查看。" />
         <a-alert v-if="actionError" type="error" :message="actionError"><template #action><a-button v-if="pending" :loading="busy" @click="retry">重试同一请求</a-button><a-button v-if="withdrawal" :loading="busy" @click="withdraw">重试撤回</a-button></template></a-alert>
         <a-alert v-if="todoError" type="warning" message="审批已成功，待办计数刷新失败，可稍后刷新首页。" />
       </template>
@@ -50,20 +54,21 @@
     <a-drawer :open="recordsOpen" title="审批记录" width="min(640px, 96vw)" @close="recordsOpen = false">
       <template v-if="instance"><a-descriptions :column="1" bordered size="small"><a-descriptions-item label="审批流程">{{ instance.processName || '未命名流程' }}</a-descriptions-item><a-descriptions-item label="流程版本">V{{ instance.version }}</a-descriptions-item></a-descriptions><ApprovalProgress :instance="instance" /></template>
     </a-drawer>
-    <a-drawer :open="quotationOpen" title="关联报价单" width="min(1000px, 96vw)" @close="quotationOpen = false"><SubmittedValue v-if="quotationOpen" :value="snapshot.quotation" /></a-drawer>
+    <a-drawer :open="quotationOpen" title="关联报价单预览（本轮送审快照）" width="min(1400px, 96vw)" @close="quotationOpen = false"><QuotationSnapshotPreview v-if="quotationOpen" :quotation="snapshot.quotation" /></a-drawer>
   </div>
 </template>
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { instanceDetail, instanceActions, handleInstance } from '/@/views/workflow/Workflow.api';
 import type { WorkflowInstance, InstanceActions } from '/@/views/workflow/workflow.types';
-import { newId, statusLabels } from '/@/views/workflow/workflow';
+import { newId, newUUID, statusLabels } from '/@/views/workflow/workflow';
 import ApprovalProgress from '/@/views/workflow/components/ApprovalProgress.vue';
 import { refreshTodos } from '/@/views/todo/useTodoCenter';
 import { downloadByData } from '/@/utils/file/download';
-import { contractApprovalActions, withdrawContractApproval, contractApprovalDetail, contractApprovalAttachment, visibleSubmitted, assertContractApprovalIdentity } from './approval.api';
+import { previewFileInModal } from '/@/utils/filePreview';
+import { contractApprovalActions, withdrawContractApproval, contractApprovalDetail, contractApprovalAttachment, contractSubmittedSnapshot, assertContractApprovalIdentity } from './approval.api';
 import type { ContractApprovalDetail, ContractApprovalActions } from './approval.api';
-import SubmittedValue from './SubmittedValue.vue';
+import QuotationSnapshotPreview from './QuotationSnapshotPreview.vue';
 import { getDictItemsByCode } from '/@/utils/dict';
 const emit = defineEmits<{ (event: 'resubmit', periodId: string, contractId: string): void }>();
 const props = defineProps<{ instanceId: string; contractId?: string; periodId?: string }>();
@@ -86,10 +91,12 @@ async function withdraw() {
   if (!withdrawal.value) {
     if (!currentBusinessActions.value?.canWithdraw) return;
     if (!withdrawComment.value.trim()) { actionError.value = '请填写撤回原因'; return; }
-    withdrawal.value = { contractId: business.value!.businessId, requestId: crypto.randomUUID(), comment: withdrawComment.value.trim() };
   }
   busy.value = true; actionError.value = ''; todoError.value = false;
   try {
+    if (!withdrawal.value) {
+      withdrawal.value = { contractId: business.value!.businessId, requestId: newUUID(), comment: withdrawComment.value.trim() };
+    }
     await withdrawContractApproval({ ...withdrawal.value });
     withdrawal.value = undefined; withdrawComment.value = '';
     await load();
@@ -99,9 +106,9 @@ async function withdraw() {
 }
 let generation = 0;
 const recordsOpen = ref(false), quotationOpen = ref(false);
-const attachments = ['contractAttachments','materialAttachments'];
+const attachments = ['contractAttachments'];
 const labels: Record<string,string> = { contractNo:'合同编号',contractName:'合同名称',contractType:'合同类型',periodId:'分期编号',contractSignedDate:'签订日期',plannedDeliveryDate:'计划交付日期',remark:'备注',salesUserId:'销售负责人编号',salesUserName:'销售负责人',contractAmount:'项目金额',warrantyPeriod:'质保期',projectContext:'项目基本信息（送审时）',quotation:'关联报价单（送审时）',paymentPlan:'回款计划',contractAttachments:'合同附件',materialAttachments:'物料附件' };
-const snapshot = computed(() => visibleSubmitted(business.value?.submitted || {}, business.value?.fieldPermissions || {}) as Record<string, any>);
+const snapshot = computed(() => contractSubmittedSnapshot(business.value, instance.value?.snapshot));
 const contractFields = ['contractType', 'contractNo', 'contractName', 'contractSignedDate', 'plannedDeliveryDate', 'contractAmount', 'warrantyPeriod', 'salesUserName'];
 const hasField = (key: string) => Object.prototype.hasOwnProperty.call(snapshot.value, key);
 const hasProject = (key: string) => Object.prototype.hasOwnProperty.call(snapshot.value.projectContext || {}, key);
@@ -142,11 +149,19 @@ async function load() {
   finally { if (current === generation) loading.value = false; }
 }
 function files(key: string): {id:string;fileName?:string}[] { return Array.isArray(snapshot.value[key]) ? snapshot.value[key].filter(file => file && typeof file.id === 'string') : []; }
-async function download(file: {id:string;fileName?:string}) {
+async function download(file: {id:string;fileName?:string}, preview = false) {
   if (downloading.value) return;
+  const current = generation;
   downloading.value = file.id;
-  try { downloadByData(await contractApprovalAttachment(props.instanceId,file.id),file.fileName || '合同附件'); }
-  catch(e) { actionError.value = e instanceof Error ? e.message : '附件下载失败'; }
+  actionError.value = '';
+  try {
+    const blob = await contractApprovalAttachment(props.instanceId,file.id);
+    if (current !== generation) return;
+    const name = file.fileName || '合同附件';
+    if (preview) previewFileInModal(new File([blob], name, { type: blob.type }));
+    else downloadByData(blob, name);
+  }
+  catch(e) { if (current === generation) actionError.value = e instanceof Error ? e.message : '附件读取失败，请重试'; }
   finally { downloading.value = ''; }
 }
 async function submit(taskId: string, action: string) {

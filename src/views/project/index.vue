@@ -80,7 +80,6 @@
           <a-alert v-if="mainProjectError" type="error" :message="mainProjectError" show-icon>
             <template #action><a-button size="small" @click="mainProjectSearch.retry">重试</a-button></template>
           </a-alert>
-          <a-button v-if="mainProjectHasMore && !mainProjectError" type="link" :loading="mainProjectLoading" @click="mainProjectSearch.loadMore">加载更多主项目</a-button>
         </a-form-item>
       </div>
     </a-modal>
@@ -147,7 +146,7 @@
   const createProjectMode = ref<'project' | 'period'>('project');
   const selectedMainProjectId = ref<string>();
   const mainProjectSearch = useMainProjectSearch(searchPeriod, () => selectedMainProjectId.value);
-  const { options: mainProjectOptions, loading: mainProjectLoading, error: mainProjectError, hasMore: mainProjectHasMore } = mainProjectSearch;
+  const { options: mainProjectOptions, loading: mainProjectLoading, error: mainProjectError } = mainProjectSearch;
   watch(createProjectModalOpen, (open) => { if (!open) mainProjectSearch.close(); }, { flush: 'sync' });
   onBeforeUnmount(mainProjectSearch.close);
   function handleMainProjectScroll(event: Event) {
@@ -253,10 +252,17 @@
       createMessage.warning('请选择所属主项目');
       return;
     }
+    const parent = mainProjectOptions.value.find((item) => item.value === selectedMainProjectId.value);
+    if (createProjectMode.value === 'period' && !parent?.customerId) {
+      createMessage.warning('所选主项目未返回客户ID，请先维护甲方信息后重新选择');
+      return;
+    }
     createProjectModalOpen.value = false;
     router.push({
       path: '/project/apply',
-      query: createProjectMode.value === 'period' ? { mode: 'period', parentProjectId: selectedMainProjectId.value } : { mode: 'project' },
+      query: createProjectMode.value === 'period'
+        ? { mode: 'period', parentProjectId: parent!.value, parentProjectName: parent!.label, parentCustomerId: parent!.customerId }
+        : { mode: 'project' },
     });
   }
 

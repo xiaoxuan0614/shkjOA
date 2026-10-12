@@ -162,13 +162,6 @@ export const formSchema: FormSchema[] = [
     componentProps: { placeholder: '请输入安全库存', min: 0, style: { width: '100%' } },
   },
   {
-    label: '初始库存',
-    field: 'stockQty',
-    component: 'InputNumber',
-    componentProps: { placeholder: '请输入初始库存(基准单位)', min: 0, style: { width: '100%' } },
-    // 新增时可填初始库存；编辑时由页面动态禁用(库存变动统一走「出入库」)
-  },
-  {
     label: '规格参数',
     field: 'specificationParams',
     component: 'InputTextArea',

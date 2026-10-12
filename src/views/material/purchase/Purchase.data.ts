@@ -1,6 +1,7 @@
 import { BasicColumn } from '/@/components/Table';
 import { FormSchema } from '/@/components/Table';
 import { projectDisplayName } from '../../project/projectListFilters';
+import { isProjectPurchase } from './purchaseType';
 
 /**
  * 采购入库 - 列定义 / 表单
@@ -63,6 +64,13 @@ export const searchFormSchema: FormSchema[] = [
 /** 采购订单表单(订单头) */
 export const purchaseFormSchema: FormSchema[] = [
   {
+    label: '采购类型',
+    field: 'purchaseType',
+    component: 'JDictSelectTag',
+    componentProps: { dictCode: 'purchase_order_type', type: 'list', placeholder: '请选择采购类型', allowClear: true },
+    required: true,
+  },
+  {
     label: '供应商',
     field: 'supplierName',
     component: 'Select',
@@ -76,9 +84,10 @@ export const purchaseFormSchema: FormSchema[] = [
     dynamicRules: () => [{ required: true, message: '请选择供应商!' }],
   },
   {
-    label: '项目名称',
+    label: '关联项目',
     field: 'periodId',
     component: 'Select',
+    ifShow: ({ model }) => isProjectPurchase(model.purchaseType),
     componentProps: {
       showSearch: true,
       allowClear: true,
@@ -86,7 +95,7 @@ export const purchaseFormSchema: FormSchema[] = [
       placeholder: '请选择或搜索主项目名称-分期项目名称',
       options: [],
     },
-    dynamicRules: () => [{ required: true, message: '请选择项目!' }],
+    dynamicRules: ({ model }) => [{ required: isProjectPurchase(model.purchaseType), message: '请选择关联项目!' }],
   },
   {
     label: '项目名称',

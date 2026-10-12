@@ -64,8 +64,8 @@ export function normalizeQuotationStatus(status: unknown) {
 /** 名称直接传关键词；0 为有效筛选，空值才省略。 */
 export function quotationFilters(params: Recordable = {}) {
   const filters: Recordable = {};
-  for (const key of ['keyword', 'projectName', 'status', 'adopted']) {
-    const value = params[key];
+  for (const key of ['keyword', 'projectName', 'customerName', 'projectType', 'involvedProducts', 'status', 'adopted']) {
+    const value = key === 'involvedProducts' && Array.isArray(params[key]) ? params[key].map(value => String(value).trim()).filter(Boolean).join(',') : params[key];
     if (value != null && String(value).trim() !== '') filters[key] = typeof value === 'string' ? value.trim() : value;
   }
   return filters;
@@ -91,8 +91,8 @@ export async function quotationList(params: Recordable = {}) {
   };
 }
 
-/** 新增报价仅选择合同待提交、驳回、待审批或已撤回的分期。 */
-export const getQuotationPeriods = () => fetchAllPages((pageParams) => planProjectList({ ...pageParams, contractStatus: '-1,0,2,3' }));
+/** 新增报价项目选择：沿用分页完整加载，不向名称搜索接口传未定义的状态筛选。 */
+export const getQuotationPeriods = () => fetchAllPages((params) => defHttp.get({ url: '/project/period/searchByName', params }));
 
 export const getMaterialCandidateList = (params) => defHttp.get({ url: Api.candidateList, params });
 /** 外层按分期分页，total 为分期数；不改变原候选单分页。 */

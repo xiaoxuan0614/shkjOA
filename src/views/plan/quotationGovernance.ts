@@ -2,12 +2,14 @@
 export interface QuotationAccess {
   canApprove: boolean;
   canManage: boolean;
-  canViewPrice: boolean;
+  canViewQuote?: boolean;
+  canViewCost?: boolean;
+  canViewRate?: boolean;
   canEditPrice: boolean;
   canExport: boolean;
   canRevise: boolean;
 }
-export const noQuotationAccess: QuotationAccess = { canApprove: false, canManage: false, canViewPrice: false, canEditPrice: false, canExport: false, canRevise: false };
+export const noQuotationAccess: QuotationAccess = { canApprove: false, canManage: false, canViewCost: false, canViewRate: false, canViewQuote: false, canEditPrice: false, canExport: false, canRevise: false };
 export function isQuotationApplicant(record: any, user: any) {
   if (!record?.createBy) return false;
   const identities = [user?.username, user?.id, user?.userId].filter(Boolean).map(String);
@@ -32,14 +34,29 @@ export function quotationListCapabilities(record: any, hasButton: (code: string)
 }
 export function normalizeQuotationAccess(value: any): QuotationAccess {
   const canManage = value?.canManage === true;
-  const canViewPrice = canManage || value?.canViewPrice === true;
   return {
     canManage,
     canRevise: value?.canRevise === true,
     canApprove: value?.canApprove === true,
-    canViewPrice,
-    canEditPrice: canViewPrice && (canManage || value?.canEditPrice === true),
+    canViewQuote: value?.canViewQuote === true,
+    canViewCost: value?.canViewCost === true,
+    canViewRate: canManage && value?.canViewRate === true,
+    canEditPrice: canManage || value?.canEditPrice === true,
     canExport: canManage || value?.canExport === true,
+  };
+}
+
+/** 报价自身编辑不接受合同签订的价格修改授权；合同入口继续使用原能力判断。 */
+export function quotationDetailCapabilities(record: any, access: QuotationAccess, user: any, hasButton: (code: string) => boolean) {
+  return quotationCapabilities(record, { ...access, canEditPrice: false }, user, hasButton);
+}
+
+/** 明细字段独立判定；新建报价的成本录入不依赖不存在的候选单权限。 */
+export function quotationDetailFields(record: any, access: QuotationAccess, creating = false, marketEntry = false) {
+  return {
+    cost: access.canManage || access.canViewCost === true || creating,
+    rate: access.canManage,
+    quote: access.canManage || access.canViewQuote === true || (creating && marketEntry),
   };
 }
 export function quotationVersion(value: unknown): number {

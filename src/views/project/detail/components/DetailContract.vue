@@ -84,6 +84,7 @@
   import { expandContractAttachments } from '../../contract/contractAttachments';
   import { computed, ref, watch } from 'vue';
   import { getContractDetail } from '../ProjectDetail.api';
+  import { loadDictOptions } from '../../Project.data';
   import type { UserOption } from '/@/views/resource/userOptions';
   import { previewFileInModal } from '/@/utils/filePreview';
   import { getApprovalStatusMeta } from '/@/utils/approvalStatus';
@@ -132,8 +133,8 @@
       const [contractResult, fileResult, contractTypeResult, paymentNodeResult, userResult] = await Promise.allSettled([
         getContractDetail({ periodId }),
         Promise.resolve([]),
-        Promise.resolve([]),
-        Promise.resolve([]),
+        loadDictOptions('contract_type'),
+        loadDictOptions('payback_node'),
         Promise.resolve([]),
       ]);
       if (currentSequence !== loadSequence) return;

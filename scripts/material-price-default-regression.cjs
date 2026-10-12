@@ -1,0 +1,18 @@
+const fs = require('node:fs'), assert = require('node:assert/strict'), ts = require('typescript'), Big = require('big.js');
+const { parse, compileScript, compileTemplate } = require('@vue/compiler-sfc');
+const filename = 'src/views/material/goods/components/GoodsPriceModal.vue';
+const source = fs.readFileSync(filename, 'utf8');
+const { descriptor } = parse(source);
+compileScript(descriptor, { id: 'price' });
+assert.deepEqual(compileTemplate({ source: descriptor.template.content, filename, id: 'price' }).errors, []);
+const functions = ['formatPrice', 'defaultPrice'].map(name => source.match(new RegExp(`function ${name}\\([^]*?\\n  \\}`))[0]).join('\n');
+const { defaultPrice, formatPrice } = new Function('Big', ts.transpile(functions) + ';return {defaultPrice,formatPrice};')(Big);
+for (const value of [undefined, null, '', ' ', 0, '0']) assert.equal(defaultPrice(value), '0.00');
+assert.equal(defaultPrice('12.3'), '12.30');
+assert.equal(defaultPrice('12.3456'), '12.35');
+assert.equal(defaultPrice('9999999999999999.99'), '9999999999999999.99');
+assert.equal(formatPrice('1', { userTyping: true, input: '1.' }), '1.');
+assert.equal(formatPrice(null), '');
+assert.match(source, /guideMarkupRate', digits: 2/);
+assert.match(source, /unitPrice: detail.unitPrice/);
+console.log('PASS price defaults, two decimals, rounding, large decimals, typing and SFC');

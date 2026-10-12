@@ -1,7 +1,7 @@
 <template>
   <a-modal
     :open="open"
-    title="本分期报价授权"
+    title="报价单授权"
     :width="600"
     :footer="null"
     :mask-closable="!saving"
@@ -9,6 +9,7 @@
     @cancel="close"
   >
     <a-alert v-if="failed" type="error" :message="failed" show-icon />
+    <a-alert type="info" show-icon message="授权范围为本分期的报价单。修改权限仅用于合同签订，不开放报价详情的修改按钮。" />
     <a-form layout="vertical" style="margin-top: 16px">
       <a-form-item label="授权用户" required>
         <div class="authorize-row">
@@ -21,8 +22,11 @@
         <div v-if="usersError" role="alert">{{ usersError }} <a-button type="link" @click="loadUsers">重试</a-button></div>
       </a-form-item>
       <a-form-item label="授权权限" required>
-        <a-checkbox v-model:checked="canEditPrice" :disabled="loading || saving || !!failed">修改</a-checkbox>
+        <a-checkbox v-model:checked="canViewCost" :disabled="loading || saving || !!failed">查看成本</a-checkbox>
+        <a-checkbox v-model:checked="canViewQuote" :disabled="loading || saving || !!failed">查看指导价</a-checkbox>
+        <a-checkbox v-model:checked="canRevise" :disabled="loading || saving || !!failed">修改（合同签订）</a-checkbox>
         <a-checkbox v-model:checked="canExport" :disabled="loading || saving || !!failed">导出</a-checkbox>
+        <div class="permission-help">查看成本：成本单价、成本总价及成本合计。查看指导价：指导价、指导总价及指导报价合计。不包含指导比例。</div>
       </a-form-item>
     </a-form>
     <a-form layout="vertical">
@@ -55,9 +59,11 @@
     userId = ref('');
   const grants = ref<Recordable[]>([]);
   const version = ref(0);
-  const canEditPrice = ref(false);
+  const canRevise = ref(false);
   const canExport = ref(false);
-  const activeGrants = computed(() => grants.value.filter(row => [row.canViewPrice, row.canEditPrice, row.canExport].some(value => Number(value) === 1)));
+  const canViewCost = ref(false);
+  const canViewQuote = ref(false);
+  const activeGrants = computed(() => grants.value.filter(row => [row.canViewCost, row.canViewQuote, row.canViewRate, row.canEditPrice, row.canExport, row.canRevise].some(value => Number(value) === 1)));
   const userOptions = ref<{ label: string; value: string }[]>([]);
   const usersLoading = ref(false);
   const usersError = ref('');
@@ -100,8 +106,10 @@
   function applySelection() {
     const item = grants.value.find((row) => String(row.userId) === String(userId.value));
     version.value = item ? quotationVersion(item.version) : 0;
-    canEditPrice.value = Number(item?.canEditPrice) === 1;
+    canRevise.value = Number(item?.canRevise) === 1;
     canExport.value = Number(item?.canExport) === 1;
+    canViewCost.value = Number(item?.canViewCost) === 1;
+    canViewQuote.value = Number(item?.canViewQuote) === 1;
   }
   watch(userId, applySelection);
   watch(
@@ -138,13 +146,14 @@
     if (saving.value || loading.value || failed.value || !userId.value) return;
     const target = String(userId.value);
     if (target.includes(',')) return createMessage.warning('每次请选择一个用户');
-    if (!canEditPrice.value && !canExport.value) return createMessage.warning('请至少选择一种权限；取消授权请删除已授权用户');
-    await updateGrant(target, version.value, canEditPrice.value, canExport.value);
+    if (![canRevise.value, canExport.value, canViewCost.value, canViewQuote.value].some(Boolean)) return createMessage.warning('请至少选择一种权限；取消授权请删除已授权用户');
+    if ((canRevise.value || canExport.value) && !canViewQuote.value) return createMessage.warning('修改或导出需要查看指导价，请先勾选“查看指导价”');
+    await updateGrant(target, version.value, canRevise.value, canExport.value, canViewCost.value, canViewQuote.value);
   }
   function grantLabel(id: string) {
     const record = grants.value.find(row => String(row.userId) === id);
     if (!record) return id;
-    const permissions = [Number(record.canEditPrice) === 1 ? '修改' : '', Number(record.canExport) === 1 ? '导出' : '', Number(record.canViewPrice) === 1 && Number(record.canEditPrice) !== 1 ? '查看' : ''].filter(Boolean);
+    const permissions = [Number(record.canViewCost) === 1 ? '查看成本' : '', Number(record.canViewQuote) === 1 ? '查看指导价' : '', Number(record.canRevise) === 1 ? '合同修改' : '', Number(record.canExport) === 1 ? '导出' : '', Number(record.canEditPrice) === 1 ? '历史价格修改授权' : '', Number(record.canViewRate) === 1 ? '历史比例授权' : ''].filter(Boolean);
     return `${record.userName || record.userId}（${permissions.join('、')}）`;
   }
   function removeSelectedGrant(event: Event, id: string) {
@@ -154,10 +163,11 @@
   }
   async function removeGrant(row: Recordable) {
     if (saving.value || loading.value || failed.value) return;
-    await updateGrant(String(row.userId), quotationVersion(row.version), false, false);
+    await updateGrant(String(row.userId), quotationVersion(row.version), false, false, false, false, true);
   }
-  async function updateGrant(target: string, expectedVersion: number, canEditPrice: boolean, canExport: boolean) {
-    const payload = { periodId: props.periodId, userId: target, version: expectedVersion, canViewPrice: canEditPrice, canEditPrice, canExport };
+  async function updateGrant(target: string, expectedVersion: number, canRevise: boolean, canExport: boolean, canViewCost: boolean, canViewQuote: boolean, revoke = false) {
+    const payload = { periodId: props.periodId, userId: target, version: expectedVersion, canViewCost, canViewQuote, canRevise, canEditPrice: false, canExport,
+      ...(revoke ? { canViewRate: false } : {}) };
     saving.value = true;
     try {
       if (!hasPermission('plan:quotation:grant') || !(await getQuotationAccess(props.periodId)).canManage) throw new Error('当前无报价授权管理权限');
@@ -166,8 +176,10 @@
       if (!Array.isArray(latest)) throw new Error('授权列表加载失败');
       const current = latest.find((row) => String(row.userId) === target);
       if ((current ? quotationVersion(current.version) : 0) !== payload.version) throw new Error('授权已变化，请关闭后重新打开核对');
+      // 兼容接口必填的独立价格权限；普通授权保留，仅删除用户授权时清除。
+      payload.canEditPrice = !revoke && Number(current?.canEditPrice) === 1;
       await saveQuotationGrant(payload);
-      createMessage.success(canEditPrice || canExport ? '报价授权已保存' : '已删除授权');
+      createMessage.success(revoke ? '已删除授权' : '报价授权已保存');
       userId.value = '';
       emit('success');
       try {
@@ -187,6 +199,7 @@
 </script>
 <style scoped>
   .authorize-row { display: flex; align-items: center; gap: 8px; }
+  .permission-help { margin-top: 8px; color: #595959; line-height: 1.6; }
   .authorize-select { flex: 1; min-width: 0; }
   .authorize-row > .ant-btn { flex-shrink: 0; }
   .authorized-users { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; max-height: 240px; overflow: auto; }

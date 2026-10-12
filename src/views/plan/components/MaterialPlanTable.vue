@@ -9,33 +9,46 @@
       >
         选择物料
       </a-button>
+      <slot name="toolbar-after-select" />
       <span v-if="editable" class="material-plan-table__hint"> 从物料库选择后会自动带出物料编码，可继续填写{{ quantityText }}、单位和备注。 </span>
       <span v-else-if="pricingEditable" class="material-plan-table__hint">定价时仅可修改提价比例、终价，其他内容只读。</span>
-      <span v-else class="material-plan-table__hint">{{ mode === 'quotation' ? '报价已锁定或当前账号无编辑权限' : '清单已锁定' }}，仅支持查看。</span>
+      <span v-else-if="mode !== 'quotation'" class="material-plan-table__hint">清单已锁定，仅支持查看。</span>
     </div>
 
-    <a-table
-      :columns="columns"
-      :data-source="rows"
-      :row-key="(record) => record._key"
+    <component
+      :is="mode === 'quotation' ? BasicTable : Table"
+      :key="mode === 'quotation' ? quotationColumnKey : mode"
+      v-bind="mode === 'quotation' ? quotationTableProps : {}"
+      :columns="mode === 'quotation' ? quotationColumns : columns"
+      :data-source="displayRows"
+      :row-key="(record) => record._serviceFee ? record._key : `material:${record._key}`"
       :pagination="tablePagination"
       :loading="loading"
-      :scroll="{ x: tableScrollX }"
+      :scroll="{ x: tableScrollX, ...(mode === 'quotation' ? { y: 'clamp(240px, 50vh, 520px)' } : {}) }"
       size="middle"
       bordered
       table-layout="fixed"
     >
       <template #emptyText>
-        <a-empty description="暂未添加物料，请从现有物料库中选择" />
+        <a-empty :description="serviceFeeRows ? '暂未添加物料或服务费，请使用上方按钮选择' : '暂未添加物料，请从现有物料库中选择'" />
       </template>
       <template #headerCell="{ column }">
         <span>
-          {{ column.title }}
+          {{ column.title ?? column.customTitle }}
+          <a-tooltip v-if="column.key === 'quotationPercent'" title="（报价单价－成本单价）÷成本单价×100%" :trigger="['hover', 'focus']">
+            <QuestionCircleOutlined tabindex="0" aria-label="报价比例计算公式：（报价单价－成本单价）÷成本单价×100%" style="margin-left: 4px; color: #8c8c8c; cursor: help" />
+          </a-tooltip>
+          <a-tooltip v-if="mode === 'quotation' && column.key === 'finalPrice' && !directQuotation" title="指导价=成本价×（1+指导比例÷100），保留两位小数" :trigger="['hover', 'focus']">
+            <QuestionCircleOutlined tabindex="0" aria-label="指导价计算公式：指导价=成本价×（1+指导比例÷100），保留两位小数" style="margin-left: 4px; color: #8c8c8c; cursor: help" />
+          </a-tooltip>
           <span v-if="column.required" class="material-plan-table__required" aria-hidden="true">*</span>
         </span>
       </template>
       <template #bodyCell="{ column, record }">
-        <template v-if="column.key === 'materialIdentity'">
+        <template v-if="record._serviceFee">
+          <slot name="service-fee-cell" :column="column" :record="record._serviceFee"><span>—</span></slot>
+        </template>
+        <template v-else-if="column.key === 'materialIdentity'">
           <div
             class="material-plan-table__material-identity"
             :aria-label="`${materialDisplayName(record)}，物料编码 ${record.materialCode || '无'}`"
@@ -49,6 +62,12 @@
           <a-tooltip :title="record.model || undefined">
             <span class="material-plan-table__model-clamp" :tabindex="record.model ? 0 : undefined">{{ record.model || '—' }}</span>
           </a-tooltip>
+        </template>
+        <template v-else-if="column.key === 'costTotal'">
+          <span>{{ quotationAmount([record], 'basePrice', 'plannedQty') ?? '—' }}</span>
+        </template>
+        <template v-else-if="column.key === 'guideTotal'">
+          <span>{{ quotationAmount([record], 'finalPrice', 'plannedQty') ?? '—' }}</span>
         </template>
         <template v-else-if="column.key === 'quotationPercent'">
           <span>{{ quotationPercent(record.basePrice, record.finalPrice) }}</span>
@@ -65,6 +84,7 @@
           />
           <span v-else style="white-space: pre-wrap; overflow-wrap: anywhere">{{ record.approvalOpinion || '—' }}</span>
         </template>
+        <template v-else-if="(column.key === 'markupRate' && directQuotation) || (['markupRate', 'finalPrice', 'quotationPercent'].includes(column.key) && !priceVisible)"><span>—</span></template>
         <template v-else-if="['basePrice', 'markupRate', 'finalPrice'].includes(column.key)">
           <a-input-number
             v-if="column.key === 'basePrice' || pricingEditable || directQuotation"
@@ -75,7 +95,7 @@
             :precision="quantityAndCostPrecision"
             :addon-after="column.key === 'markupRate' ? '%' : undefined"
             string-mode
-            :aria-label="`${record.materialName} ${column.title}`"
+            :aria-label="`${record.materialName} ${column.title ?? column.customTitle}`"
             placeholder="请输入"
             style="width: 100%"
             @change="(value) => changeQuotePrice(record, column.key, value)"
@@ -124,15 +144,17 @@
           <span v-else>—</span>
         </template>
       </template>
-    </a-table>
+    </component>
 
-    <div v-if="rows.length" class="material-plan-table__summary"> 共 {{ rows.length }} 种物料，{{ quantityText }}合计 {{ totalQty }} </div>
+    <div v-if="showSummary && rows.length" class="material-plan-table__summary"> 共 {{ rows.length }} 种物料，{{ quantityText }}合计 {{ totalQty }} </div>
     <MaterialSelectDrawer
       v-if="showToolbar"
       :show-selected-materials="mode === 'plan' || mode === 'quotation'"
       :show-select-all="mode === 'quotation'"
       :code-tooltip="mode === 'quotation'"
       :quotation-layout="mode === 'quotation'"
+      :existing-material-ids="rows.map(item => item.materialId)"
+      :allow-deselect-existing="mode === 'quotation'"
       @register="registerDrawer"
       @success="handleSelected"
     />
@@ -143,6 +165,9 @@
 <script lang="ts" setup>
   import { unifyMaterialColumns } from '/@/views/material/materialTableColumns';
   import { computed, ref, watch } from 'vue';
+  import { Table } from 'ant-design-vue';
+  import { QuestionCircleOutlined } from '@ant-design/icons-vue';
+  import { BasicTable } from '/@/components/Table';
   import { hasPrice, decimalPrice, quotationPricePayload, quotationSnapshot, guidancePrice, validateDirectQuotation, quotationPercent, quotationApprovalItems } from '../quotationPricing';
   import { useDrawer } from '/@/components/Drawer';
   import { useMessage } from '/@/hooks/web/useMessage';
@@ -152,6 +177,7 @@
   import { loadMaterialMap } from '/@/views/material/material.util';
   import { getAllMaterialCandidateItems, getPlanMaterialList } from '../Plan.api';
   import { validateEditableRows } from '/@/components/EditableTable';
+  import { quotationDisplayRows, quotationAmount } from '../serviceFee';
 
   const props = withDefaults(
     defineProps<{
@@ -168,16 +194,21 @@
       pricingEditable?: boolean;
       basePriceEditable?: boolean;
       costVisible?: boolean;
+      rateVisible?: boolean;
       snapshotOnly?: boolean;
       includeServiceFees?: boolean;
       priceVisible?: boolean;
       structureEditable?: boolean;
       mode?: 'plan' | 'quotation' | 'supplement' | 'rework';
       showToolbar?: boolean;
+      showSummary?: boolean;
       showAction?: boolean;
       showRemark?: boolean;
       paginated?: boolean;
       combinedMaterialIdentity?: boolean;
+      serviceFeeRows?: Recordable[];
+      serviceFeePriceVisible?: boolean;
+      guideTotalVisible?: boolean;
     }>(),
     {
       contractItems: () => [],
@@ -185,9 +216,12 @@
       editable: true,
       structureEditable: true,
       priceVisible: false,
+      costVisible: undefined,
+      rateVisible: undefined,
       basePriceEditable: false,
       mode: 'plan',
       showToolbar: true,
+      showSummary: true,
       showAction: true,
       showRemark: true,
       paginated: false,
@@ -199,6 +233,7 @@
   const emit = defineEmits<{ loaded: [count: number]; serviceFees: [rows: Recordable[]] }>();
   const [registerDrawer, { openDrawer }] = useDrawer();
   const rows = ref<any[]>([]);
+  const displayRows = computed(() => quotationDisplayRows(rows.value, props.serviceFeeRows || []));
   const currentPage = ref(1);
   const pageSize = ref(10);
   // 分页只控制展示；草稿、校验和全量同步始终使用完整 rows，避免遗漏其他页。
@@ -207,7 +242,7 @@
       ? {
           current: currentPage.value,
           pageSize: pageSize.value,
-          total: rows.value.length,
+          total: displayRows.value.length,
           showSizeChanger: true,
           showQuickJumper: true,
           pageSizeOptions: ['10', '20', '50', '100'],
@@ -220,7 +255,7 @@
       : false
   );
   watch(
-    () => rows.value.length,
+    () => displayRows.value.length,
     (count) => {
       currentPage.value = Math.min(currentPage.value, Math.max(1, Math.ceil(count / pageSize.value)));
     }
@@ -248,34 +283,54 @@
   });
 
   const tableScrollX = computed(() => {
-    if (props.mode === 'quotation' && props.combinedMaterialIdentity) return 1100 + (props.directQuotation && props.priceVisible ? 110 : 0) + (props.showApprovalOpinion ? 220 : 0);
+    if (props.mode === 'quotation' && props.combinedMaterialIdentity) return 1210 + (props.guideTotalVisible ? 120 : 0) + (props.directQuotation && props.priceVisible ? 110 : 0) + (props.directQuotation && props.serviceFeePriceVisible ? 120 : 0) + (props.showApprovalOpinion ? 220 : 0);
     if (props.quotePricing) return props.combinedMaterialIdentity ? 1650 : 1800;
     return props.combinedMaterialIdentity ? 1050 : 1180;
   });
 
   const columns = computed(() => unifyMaterialColumns([
     ...(props.combinedMaterialIdentity
-      ? [{ title: '物料名称', key: 'materialIdentity', width: props.mode === 'quotation' ? 220 : 130, fixed: 'left' }]
+      ? [{ title: props.serviceFeeRows ? '物料 / 服务费名称' : '物料名称', key: 'materialIdentity', width: props.mode === 'quotation' ? 220 : 130, fixed: 'left' }]
       : [{ title: '物料编码', dataIndex: 'materialCode', key: 'materialCode', width: 130, fixed: 'left' }]),
     ...(!props.combinedMaterialIdentity ? [{ title: '物料名称', dataIndex: 'materialName', key: 'materialName', width: 130 }] : []),
     ...(!(props.mode === 'quotation' && props.combinedMaterialIdentity) ? [{ title: '品牌', dataIndex: 'brand', key: 'brand', width: 60 }] : []),
-    { title: '型号', dataIndex: 'model', key: 'model', width: props.mode === 'quotation' ? 120 : 80 },
-    { title: '单位', dataIndex: 'unit', key: 'unit', width: 90, align: 'center', required: props.editable },
+    ...(props.mode !== 'quotation' ? [{ title: '型号', dataIndex: 'model', key: 'model', width: 80 }] : []),
+    { title: '单位', dataIndex: 'unit', key: 'unit', width: 110, align: 'center', required: props.editable },
     { title: quantityText.value, key: 'plannedQty', width: 110, required: props.editable },
-    ...(props.mode === 'quotation' && props.quotePricing && (props.costVisible || props.priceVisible || props.basePriceEditable)
-      ? [{ title: '成本价', key: 'basePrice', width: 100, required: props.basePriceEditable }]
+    ...(props.mode === 'quotation' && props.quotePricing && (props.costVisible ?? (props.priceVisible || props.basePriceEditable))
+      ? [{ title: '成本单价', key: 'basePrice', width: 100, required: props.basePriceEditable }, { title: '成本总价', key: 'costTotal', width: 110, align: 'left' }]
       : []),
-    ...(props.mode === 'quotation' && props.quotePricing && props.priceVisible
+    ...(props.mode === 'quotation' && props.quotePricing && !props.directQuotation && (props.rateVisible ?? (props.priceVisible || props.serviceFeePriceVisible))
+      ? [{ title: '指导比例', key: 'markupRate', width: 120 }] : []),
+    ...(props.mode === 'quotation' && props.quotePricing && (props.priceVisible || props.serviceFeePriceVisible)
       ? [
-          ...(!props.directQuotation ? [{ title: '指导比例', key: 'markupRate', width: 120 }] : []),
-          { title: props.directQuotation ? '报价' : '指导价', key: 'finalPrice', width: 100, required: props.directQuotation && props.pricingEditable },
-          ...(props.directQuotation ? [{ title: '报价比例', key: 'quotationPercent', width: 110 }] : []),
+          { title: props.directQuotation ? '报价单价' : '指导价', key: 'finalPrice', width: 110, required: props.directQuotation && props.pricingEditable },
+          ...(props.directQuotation && props.rateVisible !== false ? [{ title: '报价比例', key: 'quotationPercent', width: 110 }] : []),
         ]
       : []),
-    ...(props.showRemark ? [{ title: '备注', key: 'remark', width: props.mode === 'quotation' ? undefined : 120 }] : []),
+    ...(props.mode === 'quotation' && props.guideTotalVisible ? [{ title: props.directQuotation ? '报价总价' : '指导总价', key: 'guideTotal', width: 120 }] : []),
+    ...(props.showRemark ? [{ title: '备注', key: 'remark', width: props.mode === 'quotation' ? undefined : 100 }] : []),
     ...(props.showApprovalOpinion ? [{ title: '审批意见', key: 'approvalOpinion', width: 220 }] : []),
     ...(props.showAction ? [{ title: '操作', key: 'action', width: 80, align: 'center', fixed: 'right' }] : []),
-  ], { source: 'detail', nameField: 'materialName' }));
+  ], { source: 'detail', nameField: 'materialName', secondaryField: props.mode === 'quotation' ? 'model' : 'materialCode' }).map((column) =>
+    props.serviceFeeRows && column.key === 'unifiedMaterial'
+      ? { ...column, title: '物料 / 服务费名称' }
+      : column,
+  ));
+  const quotationColumns = computed(() => columns.value.map(column => ({
+    ...column,
+    dataIndex: column.dataIndex ?? column.key,
+    align: column.align ?? 'left',
+  })));
+  // Separate settings by permitted column set; changing workflow/access rebuilds the shared settings.
+  const quotationColumnKey = computed(() => `quotation-items:${columns.value.map(column => column.key).join(',')}`);
+  const quotationTableProps = computed(() => ({
+    showTableSetting: true,
+    showIndexColumn: false,
+    canResize: false,
+    ellipsis: false,
+    tableSetting: { redo: false, size: false, setting: true, fullScreen: false, cacheKey: quotationColumnKey.value },
+  }));
 
   const totalQty = computed(() =>
     rows.value.reduce((sum, item) => sum + (Number(item.plannedQty) || 0), 0).toLocaleString('zh-CN', { maximumFractionDigits: 2 })
@@ -436,8 +491,12 @@
     }
   }
 
-  async function handleSelected(selected: any[]) {
+  async function handleSelected(selected: any[], removedMaterialIds: string[] = []) {
     if (!props.editable || !props.structureEditable) return;
+    if (props.mode === 'quotation' && removedMaterialIds.length) {
+      const removed = new Set(removedMaterialIds.map(String));
+      rows.value = rows.value.filter(item => !removed.has(String(item.materialId)));
+    }
     for (const selectedMaterial of selected || []) {
       const material = { ...selectedMaterial };
       if (rows.value.some((item) => String(item.materialId) === String(material.id))) {
@@ -583,7 +642,7 @@
             } }]
           : []),
         ...(props.mode === 'quotation' && props.basePriceEditable
-          ? [{ field: 'basePrice', label: '成本价', required: true }]
+          ? [{ field: 'basePrice', label: '成本单价', required: true }]
           : []),
         { field: '_unitValue', label: '单位', required: true },
         {
@@ -690,6 +749,7 @@
       return quotationApprovalItems(rows.value);
     },
     getRows: () => rows.value,
+    showLastPage: () => { currentPage.value = Math.max(1, Math.ceil(displayRows.value.length / pageSize.value)); },
     importRows,
     getMaterialIds: () => rows.value.map((item) => String(item.materialId)),
     hydrateSavedQuotationRows,
@@ -702,6 +762,7 @@
   watch(() => [props.periodId, props.candidateId, props.mode], load, { immediate: true });
 
   function changeQuotePrice(row: any, key: string, value: any, showError = false) {
+    if (key === 'markupRate' && props.rateVisible === false) return;
     if (key === 'basePrice' ? !props.basePriceEditable : !props.priceVisible || !props.pricingEditable) return;
     row._priceError = undefined;
     row[key] = hasPrice(value) ? value : null;

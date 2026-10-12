@@ -26,7 +26,7 @@ export async function contractApprovalAttachment(instanceId: string, attachmentI
   return result;
 }
 export function visibleSubmitted(value: unknown, permissions: Record<string, string>, path = ''): any {
-  if (permissions[path] === 'HIDDEN') return undefined;
+  if ([path, `snapshot${path ? '.' + path : ''}`, `submitted${path ? '.' + path : ''}`].some(key => permissions[key] === 'HIDDEN')) return undefined;
   if (Array.isArray(value)) return value.map(item => visibleSubmitted(item, permissions, `${path}[]`)).filter(item => item !== undefined);
   if (!value || typeof value !== 'object') return value;
   return Object.fromEntries(Object.entries(value).flatMap(([key, item]) => {
@@ -34,6 +34,28 @@ export function visibleSubmitted(value: unknown, permissions: Record<string, str
     const filtered = visibleSubmitted(item, permissions, next);
     return filtered === undefined ? [] : [[key, filtered]];
   }));
+}
+
+/** 只使用已通过实例身份校验的本轮快照，不查询当前客户/用户补历史资料。 */
+export function contractSubmittedSnapshot(detail: ContractApprovalDetail | undefined, instanceSnapshot: Record<string, unknown> = {}) {
+  const submitted = detail?.submitted || {};
+  const merged: Record<string, any> = { ...submitted };
+  for (const key of ['salesUserId', 'salesUserName']) {
+    if (!Object.prototype.hasOwnProperty.call(submitted, key) && Object.prototype.hasOwnProperty.call(instanceSnapshot, key)) merged[key] = instanceSnapshot[key];
+  }
+  const context = instanceSnapshot.projectContext;
+  if (context && typeof context === 'object' && !Array.isArray(context)) {
+    const original = submitted.projectContext;
+    // 显式null保留，不用其他数据替换。
+    if (original !== null) {
+      const project: Record<string, unknown> = { ...(original && typeof original === 'object' ? original : {}) };
+      for (const key of ['projectName', 'periodName', 'customerName', 'contactPerson']) {
+        if (!Object.prototype.hasOwnProperty.call(project, key) && Object.prototype.hasOwnProperty.call(context, key)) project[key] = (context as Record<string, unknown>)[key];
+      }
+      merged.projectContext = project;
+    }
+  }
+  return visibleSubmitted(merged, detail?.fieldPermissions || {}) || {};
 }
 
 export function assertContractApprovalIdentity(data: ContractApprovalDetail, workflow: { id: string; businessType: string; businessId: string }, instanceId: string, contractId?: string) {

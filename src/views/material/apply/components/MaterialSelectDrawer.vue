@@ -14,6 +14,7 @@
       </div>
       <!-- 右侧：搜索 + 表格 -->
       <div class="material-select__body">
+        <a-alert v-if="allowDeselectExisting" type="info" show-icon message="可取消已选物料；点击确定后同步清单，取消或关闭不修改。" style="margin-bottom: 12px" />
         <div class="material-select__search">
           <a-input
             v-if="isProjectMode"
@@ -51,7 +52,7 @@
           :row-key="(record) => record.id"
           :row-class-name="getRowClassName"
           :loading="loading"
-          :scroll="{ x: quotationLayout ? 900 : isProjectMode ? 1160 : 1110 }"
+          :scroll="{ x: quotationLayout ? 900 : isProjectMode ? 1160 : 1110, ...(quotationLayout ? { y: 'clamp(220px, 50vh, 520px)' } : {}) }"
           size="small"
           @change="handleTableChange"
         >
@@ -83,8 +84,8 @@
             </template>
             <template v-else-if="column.key === 'action'">
               <a-checkbox
-                :checked="excludedMaterialIds.has(String(record.id)) || isSelected(record)"
-                :disabled="loading || excludedMaterialIds.has(String(record.id)) || (isProjectMode && Number(record.availableApplyQty) <= 0)"
+                :checked="isSelected(record)"
+                :disabled="loading || (!allowDeselectExisting && excludedMaterialIds.has(String(record.id))) || (isProjectMode && Number(record.availableApplyQty) <= 0)"
                 :aria-label="`选择物料${record.materialName || record.materialCode || ''}`"
                 @change="(event) => event.target.checked ? handleSelect(record) : handleUnselect(record)"
               />
@@ -139,6 +140,10 @@
       periodId?: string;
       /** 保留已加入明细的物料行，显示已选择并禁止重复添加。 */
       showSelectedMaterials?: boolean;
+      /** 当前清单的物料ID，优先于抽屉回调数据，保证重开/增删后勾选同步。 */
+      existingMaterialIds?: (string | number | undefined | null)[];
+      /** 报价编辑：确认后应用已有物料的取消勾选，关闭不应用。 */
+      allowDeselectExisting?: boolean;
       showSelectAll?: boolean;
       codeTooltip?: boolean;
       quotationLayout?: boolean;
@@ -156,12 +161,18 @@
 
   // 已选物料(回传给申请页)
   const selectedList = ref<any[]>([]);
-  const excludedMaterialIds = ref<Set<string>>(new Set());
+  const removedExistingIds = ref<Set<string>>(new Set());
+  const callbackMaterialIds = ref<unknown[]>([]);
+  const excludedMaterialIds = computed(() => new Set(
+    (props.existingMaterialIds ?? callbackMaterialIds.value)
+      .filter(id => id !== undefined && id !== null && String(id).trim() !== '')
+      .map(id => String(id))
+  ));
   const drawerVisible = ref(false);
   let loadSequence = 0;
 
   const [register, { closeDrawer }] = useDrawerInner((data) => {
-    excludedMaterialIds.value = new Set((data?.excludeMaterialIds || []).map((id: unknown) => String(id)).filter(Boolean));
+    callbackMaterialIds.value = data?.excludeMaterialIds || [];
   });
 
   // 数据回调只同步排除项；真实打开事件负责加载，无参数/相同参数重开也会请求。
@@ -170,6 +181,7 @@
     drawerVisible.value = visible;
     if (visible) {
       selectedList.value = [];
+      removedExistingIds.value = new Set();
       resetQueryState();
       void initializeDrawer();
     } else {
@@ -239,14 +251,14 @@
     treeData.value = [{ title: '全部', key: 'all', categoryCode: undefined }, ...children];
   }
 
-  // 全选仅作用于当前页未加入明细的记录；项目领料额外校验可申请量。
+  // 全选仅作用于当前页；报价包含可取消的已有物料，项目领料额外校验可申请量。
   const selectableMaterials = computed(() =>
-    tableData.value.filter((item) => !excludedMaterialIds.value.has(String(item.id)) && (!isProjectMode.value || Number(item.availableApplyQty) > 0))
+    tableData.value.filter((item) => (props.allowDeselectExisting || !excludedMaterialIds.value.has(String(item.id))) && (!isProjectMode.value || Number(item.availableApplyQty) > 0))
   );
   const allPageMaterialsSelected = computed(
     () =>
       selectableMaterials.value.length > 0 &&
-      selectableMaterials.value.every((item) => selectedList.value.some((selected) => String(selected.id) === String(item.id)))
+      selectableMaterials.value.every((item) => isSelected(item))
   );
   const somePageMaterialsSelected = computed(() => selectableMaterials.value.some((item) => isSelected(item)));
 
@@ -426,13 +438,18 @@
 
   // 是否已选
   function isSelected(record: any) {
+    const id = String(record.id);
+    if (excludedMaterialIds.value.has(id)) return !removedExistingIds.value.has(id);
     return selectedList.value.some((s) => String(s.id) === String(record.id));
   }
 
   // 选择
   function handleSelect(record: any) {
     if (loading.value) return;
-    if (excludedMaterialIds.value.has(String(record.id))) return;
+    if (excludedMaterialIds.value.has(String(record.id))) {
+      if (props.allowDeselectExisting) removedExistingIds.value.delete(String(record.id));
+      return;
+    }
     if (isProjectMode.value && Number(record.availableApplyQty) <= 0) return;
     if (isSelected(record)) return;
     selectedList.value.push(record);
@@ -443,26 +460,20 @@
     if (loading.value) return;
     const selectable = selectableMaterials.value;
     if (!selectable.length) return;
-    const filteredIds = new Set(selectable.map((item) => String(item.id)));
     if (allPageMaterialsSelected.value) {
-      selectedList.value = selectedList.value.filter((item) => !filteredIds.has(String(item.id)));
+      selectable.forEach(handleUnselect);
       return;
     }
-
-    const selectedIds = new Set(selectedList.value.map((item) => String(item.id)));
-    const additions: any[] = [];
-    selectable.forEach((item) => {
-      const id = String(item.id);
-      if (selectedIds.has(id)) return;
-      selectedIds.add(id);
-      additions.push(item);
-    });
-    selectedList.value = [...selectedList.value, ...additions];
+    selectable.forEach(handleSelect);
   }
 
   // 取消选择
   function handleUnselect(record: any) {
-    if (loading.value || excludedMaterialIds.value.has(String(record.id))) return;
+    if (loading.value) return;
+    if (excludedMaterialIds.value.has(String(record.id))) {
+      if (props.allowDeselectExisting) removedExistingIds.value.add(String(record.id));
+      return;
+    }
     selectedList.value = selectedList.value.filter((s) => String(s.id) !== String(record.id));
   }
 
@@ -473,7 +484,7 @@
 
   // 行高亮(已选行)
   function getRowClassName(record: any) {
-    if (excludedMaterialIds.value.has(String(record.id))) return 'material-select__row-excluded';
+    if (!props.allowDeselectExisting && excludedMaterialIds.value.has(String(record.id))) return 'material-select__row-excluded';
     return isSelected(record) ? 'material-select__row-selected' : '';
   }
 
@@ -492,7 +503,8 @@
 
   // 确定: 回传已选物料
   function handleOk() {
-    emit('success', unref(selectedList));
+    if (loading.value) return;
+    emit('success', unref(selectedList), props.allowDeselectExisting ? [...removedExistingIds.value] : []);
     closeDrawer();
   }
 </script>

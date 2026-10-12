@@ -30,7 +30,8 @@ assert(editor.includes(':pricing-editable="directEntry ? canModify : (canEditPri
 assert(editor.includes("creationRoute.value === 'MARKET'"));
 assert(editor.includes("'basePrice', 'finalPrice', 'remark'"));
 assert(editor.includes('getQuotationAccess(periodId, candidateId.value)'));
-assert(table.includes("props.directQuotation ? '报价' : '指导价'"));
+assert(table.includes("props.directQuotation ? '报价单价' : '指导价'"));
+assert(editor.includes(':guide-total-visible="showQuoteSummary"'), '市场报价总价列与报价汇总同权限、同阶段展示');
 assert(table.includes('props.pricingEditable && !props.directQuotation'));
 assert(table.includes("...(!props.directQuotation ? { markupRate: item.markupRate } : {}), finalPrice: item.finalPrice"));
 assert(table.includes("field: 'finalPrice', label: '报价', required: true"));

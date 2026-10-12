@@ -49,7 +49,6 @@
       <div><span>分期名称</span>{{ project.periodName || '—' }}</div>
     </div>
     <div v-if="loaded" class="material-draft-editor__content">
-      <a-alert v-if="canPrice" type="info" show-icon message="成本价只读。指导价=成本价×（1+指导比例÷100），保留两位小数；调整比例会重新计算，也可手动修改指导价。默认比例未返回时请填写。" />
       <MaterialPlanTable
         :key="tableEpoch"
         ref="tableRef"
@@ -57,30 +56,53 @@
         mode="quotation"
         quote-pricing
         :direct-quotation="directEntry"
-        show-approval-opinion
+        :show-approval-opinion="String(record.status ?? '-1') !== '-1'"
         :approval-editable="reviewMode && loaded && caps.approve"
         paginated
         snapshot-only
         include-service-fees
+        :service-fee-rows="serviceFees"
+        :service-fee-price-visible="access.canManage"
         :editable="canModify && !saving"
         :structure-editable="!record.id || caps.structure"
-        :cost-visible="true"
+        :cost-visible="showCostTotal"
+        :rate-visible="showGuidanceRate"
         :price-visible="showMarketPricing"
+        :guide-total-visible="showQuoteSummary"
         :base-price-editable="canModify && (!record.id || caps.editBase)"
-        :pricing-editable="directEntry ? canModify : (canEditPricing || (canModify && access.canEditPrice))"
+        :pricing-editable="directEntry ? canModify : (canEditPricing || (canModify && access.canManage))"
         combined-material-identity
+        :show-summary="false"
         :busy="saving"
         @loaded="restoreQuotationDraft"
         @service-fees="receiveServiceFees"
-      />
+      >
+        <template #toolbar-after-select>
+          <a-button type="primary" preIcon="ant-design:plus-outlined" :disabled="!canModify || (!!record.id && !caps.structure) || saving || !feesReady" @click="serviceFeePickerRef?.openPicker()">选择服务费</a-button>
+        </template>
+        <template #service-fee-cell="{ column, record: fee }">
+          <QuotationServiceFeeCell
+            :record="fee" :column-key="column.key" :editable="canModify" :direct-quotation="directEntry"
+            :approval-editable="reviewMode && loaded && feesReady && caps.approve"
+            :structure-editable="canModify && (!record.id || caps.structure)"
+            :cost-editable="canModify && (!record.id || caps.editBase)"
+            :price-visible="showMarketPricing" :rate-visible="showGuidanceRate" :price-editable="canEditServiceFeePricing" :busy="saving"
+            @remove="removeServiceFee" @change="updateServiceFee" />
+        </template>
+      </MaterialPlanTable>
       <ServiceFeeTable
-v-model="serviceFees" :ready="feesReady" :busy="saving" :editable="canModify"
+ref="serviceFeePickerRef" picker-only :model-value="serviceFees" :ready="feesReady" :busy="saving" :editable="canModify" @update:model-value="selectServiceFees"
+        :direct-quotation="directEntry"
         :structure-editable="canModify && (!record.id || caps.structure)"
         :cost-editable="canModify && (!record.id || caps.editBase)"
-        :price-editable="canModify || canEditPricing" />
-      <div v-if="showCostTotal" class="material-draft-editor__total" aria-live="polite">
-        <span>成本合计（物料＋服务费）：<strong>{{ totalText(totals.cost) }}</strong></span>
-        <span v-if="showMarketPricing">最终报价合计（物料＋服务费）：<strong>{{ totalText(totals.final) }}</strong></span>
+        :price-visible="access.canManage"
+        :price-editable="canEditServiceFeePricing" />
+      <div class="material-draft-editor__total" aria-live="polite">
+        <span>已选物料数量：<strong>{{ materialRowsReady ? `${summary.materialCount} 种` : '明细尚未加载完成' }}</strong></span>
+        <span v-if="showCostTotal">物料费合计：<strong>{{ totalText(summary.materialCost) }}</strong></span>
+        <span v-if="showCostTotal">服务费合计：<strong>{{ totalText(summary.serviceFee) }}</strong></span>
+        <span v-if="showCostTotal">成本总计：<strong>{{ totalText(summary.total) }}</strong></span>
+        <span v-if="showQuoteSummary">{{ directEntry ? '报价总计' : '指导报价总计' }}：<strong>{{ totalText(guideGrandTotal) }}</strong></span>
       </div>
     </div>
     <a-modal v-model:open="rejectOpen" title="驳回报价" :confirm-loading="saving" @ok="review('0')">
@@ -104,7 +126,8 @@ v-model="serviceFees" :ready="feesReady" :busy="saving" :editable="canModify"
   import { projectDetail } from '/@/views/project/Project.api';
   import MaterialPlanTable from '../components/MaterialPlanTable.vue';
   import ServiceFeeTable from '../components/ServiceFeeTable.vue';
-  import { quotationTotals, serviceFeePayload } from '../serviceFee';
+  import QuotationServiceFeeCell from '../components/QuotationServiceFeeCell.vue';
+  import { quotationSummary, quotationTotals, serviceFeePayload, serviceFeeApprovalItems, serviceFeePrice } from '../serviceFee';
   import QuotationGrantModal from './QuotationGrantModal.vue';
   import QuotationHistoryModal from './QuotationHistoryModal.vue';
   import { quotationListStatusMap as statusMeta } from '../Plan.data';
@@ -117,7 +140,7 @@ v-model="serviceFees" :ready="feesReady" :busy="saving" :editable="canModify"
     getQuotationHistory,
     getQuotationDepartments,
   } from '../Plan.api';
-  import { noQuotationAccess, quotationCapabilities, quotationListCapabilities, quotationVersion, assertQuotationVersion } from '../quotationGovernance';
+  import { noQuotationAccess, quotationDetailCapabilities, quotationDetailFields, quotationVersion, assertQuotationVersion } from '../quotationGovernance';
   import { quotationPricePayload, validateDirectQuotation } from '../quotationPricing';
   import { findQuotationRejection } from '../quotationRejection';
   import { previewQuotationRoute } from '../quotationRoute';
@@ -144,16 +167,46 @@ v-model="serviceFees" :ready="feesReady" :busy="saving" :editable="canModify"
   const tableRef = ref();
   const tableEpoch = ref(0);
   const serviceFees = ref<Recordable[]>([]);
+  const serviceFeePickerRef = ref<InstanceType<typeof ServiceFeeTable>>();
+  function selectServiceFees(rows: Recordable[]) {
+    if (!canModify.value || saving.value || (record.value.id && !caps.value.structure)) return;
+    serviceFees.value = rows;
+    void nextTick(() => tableRef.value?.showLastPage());
+  }
+  function removeServiceFee(row: Recordable) {
+    if (!canModify.value || saving.value || (record.value.id && !caps.value.structure)) return;
+    serviceFees.value = serviceFees.value.filter(item => item !== row);
+  }
+  function updateServiceFee(row: Recordable, patch: Recordable) {
+    if (saving.value || !serviceFees.value.includes(row)) return;
+    for (const [key, value] of Object.entries(patch)) {
+      const allowed = key === 'approvalOpinion' ? reviewMode.value && loaded.value && feesReady.value && caps.value.approve
+        : ['unit', 'quantity'].includes(key) ? canModify.value && (!record.value.id || caps.value.structure)
+        : key === 'costPrice' ? canModify.value && (!record.value.id || caps.value.editBase)
+        : key === 'remark' ? canModify.value : key === 'markupRate' ? access.value.canManage && canEditServiceFeePricing.value
+        : ['guidePrice', '_error'].includes(key) && canEditServiceFeePricing.value;
+      if (allowed) row[key] = value;
+    }
+    // 新选来源行的默认指导价随成本联动，不开放手动定价权限。
+    if (!directEntry.value && Object.prototype.hasOwnProperty.call(patch, 'costPrice') && !row.id && row.serviceFeeId
+      && canModify.value && (!record.value.id || caps.value.editBase) && !canEditServiceFeePricing.value) {
+      try { row.guidePrice = serviceFeePrice(row.costPrice, row.markupRate); row._error = ''; }
+      catch (error: any) { row.guidePrice = null; row._error = error.message; }
+    }
+  }
   const feesReady = ref(false);
   const materialsReady = ref(false);
   function receiveServiceFees(rows: Recordable[]) {
     serviceFees.value = rows.map((row, i) => ({ ...row, _key: row.id || `saved-${i}` }));
     feesReady.value = true;
   }
-  const totalsReady = computed(() => loaded.value && feesReady.value && materialsReady.value);
-  const totals = computed(() => totalsReady.value
-    ? quotationTotals(tableRef.value.getRows(), serviceFees.value)
-    : { cost: null, final: null });
+  const materialRowsReady = computed(() => loaded.value && materialsReady.value && !!tableRef.value);
+  const totalsReady = computed(() => materialRowsReady.value && feesReady.value);
+  const guideGrandTotal = computed(() => totalsReady.value ? quotationTotals(tableRef.value.getRows(), serviceFees.value).final : null);
+  const summary = computed(() => quotationSummary(
+    materialRowsReady.value ? (tableRef.value?.getRows() ?? []) : [],
+    feesReady.value ? serviceFees.value : []
+  ));
   function totalText(amount: string | null) {
     if (!totalsReady.value) return '明细尚未加载完成';
     return amount === null ? '价格或数量不完整，暂无法合计' : `${amount} 元`;
@@ -161,7 +214,7 @@ v-model="serviceFees" :ready="feesReady" :busy="saving" :editable="canModify"
   function feeRecords() {
     if (!feesReady.value) throw new Error('服务费尚未加载完成，请刷新后再操作');
     return serviceFees.value.map(row => serviceFeePayload(row, { structure: !record.value.id || caps.value.structure,
-      cost: !record.value.id || caps.value.editBase, price: true }));
+      cost: !record.value.id || caps.value.editBase, price: canEditServiceFeePricing.value }, directEntry.value));
   }
   const candidateName = ref(String(route.query.candidateName || ''));
   const rejectOpen = ref(false);
@@ -243,19 +296,12 @@ v-model="serviceFees" :ready="feesReady" :busy="saving" :editable="canModify"
   const editFromList = computed(() => route.query.mode === 'edit' && !reviewMode.value);
   const simpleLoad = computed(() => detailOnly.value || editFromList.value);
   const viewOnly = computed(() => !editing.value || reviewMode.value || pricingMode.value);
-  const caps = computed(() => {
-    if (!simpleLoad.value || String(record.value.status) === '1') return quotationCapabilities(record.value, access.value, userStore.getUserInfo, hasPermission);
-    const list = quotationListCapabilities(record.value, hasPermission, userStore.getUserInfo);
-    const structure = list.edit && String(record.value.adopted) !== '1';
-    return { ...list, structure, editBase: structure, approve: false,
-      price: quotationCapabilities(record.value, access.value, userStore.getUserInfo, hasPermission).price };
-  });
+  const caps = computed(() => quotationDetailCapabilities(record.value, access.value, userStore.getUserInfo, hasPermission));
   const canModify = computed(
-    () => loaded.value && !viewOnly.value && (!marketQuotation.value || ['-1', '0'].includes(String(record.value.status ?? '-1')) || (String(record.value.status) === '1' && access.value.canEditPrice))
+    () => loaded.value && !viewOnly.value
       && (record.value.id ? caps.value.edit : !!creationRoute.value && hasPermission('plan:quotation:add'))
   );
-  const canUnlock = computed(() => loaded.value && !canPrice.value && !editing.value && !reviewMode.value && !pricingMode.value && !!record.value.id && caps.value.edit
-    && (!marketQuotation.value || ['-1', '0'].includes(String(record.value.status)) || (String(record.value.status) === '1' && access.value.canEditPrice)));
+  const canUnlock = computed(() => loaded.value && !canPrice.value && !editing.value && !reviewMode.value && !pricingMode.value && !!record.value.id && caps.value.edit);
   const canSubmitSaved = computed(() => loaded.value && !editing.value && !reviewMode.value && !pricingMode.value && !!record.value.id && caps.value.submit);
   function unlockEditing() {
     if (!canUnlock.value || saving.value) return;
@@ -265,19 +311,22 @@ v-model="serviceFees" :ready="feesReady" :busy="saving" :editable="canModify"
   const canPrice = computed(() => !marketQuotation.value && loaded.value && !editing.value && !reviewMode.value && (pricingMode.value || simpleLoad.value) && caps.value.price);
   const pricingUnlocked = ref(false);
   const canEditPricing = computed(() => canPrice.value && (String(record.value.priced) !== '1' || pricingUnlocked.value));
+  // 市场报价自行填写价格；技术报价仍限管理身份定价，合同授权不扩展报价编辑。
+  const canEditServiceFeePricing = computed(() => (directEntry.value && canModify.value) || (access.value.canManage && (canModify.value || canEditPricing.value)));
   function unlockPricing() {
     if (!canPrice.value || saving.value) return;
     pricingUnlocked.value = true;
   }
-  const showMarketPricing = computed(() => directEntry.value || access.value.canViewPrice || (canPrice.value && String(record.value.status) === '1'));
-  // 已审批且定价后的价格由后端有效权限控制，导出授权不等于查看价格授权。
-  const showCostTotal = computed(() => loaded.value && (
-    String(record.value.status) !== '1' || String(record.value.priced) !== '1' || access.value.canViewPrice
-  ));
+  const visibleFields = computed(() => quotationDetailFields(record.value, access.value, !record.value.id && !!creationRoute.value, directEntry.value));
+  const showMarketPricing = computed(() => loaded.value && visibleFields.value.quote);
+  const showGuidanceRate = computed(() => loaded.value && visibleFields.value.rate);
+  const showQuoteSummary = computed(() => loaded.value && visibleFields.value.quote && (directEntry.value || String(record.value.status) === '1'));
+  const showCostTotal = computed(() => loaded.value && visibleFields.value.cost);
   const title = computed(() =>
     reviewMode.value ? (marketQuotation.value ? '市场审批' : '技术审批') : pricingMode.value ? '市场定价' : viewOnly.value ? '查看报价' : record.value.id ? '修改报价' : '新增报价'
   );
   const notice = computed(() => {
+    if (String(record.value.status) === '2' && !reviewMode.value && !pricingMode.value) return '报价单已提交，等待审批';
     if (directEntry.value && !marketQuotation.value) return editing.value
       ? '请填写成本价和报价，均保留两位小数；保存后提交审批。此历史报价的审批线路仍以后端为准。'
       : '成本价和报价为已保存内容；草稿或驳回状态点击“修改”后可填写。审批线路保持不变。';
@@ -323,7 +372,7 @@ v-model="serviceFees" :ready="feesReady" :busy="saving" :editable="canModify"
         if (editFromList.value && !['0', '1'].includes(String(candidate.adopted))) throw new Error('缺少报价采用状态，请返回列表重新进入');
         project.value = (await projectDetail({ periodId })) || {};
         record.value = candidate;
-        if (String(candidate.status) === '1') await reloadAccess();
+        await reloadAccess();
         void loadRejection();
         candidateName.value = candidate.candidateName || '';
         editing.value = false;
@@ -361,7 +410,7 @@ v-model="serviceFees" :ready="feesReady" :busy="saving" :editable="canModify"
   async function verifyCurrent() {
     if (simpleLoad.value) {
       quotationVersion(record.value.version);
-      if (String(record.value.status) === '1') await reloadAccess();
+      await reloadAccess();
       return;
     }
     const permissions = await getQuotationAccess(periodId, candidateId.value);
@@ -456,7 +505,7 @@ v-model="serviceFees" :ready="feesReady" :busy="saving" :editable="canModify"
       if (directEntry.value) {
         const rows = tableRef.value?.getRows();
         if (!Array.isArray(rows) || !feesReady.value) throw new Error('报价明细尚未加载完成');
-        serviceFees.value.forEach(row => serviceFeePayload(row));
+        serviceFees.value.forEach(row => serviceFeePayload(row, { structure: true, cost: true, price: true }, directEntry.value));
         rows.forEach((row: any) => {
           try { validateDirectQuotation(row.basePrice, row.finalPrice); }
           catch (error: any) { throw new Error(`${row.materialName}：${error.message}`); }
@@ -489,7 +538,7 @@ v-model="serviceFees" :ready="feesReady" :busy="saving" :editable="canModify"
       if (!feesReady.value) throw new Error('服务费尚未加载完成，请刷新后审批');
       const approvalItems = tableRef.value?.getApprovalItems(true);
       if (!approvalItems) throw new Error('报价明细尚未就绪，请刷新后审批');
-      await candidateAction('approve', record.value, { result, approvalItems, ...(result === '0' ? { reason: rejectReason.value.trim() } : {}) });
+      await candidateAction('approve', record.value, { result, approvalItems, serviceFeeApprovalItems: serviceFeeApprovalItems(serviceFees.value), ...(result === '0' ? { reason: rejectReason.value.trim() } : {}) });
       rejectOpen.value = false;
       await refreshAfterWrite();
       createMessage.success(result === '1' ? (marketQuotation.value ? '市场审批已通过' : '技术审批已通过，待市场部主管确认定价') : '报价审批已驳回');
@@ -532,7 +581,7 @@ v-model="serviceFees" :ready="feesReady" :busy="saving" :editable="canModify"
 <style lang="less" scoped>
   .material-draft-editor {
     padding: 16px;
-    &__total { margin-top: 20px; text-align: right; font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+    &__total { margin-top: 20px; text-align: right; font-size: 16px; font-variant-numeric: tabular-nums; }
 
     &__header {
       display: flex;
@@ -554,8 +603,8 @@ v-model="serviceFees" :ready="feesReady" :busy="saving" :editable="canModify"
 
     &__title {
       color: #262626;
-      font-size: 18px;
-      font-weight: 600;
+      font-size: 16px;
+      // font-weight: 600;
       line-height: 26px;
     }
 

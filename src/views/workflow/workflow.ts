@@ -22,8 +22,11 @@ export const permissionOptions = [
   { value: 'HIDDEN', label: '隐藏' },
 ];
 export function newId(prefix: string) {
+  return `${prefix}_${newUUID().replace(/-/g, '')}`;
+}
+export function newUUID() {
   if (typeof globalThis.crypto?.randomUUID === 'function') {
-    return `${prefix}_${globalThis.crypto.randomUUID().replace(/-/g, '')}`;
+    return globalThis.crypto.randomUUID();
   }
   // 局域网 HTTP 不提供 randomUUID，但支持安全随机数；保持 UUID v4 格式。
   if (typeof globalThis.crypto?.getRandomValues !== 'function') {
@@ -32,7 +35,8 @@ export function newId(prefix: string) {
   const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
   bytes[6] = (bytes[6] & 0x0f) | 0x40;
   bytes[8] = (bytes[8] & 0x3f) | 0x80;
-  return `${prefix}_${Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('')}`;
+  const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 export function newNode(): WorkflowNode {
   return {

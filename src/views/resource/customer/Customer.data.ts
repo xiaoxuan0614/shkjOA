@@ -1,5 +1,6 @@
 import { BasicColumn } from '/@/components/Table';
 import { FormSchema } from '/@/components/Table';
+import { extendCounterpartyForm } from '../counterpartyForm';
 
 /**
  * 往来客户 - 列表列
@@ -68,162 +69,165 @@ export const searchFormSchema: FormSchema[] = [
  *   invoiceTitle/taxNo/bankName/bankAccount/invoiceAddress/invoicePhone/remark
  * 编号自动生成(禁手填)；负责人走用户选择器(loadUserOptions 注入)
  */
-export const formSchema: FormSchema[] = [
-  {
-    label: '客户名称',
-    field: 'customerName',
-    component: 'Input',
-    componentProps: { placeholder: '请输入客户名称' },
-    dynamicRules: () => [{ required: true, message: '请输入客户名称!' }],
-  },
-  {
-    label: '客户编号',
-    field: 'customerNo',
-    component: 'Input',
-    componentProps: { placeholder: '新增后自动生成', disabled: true },
-  },
-  {
-    label: '客户联系人',
-    field: 'contactPerson',
-    component: 'Input',
-    componentProps: { placeholder: '请输入客户联系人' },
-    dynamicRules: () => [{ required: true, message: '请输入客户联系人!' }],
-  },
-  {
-    label: '客户联系电话',
-    field: 'contactPhone',
-    component: 'Input',
-    componentProps: { placeholder: '请输入客户联系电话' },
-    dynamicRules: () => [{ required: true, message: '请输入客户联系电话!' }],
-  },
-  {
-    label: '客户地址',
-    field: 'address',
-    component: 'AMapLocationSelect',
-    colProps: { span: 24 },
-    componentProps: { placeholder: '请选择客户地址', inline: false, autoLocate: false, mapHeight: '320px' },
-  },
-  {
-    label: '客户角色',
-    field: 'customerRole',
-    component: 'JDictSelectTag',
-    componentProps: { dictCode: 'client_role', type: 'list', placeholder: '请选择客户角色', showSearch: true, allowClear: true },
-    rules: [{ max: 100, message: '客户角色不能超过100字' }],
-  },
-  {
-    label: '客户所属部门',
-    field: 'unitDepartment',
-    component: 'Input',
-    componentProps: { placeholder: '请输入客户所属单位/部门', maxlength: 200, allowClear: true },
-    rules: [{ max: 200, message: '客户所属部门不能超过200字' }],
-  },
-  {
-    label: '销售负责人',
-    field: 'saleUserId',
-    component: 'Select',
-    componentProps: {
-      showSearch: true,
-      allowClear: true,
-      placeholder: '输入姓名模糊搜索',
-      options: [],
-      filterOption: false,
+export const formSchema: FormSchema[] = extendCounterpartyForm(
+  [
+    {
+      label: '客户名称',
+      field: 'customerName',
+      component: 'Input',
+      componentProps: { placeholder: '请输入客户名称' },
+      dynamicRules: () => [{ required: true, message: '请输入客户名称!' }],
     },
-  },
-  {
-    label: '',
-    field: 'saleUserName',
-    component: 'Input',
-    show: false,
-  },
-  {
-    label: '维保负责人',
-    field: 'maintenanceUserId',
-    component: 'Select',
-    componentProps: {
-      showSearch: true,
-      allowClear: true,
-      placeholder: '输入姓名模糊搜索',
-      options: [],
-      filterOption: false,
+    {
+      label: '客户编号',
+      field: 'customerNo',
+      component: 'Input',
+      componentProps: { placeholder: '新增后自动生成', disabled: true },
     },
-  },
-  {
-    label: '',
-    field: 'maintenanceUserName',
-    component: 'Input',
-    show: false,
-  },
-  {
-    label: '客户经理',
-    field: 'customerManagerId',
-    component: 'Select',
-    componentProps: {
-      showSearch: true,
-      allowClear: true,
-      placeholder: '输入姓名模糊搜索',
-      options: [],
-      filterOption: false,
+    {
+      label: '客户联系人',
+      field: 'contactPerson',
+      component: 'Input',
+      componentProps: { placeholder: '请输入客户联系人' },
+      dynamicRules: () => [{ required: true, message: '请输入客户联系人!' }],
     },
-  },
-  {
-    label: '',
-    field: 'customerManagerName',
-    component: 'Input',
-    show: false,
-  },
-  {
-    label: '开票抬头',
-    field: 'invoiceTitle',
-    component: 'Input',
-    componentProps: { placeholder: '请输入开票抬头' },
-  },
-  {
-    label: '税号',
-    field: 'taxNo',
-    component: 'Input',
-    componentProps: { placeholder: '请输入税号' },
-  },
-  {
-    label: '开户银行',
-    field: 'bankName',
-    component: 'Input',
-    componentProps: { placeholder: '请输入开户银行' },
-  },
-  {
-    label: '银行账号',
-    field: 'bankAccount',
-    component: 'Input',
-    componentProps: { placeholder: '请输入银行账号' },
-  },
-  {
-    label: '开票地址',
-    field: 'invoiceAddress',
-    component: 'Input',
-    componentProps: { placeholder: '请输入开票地址' },
-  },
-  {
-    label: '开票电话',
-    field: 'invoicePhone',
-    component: 'Input',
-    componentProps: { placeholder: '请输入开票电话' },
-  },
-  {
-    label: '客户信息',
-    field: 'customerInfo',
-    component: 'InputTextArea',
-    componentProps: { placeholder: '请输入客户信息', rows: 2 },
-  },
-  {
-    label: '备注',
-    field: 'remark',
-    component: 'InputTextArea',
-    componentProps: { placeholder: '请输入备注', rows: 3 },
-  },
-  // 主键隐藏字段
-  {
-    label: '',
-    field: 'id',
-    component: 'Input',
-    show: false,
-  },
-];
+    {
+      label: '客户联系电话',
+      field: 'contactPhone',
+      component: 'Input',
+      componentProps: { placeholder: '请输入客户联系电话' },
+      dynamicRules: () => [{ required: true, message: '请输入客户联系电话!' }],
+    },
+    {
+      label: '客户地址',
+      field: 'address',
+      component: 'AMapLocationSelect',
+      colProps: { span: 24 },
+      componentProps: { placeholder: '请选择客户地址', inline: false, autoLocate: false, mapHeight: '320px' },
+    },
+    {
+      label: '客户角色',
+      field: 'customerRole',
+      component: 'JDictSelectTag',
+      componentProps: { dictCode: 'client_role', type: 'list', placeholder: '请选择客户角色', showSearch: true, allowClear: true },
+      rules: [{ max: 100, message: '客户角色不能超过100字' }],
+    },
+    {
+      label: '客户所属部门',
+      field: 'unitDepartment',
+      component: 'Input',
+      componentProps: { placeholder: '请输入客户所属单位/部门', maxlength: 200, allowClear: true },
+      rules: [{ max: 200, message: '客户所属部门不能超过200字' }],
+    },
+    {
+      label: '销售负责人',
+      field: 'saleUserId',
+      component: 'Select',
+      componentProps: {
+        showSearch: true,
+        allowClear: true,
+        placeholder: '输入姓名模糊搜索',
+        options: [],
+        filterOption: false,
+      },
+    },
+    {
+      label: '',
+      field: 'saleUserName',
+      component: 'Input',
+      show: false,
+    },
+    {
+      label: '维保负责人',
+      field: 'maintenanceUserId',
+      component: 'Select',
+      componentProps: {
+        showSearch: true,
+        allowClear: true,
+        placeholder: '输入姓名模糊搜索',
+        options: [],
+        filterOption: false,
+      },
+    },
+    {
+      label: '',
+      field: 'maintenanceUserName',
+      component: 'Input',
+      show: false,
+    },
+    {
+      label: '客户经理',
+      field: 'customerManagerId',
+      component: 'Select',
+      componentProps: {
+        showSearch: true,
+        allowClear: true,
+        placeholder: '输入姓名模糊搜索',
+        options: [],
+        filterOption: false,
+      },
+    },
+    {
+      label: '',
+      field: 'customerManagerName',
+      component: 'Input',
+      show: false,
+    },
+    {
+      label: '开票抬头',
+      field: 'invoiceTitle',
+      component: 'Input',
+      componentProps: { placeholder: '请输入开票抬头' },
+    },
+    {
+      label: '税号',
+      field: 'taxNo',
+      component: 'Input',
+      componentProps: { placeholder: '请输入税号' },
+    },
+    {
+      label: '开户银行',
+      field: 'bankName',
+      component: 'Input',
+      componentProps: { placeholder: '请输入开户银行' },
+    },
+    {
+      label: '银行账号',
+      field: 'bankAccount',
+      component: 'Input',
+      componentProps: { placeholder: '请输入银行账号' },
+    },
+    {
+      label: '开票地址',
+      field: 'invoiceAddress',
+      component: 'Input',
+      componentProps: { placeholder: '请输入开票地址' },
+    },
+    {
+      label: '开票电话',
+      field: 'invoicePhone',
+      component: 'Input',
+      componentProps: { placeholder: '请输入开票电话' },
+    },
+    {
+      label: '客户信息',
+      field: 'customerInfo',
+      component: 'InputTextArea',
+      componentProps: { placeholder: '请输入客户信息', rows: 2 },
+    },
+    {
+      label: '备注',
+      field: 'remark',
+      component: 'InputTextArea',
+      componentProps: { placeholder: '请输入备注', rows: 3 },
+    },
+    // 主键隐藏字段
+    {
+      label: '',
+      field: 'id',
+      component: 'Input',
+      show: false,
+    },
+  ],
+  '客户'
+);

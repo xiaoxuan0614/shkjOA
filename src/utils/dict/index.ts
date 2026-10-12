@@ -2,6 +2,7 @@ import { defHttp } from '/@/utils/http/axios';
 import { useUserStore } from '/@/store/modules/user';
 import { getAuthCache } from '/@/utils/auth';
 import { DB_DICT_DATA_KEY } from '/@/enums/cacheEnum';
+import { cachedDictRequest } from './requestCache';
 
 /**
  * 从缓存中获取字典配置
@@ -42,19 +43,20 @@ export const getPopDictByCode = (text, codeStr) => {
  * @return List<Map>
  */
 export const initDictOptions = (code) => {
+  if (typeof code !== 'string' || !code.trim()) return Promise.resolve([]);
+  code = code.trim();
   //1.优先从缓存中读取字典配置
-  if (getDictItemsByCode(code)) {
-    return new Promise((resolve, reject) => {
-      resolve(getDictItemsByCode(code));
-    });
-  }
+  const cached = getDictItemsByCode(code);
+  if (Array.isArray(cached)) return Promise.resolve(cached);
   //2.获取字典数组
   // 代码逻辑说明: 字典数据请求前将参数编码处理，但是不能直接编码，因为可能之前已经编码过了
   if (code.indexOf(',') > 0 && code.indexOf(' ') > 0) {
     // 编码后类似sys_user%20where%20username%20like%20xxx' 是不包含空格的,这里判断如果有空格和逗号说明需要编码处理
     code = encodeURI(code);
   }
-  return defHttp.get({ url: `/sys/dict/getDictItems/${code}` });
+  const userStore = useUserStore();
+  const session = JSON.stringify([userStore.getToken, userStore.getUserInfo?.id, userStore.getUserInfo?.loginTenantId]);
+  return cachedDictRequest(session, code, () => defHttp.get({ url: `/sys/dict/getDictItems/${code}` }));
 };
 /**
  * 获取字典数组

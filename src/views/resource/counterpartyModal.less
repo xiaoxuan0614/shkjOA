@@ -1,0 +1,54 @@
+:global(.counterparty-modal:not(.fullscreen-modal) .ant-modal) {
+  top: 24px;
+  padding-bottom: 24px;
+}
+
+.counterparty-form {
+  // Keep the title/footer outside the only scrolling region, even when every section is open.
+  max-height: calc(100vh - 230px);
+  max-height: calc(100dvh - 230px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  padding: 4px;
+
+  &:not(.counterparty-open-basic) :deep(.counterparty-field-basic),
+  &:not(.counterparty-open-finance) :deep(.counterparty-field-finance),
+  &:not(.counterparty-open-other) :deep(.counterparty-field-other) {
+    display: none;
+  }
+
+  :deep(.counterparty-section-toggle) {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    min-height: 44px;
+    margin: 0 0 16px;
+    padding: 10px 12px;
+    border: 1px solid @border-color-base;
+    border-radius: 6px;
+    background: @background-color-light;
+    color: @text-color;
+    font: inherit;
+    font-weight: 500;
+    text-align: left;
+    cursor: pointer;
+
+    &:focus-visible {
+      outline: 2px solid @primary-color;
+      outline-offset: 2px;
+    }
+  }
+
+  :deep(.counterparty-section-action) {
+    color: @primary-color;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+
+  :deep(.ant-input-number),
+  :deep(.ant-picker) {
+    width: 100%;
+  }
+}

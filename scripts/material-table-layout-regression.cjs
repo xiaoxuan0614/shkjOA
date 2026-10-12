@@ -57,6 +57,11 @@ const columns = [
 ];
 const before = JSON.stringify(columns);
 const result = unifyMaterialColumns(columns);
+assert.equal(unifyMaterialColumns(columns, { secondaryField: 'model' })[0].customRender({ record: {} }).props.secondaryField, 'model');
+assert.equal(result[0].customRender({ record: {} }).props.secondaryField, undefined, '其他页面保持默认编码');
+const quotationTable = fs.readFileSync('src/views/plan/components/MaterialPlanTable.vue', 'utf8');
+assert(quotationTable.includes("secondaryField: props.mode === 'quotation' ? 'model' : 'materialCode'"));
+assert(quotationTable.includes("props.mode !== 'quotation' ? [{ title: '型号'"));
 assert.equal(JSON.stringify(columns), before, '不修改原列或业务定义');
 assert.equal(result.length, 4);
 assert.equal(result[0].key, 'unifiedMaterial');

@@ -1,4 +1,5 @@
 import type { RouteLocationNormalized, RouteLocationRaw, Router } from 'vue-router';
+import { closeTabDrafts, clearTabDrafts } from '/@/utils/tabDraftLifetime';
 
 import { toRaw, unref } from 'vue';
 import { defineStore } from 'pinia';
@@ -61,7 +62,7 @@ const closeTabContainCurrentRoute = (router, pathList) => {
   };
   const currentTab = getCurrentTab();
   if (currentTab) {
-    return pathList.includes(currentTab.path);
+    return pathList.includes(currentTab.fullPath || currentTab.path);
   }
   return false;
 };
@@ -176,6 +177,7 @@ export const useMultipleTabStore = defineStore('app-multiple-tab', {
       this.cacheTabList = new Set();
     },
     resetState(): void {
+      clearTabDrafts();
       this.tabList = [];
       this.clearCacheTabs();
       this.lastDragEndIndex = 0;
@@ -251,7 +253,10 @@ export const useMultipleTabStore = defineStore('app-multiple-tab', {
           if (this.tabList.filter((e) => e.meta?.realPath ?? '' === realPath).length >= dynamicLevel) {
             // 关闭第一个
             const index = this.tabList.findIndex((item) => item.meta.realPath === realPath);
-            index !== -1 && this.tabList.splice(index, 1);
+            if (index !== -1) {
+              closeTabDrafts([this.tabList[index].fullPath || this.tabList[index].path]);
+              this.tabList.splice(index, 1);
+            }
           }
         }
         this.tabList.push(route);
@@ -261,13 +266,17 @@ export const useMultipleTabStore = defineStore('app-multiple-tab', {
     },
 
     async closeTab(tab: RouteLocationNormalized, router: Router) {
+      if (tab.meta?.affix) return;
       const close = (route: RouteLocationNormalized) => {
         const { fullPath, meta: { affix } = {} } = route;
         if (affix) {
           return;
         }
         const index = this.tabList.findIndex((item) => item.fullPath === fullPath);
-        index !== -1 && this.tabList.splice(index, 1);
+        if (index !== -1) {
+          closeTabDrafts([fullPath || route.path]);
+          this.tabList.splice(index, 1);
+        }
       };
 
       const { currentRoute, replace } = router;
@@ -301,8 +310,11 @@ export const useMultipleTabStore = defineStore('app-multiple-tab', {
         const page = this.tabList[index - 1];
         toTarget = getToTarget(page);
       }
-      close(currentRoute.value);
-      await replace(toTarget);
+      const closingRoute = currentRoute.value;
+      const failure = await replace(toTarget);
+      if (failure) return;
+      close(closingRoute);
+      this.updateCacheTab();
     },
 
     // Close according to key
@@ -357,6 +369,7 @@ export const useMultipleTabStore = defineStore('app-multiple-tab', {
         }
         // 代码逻辑说明: 【TV360X-732】非当前页右键关闭左侧、关闭右侧、关闭其它功能正常使用
         isCloseCurrentTab = closeTabContainCurrentRoute(router, pathList);
+        if (isCloseCurrentTab && await router.push(getToTarget(route))) return;
         this.bulkCloseTabs(pathList);
       }
       this.updateCacheTab();
@@ -384,6 +397,7 @@ export const useMultipleTabStore = defineStore('app-multiple-tab', {
         }
         // 代码逻辑说明: 【TV360X-732】非当前页右键关闭左侧、关闭右侧、关闭其它功能正常使用
         isCloseCurrentTab = closeTabContainCurrentRoute(router, pathList);
+        if (isCloseCurrentTab && await router.push(getToTarget(route))) return;
         this.bulkCloseTabs(pathList);
       }
       this.updateCacheTab();
@@ -396,6 +410,13 @@ export const useMultipleTabStore = defineStore('app-multiple-tab', {
     },
 
     async closeAllTab(router: Router) {
+      const retained = this.tabList.filter(item => item.meta?.affix);
+      const current = unref(router.currentRoute);
+      if (this.tabList.some(item => item.fullPath === current.fullPath && !item.meta?.affix)) {
+        const target = retained.length ? getToTarget(retained[retained.length - 1]) : useUserStore().getUserInfo.homePath || PageEnum.BASE_HOME;
+        if (await router.push(target)) return;
+      }
+      closeTabDrafts(this.tabList.filter(item => !item.meta?.affix).map(item => item.fullPath || item.path));
       this.tabList = this.tabList.filter((item) => item?.meta?.affix ?? false);
       this.clearCacheTabs();
       this.goToPage(router);
@@ -412,7 +433,7 @@ export const useMultipleTabStore = defineStore('app-multiple-tab', {
 
       for (const path of closePathList) {
         if (path !== route.fullPath) {
-          const closeItem = this.tabList.find((item) => item.path === path);
+          const closeItem = this.tabList.find((item) => item.fullPath === path);
           if (!closeItem) {
             continue;
           }
@@ -423,6 +444,7 @@ export const useMultipleTabStore = defineStore('app-multiple-tab', {
         }
       }
       isCloseCurrentTab = closeTabContainCurrentRoute(router, pathList);
+      if (isCloseCurrentTab && await router.push(getToTarget(route))) return;
       this.bulkCloseTabs(pathList);
       this.updateCacheTab();
       // 代码逻辑说明: 【TV360X-732】非当前页右键关闭左侧、关闭右侧、关闭其它功能正常使用
@@ -437,7 +459,9 @@ export const useMultipleTabStore = defineStore('app-multiple-tab', {
      * Close tabs in bulk
      */
     async bulkCloseTabs(pathList: string[]) {
-      this.tabList = this.tabList.filter((item) => !pathList.includes(item.fullPath));
+      const closing = this.tabList.filter(item => pathList.includes(item.fullPath) && !item.meta?.affix);
+      closeTabDrafts(closing.map(item => item.fullPath || item.path));
+      this.tabList = this.tabList.filter((item) => !closing.includes(item));
     },
 
     /**

@@ -1,6 +1,7 @@
 import type { UserInfo, LoginInfo } from '/#/store';
 import type { ErrorMessageMode } from '/#/axios';
 import { defineStore } from 'pinia';
+import { clearDictRequestCache } from '/@/utils/dict/requestCache';
 import { store } from '/@/store';
 import { RoleEnum } from '/@/enums/roleEnum';
 import { PageEnum } from '/@/enums/pageEnum';
@@ -85,6 +86,7 @@ export const useUserStore = defineStore('app-user', {
   actions: {
     setToken(info: string | undefined) {
       if ((info || '') !== this.getToken) {
+        clearDictRequestCache();
         invalidateSessionRequests(!info);
         clearProjectCreateDrafts();
         clearSessionDrafts();
@@ -106,6 +108,7 @@ export const useUserStore = defineStore('app-user', {
       setAuthCache(LOGIN_INFO_KEY, info);
     },
     setAllDictItems(dictItems) {
+      clearDictRequestCache();
       this.dictItems = dictItems;
       setAuthCache(DB_DICT_DATA_KEY, dictItems);
     },

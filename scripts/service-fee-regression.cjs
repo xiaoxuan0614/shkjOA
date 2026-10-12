@@ -9,7 +9,101 @@ function load(file, mocks = {}) {
   return exports;
 }
 const pricing = load('src/views/plan/quotationPricing.ts');
+assert.equal(pricing.quotationPercent(3, 8), '166.67%');
+assert.equal(pricing.quotationPercent(20, 40), '100.00%');
+assert.equal(pricing.quotationPercent(0, 40), '—');
 const fees = load('src/views/plan/serviceFee.ts', { './quotationPricing': pricing });
+const quotationEditorSource = fs.readFileSync('src/views/plan/material-draft/editor.vue', 'utf8');
+assert(quotationEditorSource.includes(':guide-total-visible="showQuoteSummary"'), '逐行报价总价和底部报价总计使用相同展示条件');
+assert(fs.readFileSync('src/views/plan/components/MaterialPlanTable.vue', 'utf8').includes("props.directQuotation ? '报价单价' : '指导价'"));
+const opinionVisibility = quotationEditorSource.match(/:show-approval-opinion="([^"]+)"/);
+assert(opinionVisibility, '审批意见列应按报价状态显示');
+const showOpinion = new Function('record', `return ${opinionVisibility[1]}`);
+for (const status of [-1, '-1', null, undefined]) assert.equal(showOpinion({ status }), false, '草稿或新建报价隐藏物料和服务费审批意见列');
+for (const status of [0, '0', 1, '1', 2, '2', 4, '4']) assert.equal(showOpinion({ status }), true, '非草稿保留审批意见列');
+const unitSelectSource = fs.readFileSync('src/views/plan/components/ServiceFeeUnitSelect.vue', 'utf8');
+assert(unitSelectSource.includes("initDictOptions('inv_unit')"));
+assert(unitSelectSource.includes('value: name'));
+assert(unitSelectSource.includes('show-search allow-clear'));
+assert(unitSelectSource.includes("emit('change', value || '')"));
+const unitSfc = sfc.parse(unitSelectSource);
+assert.deepEqual(unitSfc.errors, []);
+sfc.compileScript(unitSfc.descriptor, { id: 'service-unit' });
+assert.deepEqual(sfc.compileTemplate({ source: unitSfc.descriptor.template.content, filename: 'ServiceFeeUnitSelect.vue', id: 'service-unit' }).errors, []);
+const materialRow = { _key: 'same', materialName: '设备' };
+const serviceRow = { _key: 'same', name: '安装费', quantity: 1 };
+const combined = fees.quotationDisplayRows([materialRow], [serviceRow]);
+assert.equal(fees.quotationAmount([{ basePrice: '0.10', plannedQty: 3 }], 'basePrice', 'plannedQty'), '0.30');
+assert.equal(fees.quotationAmount([{ costPrice: 1.01, quantity: 0.5 }], 'costPrice', 'quantity'), '0.51');
+assert.equal(fees.quotationAmount([{ costPrice: 0, quantity: 2 }], 'costPrice', 'quantity'), '0.00');
+assert.equal(fees.quotationAmount([{ costPrice: null, quantity: 2 }], 'costPrice', 'quantity'), null);
+const costRow = { costPrice: 3, quantity: 2 };
+assert.equal(fees.quotationAmount([costRow], 'costPrice', 'quantity'), '6.00');
+costRow.quantity = 4;
+assert.equal(fees.quotationAmount([costRow], 'costPrice', 'quantity'), '12.00');
+assert.deepEqual(Object.keys(costRow), ['costPrice', 'quantity'], '展示计算不新增提交字段');
+assert.equal(combined[0], materialRow, '物料行保留原引用');
+assert.equal(combined[1]._serviceFee, serviceRow, '服务费追加末尾并保留原引用');
+assert.equal(combined[1]._key, 'service:same');
+assert.equal(materialRow._serviceFee, undefined, '不污染物料提交记录');
+assert.equal(fees.quotationDisplayRows([], [serviceRow]).length, 1);
+const feeCellSource = fs.readFileSync('src/views/plan/components/QuotationServiceFeeCell.vue', 'utf8');
+assert(feeCellSource.includes('quotationPercent(props.record.costPrice, props.record.guidePrice)'), '服务费报价比例按本单输入的成本和报价反算');
+assert(fs.readFileSync('src/views/plan/components/MaterialPlanTable.vue', 'utf8').includes("props.quotePricing && !props.directQuotation && (props.rateVisible"), '市场报价不提供指导比例列');
+assert(feeCellSource.includes("columnKey === 'unifiedMaterial'"), '统一名称列必须回显服务费');
+const cellAst = ts.createSourceFile('cell.ts', sfc.parse(feeCellSource).descriptor.scriptSetup.content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+const percentNode = cellAst.statements.find(node => ts.isVariableStatement(node) && node.declarationList.declarations.some(d => d.name.getText(cellAst) === 'quotationPercentText'));
+const vueRuntime = require('vue');
+const percentProps = vueRuntime.reactive({ priceVisible: true, rateVisible: true, record: { costPrice: 20, guidePrice: 40, markupRate: 3, taxRate: 4 } });
+const percentValue = new Function('computed', 'props', 'quotationPercent', ts.transpile(percentNode.getText(cellAst)) + '\nreturn quotationPercentText;')(vueRuntime.computed, percentProps, pricing.quotationPercent);
+assert.equal(percentValue.value, '100.00%');
+percentProps.record.costPrice = 10;
+assert.equal(percentValue.value, '300.00%', '成本单价修改立即反算');
+percentProps.record.guidePrice = 15;
+assert.equal(percentValue.value, '50.00%', '报价单价修改立即反算');
+percentProps.record.markupRate = 99;
+percentProps.record.taxRate = 88;
+assert.equal(percentValue.value, '50.00%', '指导比例与税率不影响反算');
+percentProps.record.costPrice = 0;
+assert.equal(percentValue.value, '—');
+const updateNode = cellAst.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'update');
+const updateCell = new Function('props', 'emit', 'serviceFeePrice', 'field', 'value', ts.transpileModule(updateNode.getText(cellAst), { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText + '\nupdate(field,value);');
+const cellEvents = [];
+const cellProps = { record: { costPrice: 100, markupRate: 6 }, structureEditable: true, costEditable: true, editable: true, priceVisible: false, priceEditable: false, busy: false };
+const cellEmit = (...args) => cellEvents.push(args);
+updateCell(cellProps, cellEmit, fees.serviceFeePrice, 'quantity', 2);
+assert.deepEqual(cellEvents.pop()[2], { quantity: 2 });
+updateCell(cellProps, cellEmit, fees.serviceFeePrice, 'guidePrice', 200);
+assert.equal(cellEvents.length, 0, '普通编辑不得改指导价');
+updateCell(cellProps, cellEmit, fees.serviceFeePrice, 'costPrice', 200);
+assert.deepEqual(cellEvents.pop()[2], { costPrice: 200 }, '普通编辑不得重算指导价');
+updateCell({ ...cellProps, priceVisible: true, priceEditable: true }, cellEmit, fees.serviceFeePrice, 'costPrice', 200);
+assert.equal(cellEvents.pop()[2].guidePrice, '212.00');
+updateCell({ ...cellProps, busy: true }, cellEmit, fees.serviceFeePrice, 'quantity', 3);
+assert.equal(cellEvents.length, 0);
+updateCell(cellProps, cellEmit, fees.serviceFeePrice, 'approvalOpinion', '不应修改');
+assert.equal(cellEvents.length, 0);
+updateCell({ ...cellProps, approvalEditable: true }, cellEmit, fees.serviceFeePrice, 'approvalOpinion', '同意服务费');
+assert.deepEqual(cellEvents.pop()[2], { approvalOpinion: '同意服务费' });
+updateCell({ ...cellProps, approvalEditable: true, busy: true }, cellEmit, fees.serviceFeePrice, 'approvalOpinion', '锁定');
+assert.equal(cellEvents.length, 0);
+assert.deepEqual(fees.serviceFeeApprovalItems([]), []);
+const newFeeProps = { ...cellProps, record: { serviceFeeId: 'library', costPrice: 30, markupRate: 3, guidePrice: 30.9, taxRate: 13 } };
+updateCell(newFeeProps, cellEmit, fees.serviceFeePrice, 'costPrice', 6);
+assert.deepEqual(cellEvents.pop()[2], { costPrice: 6, guidePrice: '6.18', _error: '' });
+updateCell({ ...newFeeProps, record: { ...newFeeProps.record, id: 'saved' } }, cellEmit, fees.serviceFeePrice, 'costPrice', 6);
+assert.deepEqual(cellEvents.pop()[2], { costPrice: 6 }, '已有脱敏行不猜测定价');
+updateCell(newFeeProps, cellEmit, fees.serviceFeePrice, 'guidePrice', 99);
+assert.equal(cellEvents.length, 0, '默认价联动不开放手动价格权限');
+updateCell(newFeeProps, cellEmit, fees.serviceFeePrice, 'costPrice', null);
+assert.equal(cellEvents.pop()[2].guidePrice, null);
+updateCell({ ...newFeeProps, priceVisible: true, priceEditable: true }, cellEmit, fees.serviceFeePrice, 'guidePrice', 99);
+assert.deepEqual(cellEvents.pop()[2], { guidePrice: 99 }, '人工定价不被公式覆盖');
+assert.deepEqual(fees.serviceFeeApprovalItems([{ id: 'detail', serviceFeeId: 'library', approvalOpinion: '同意', costPrice: 100 }]), [{ itemId: 'detail', approvalOpinion: '同意' }]);
+assert.deepEqual(fees.serviceFeeApprovalItems([{ id: 'detail', approvalOpinion: null }]), [{ itemId: 'detail', approvalOpinion: '' }]);
+assert.deepEqual(fees.serviceFeeApprovalItems([{ id: 'detail', approvalOpinion: '' }]), [{ itemId: 'detail', approvalOpinion: '' }]);
+for (const rows of [[{ serviceFeeId: 'library' }], [{ id: 'd' }, { id: 'd' }], [{ id: 'd', approvalOpinion: '字'.repeat(501) }], [{ id: 'd', approvalOpinion: 1 }]]) assert.throws(() => fees.serviceFeeApprovalItems(rows));
+assert.equal(fees.serviceFeeApprovalItems([{ id: 'd', approvalOpinion: '字'.repeat(500) }])[0].approvalOpinion.length, 500);
 assert.equal(fees.serviceFeePrice(100, 6), '106.00');
 assert.equal(fees.serviceFeePrice('1.01', 50), '1.52');
 assert.equal(fees.serviceFeePrice(0, 6), '0.00');
@@ -19,10 +113,42 @@ const source = { id: 'library', name: '安装服务', description: '现场调试
 const copy = fees.serviceFeeCopy(source);
 assert.equal(copy.id, undefined);
 assert.equal(copy.quantity, 1);
-assert.equal(copy.unit, '项');
-assert.equal(copy.remark, '现场调试');
+assert.equal(copy.unit, '次');
+assert.equal(fees.serviceFeeCopy({ ...source, unit: ' 天 ' }).unit, '天');
+assert.equal(fees.serviceFeeCopy({ ...source, unit: null }).unit, '项');
+assert.equal(copy.remark, '');
+assert.equal(copy.serviceFeeId, 'library');
+assert.equal(fees.serviceFeeCopy({ ...source, remark: '库备注' }).remark, '');
 assert.equal(fees.serviceFeeCopy({ ...source, costPrice: null }).guidePrice, null);
-assert.equal(fees.serviceFeeCopy({ ...source, markupRate: null }).guidePrice, null);
+assert.equal(fees.serviceFeeCopy({ ...source, markupRate: null }).guidePrice, '100.00');
+assert.equal(copy.markupRate, 0);
+assert.equal(copy.guidePrice, '100.00');
+const taxedCopy = fees.serviceFeeCopy({ ...source, taxRate: 13, markupRate: 50 });
+assert.equal(taxedCopy.taxRate, 13);
+assert.equal(taxedCopy.markupRate, 0);
+assert.equal(taxedCopy.guidePrice, '100.00');
+const guidedCopy = fees.serviceFeeCopy({ ...source, markupRate: 13, guideMarkupRate: 20 });
+assert.equal(guidedCopy.taxRate, 13);
+assert.equal(guidedCopy.markupRate, 20);
+assert.equal(guidedCopy.guidePrice, '120.00');
+assert.equal(fees.serviceFeePayload(guidedCopy).taxRate, 13);
+assert.equal(fees.serviceFeePayload(guidedCopy).markupRate, 20);
+const newDefaultPayload = fees.serviceFeePayload(guidedCopy, { structure: true, cost: true, price: false });
+const staleDraft = { ...guidedCopy, costPrice: 6, markupRate: 3, guidePrice: 30.9 };
+const synchronized = fees.serviceFeePayload(staleDraft, { structure: true, cost: true, price: false });
+assert.equal(synchronized.guidePrice, 6.18);
+assert.equal(fees.quotationAmount([synchronized], 'guidePrice', 'quantity'), '6.18');
+assert.equal(fees.serviceFeePayload(staleDraft).guidePrice, 30.9, '定价人员的人工价格原样保存');
+assert.equal(newDefaultPayload.markupRate, 20);
+assert.equal(newDefaultPayload.taxRate, 13);
+assert.equal(newDefaultPayload.guidePrice, 120);
+const oldUneditablePayload = fees.serviceFeePayload({ ...guidedCopy, id: 'saved' }, { structure: true, cost: true, price: false });
+assert.equal(oldUneditablePayload.markupRate, undefined);
+assert.equal(oldUneditablePayload.guidePrice, undefined);
+assert.equal(fees.serviceFeeTaxText(0), '0%');
+assert.equal(fees.serviceFeeTaxText('6.50'), '6.5%');
+assert.equal(fees.serviceFeeTaxText(null), '—');
+assert.equal(fees.serviceFeeTaxText(undefined), '—');
 assert.equal(fees.serviceFeeCopy({ ...source, costPrice: 0 }).guidePrice, '0.00');
 copy.costPrice = 200;
 assert.equal(source.costPrice, 100);
@@ -30,9 +156,29 @@ const payload = fees.serviceFeePayload({ ...copy, id: 'quote-row', _key: 3, guid
 assert.equal(payload.id, 'quote-row');
 assert.equal(payload.guidePrice, 212);
 assert.equal(payload._key, undefined);
+assert.equal(payload.serviceFeeId, 'library');
+const ordinaryPayload = fees.serviceFeePayload({ ...payload, markupRate: null, guidePrice: null, remark: '已填写备注' }, { structure: true, cost: true, price: false });
+assert.equal(ordinaryPayload.markupRate, undefined);
+assert.equal(ordinaryPayload.guidePrice, undefined);
+assert.equal(ordinaryPayload.remark, '已填写备注');
+assert.equal(payload.unit, '次');
+assert.equal(fees.serviceFeePayload({ ...payload, unit: ' 天 ' }).unit, '天');
+assert.throws(() => fees.serviceFeePayload({ ...payload, unit: ' ' }), /单位必填/);
+assert.throws(() => fees.serviceFeePayload({ ...payload, unit: '字'.repeat(51) }), /最多50字/);
+const maintenanceSource = fs.readFileSync('src/views/plan/service-fee/index.vue', 'utf8');
+assert(maintenanceSource.includes('v-model:value="form.unit" :options="unitOptions"'));
+assert(maintenanceSource.includes("initDictOptions('inv_unit')"));
+assert(maintenanceSource.includes('value: name'));
+assert(maintenanceSource.includes('option-filter-prop="label"'));
+assert(!maintenanceSource.includes('placeholder="请输入单位'));
+assert(maintenanceSource.includes("title: '单位', key: 'unit', dataIndex: 'unit'"));
 assert.equal(fees.serviceFeePayload(payload, { cost: false, price: true }).costPrice, undefined);
 assert.throws(() => fees.serviceFeePayload({ ...payload, name: '' }));
 assert.throws(() => fees.serviceFeePayload({ ...payload, quantity: 0 }));
+for (const field of ['unit', 'quantity', 'costPrice']) {
+  for (const value of [undefined, null, '']) assert.throws(() => fees.serviceFeePayload({ ...payload, [field]: value }, { structure: true, cost: true, price: false }), `${field}不得为空`);
+}
+assert.equal(fees.serviceFeePayload({ ...payload, costPrice: 0 }, { structure: true, cost: true, price: false }).costPrice, 0);
 assert.throws(() => fees.serviceFeePayload({ ...payload, remark: '字'.repeat(501) }));
 assert.equal(fees.quotationAmount([payload], 'guidePrice', 'quantity'), '212.00');
 assert.equal(fees.quotationAmount([{ quantity: 1, guidePrice: null }], 'guidePrice', 'quantity'), null);
@@ -43,20 +189,154 @@ assert.deepEqual(fees.quotationTotals([], []), { cost: '0.00', final: '0.00' });
 assert.deepEqual(fees.quotationTotals([], [{ quantity: 1, costPrice: null, guidePrice: 0 }]), { cost: null, final: '0.00' });
 assert.deepEqual(fees.quotationTotals([{ plannedQty: '0.5', basePrice: '1.01', finalPrice: '1.01' }], [{ quantity: '0.5', costPrice: '1.01', guidePrice: '1.01' }]), { cost: '1.02', final: '1.02' });
 const { reactive, computed } = require('vue');
+assert.equal(fees.quotationAmount([{ basePrice: '1.01', plannedQty: '0.5' }, { basePrice: 0, plannedQty: 2 }], 'basePrice', 'plannedQty'), '0.51');
+assert.equal(fees.quotationAmount([{ basePrice: null, plannedQty: 1 }], 'basePrice', 'plannedQty'), null);
+const feeTableSource = fs.readFileSync('src/views/plan/components/ServiceFeeTable.vue', 'utf8');
+assert(feeTableSource.includes('type="primary" preIcon="ant-design:plus-outlined"'));
+const editorSource = fs.readFileSync('src/views/plan/material-draft/editor.vue', 'utf8');
+assert(editorSource.includes(':price-editable="canEditServiceFeePricing"'));
+assert(editorSource.includes('price: canEditServiceFeePricing.value'));
+const editorAst = ts.createSourceFile('editor.ts', sfc.parse(editorSource).descriptor.scriptSetup.content, ts.ScriptTarget.Latest, true);
+const summaryVisibilityNode = editorAst.statements.find(node => ts.isVariableStatement(node) && node.declarationList.declarations.some(d => d.name.getText(editorAst) === 'showQuoteSummary'));
+const summaryVisible = new Function('computed', 'loaded', 'visibleFields', 'directEntry', 'record', ts.transpile(summaryVisibilityNode.getText(editorAst)) + '\nreturn showQuoteSummary.value;');
+for (const status of ['-1', '0', '1', '2']) {
+  for (const permitted of [false, true]) {
+    assert.equal(summaryVisible(fn => ({ value: fn() }), { value: true }, { value: { quote: permitted } }, { value: true }, { value: { status } }), permitted);
+    assert.equal(summaryVisible(fn => ({ value: fn() }), { value: true }, { value: { quote: permitted } }, { value: false }, { value: { status } }), permitted && status === '1');
+  }
+}
+assert(editorSource.includes("directEntry ? '报价总计' : '指导报价总计'"));
+const permissionNode = editorAst.statements.find(node => ts.isVariableStatement(node) && node.declarationList.declarations.some(d => d.name.getText(editorAst) === 'canEditServiceFeePricing'));
+const evaluatePermission = new Function('computed', 'access', 'canModify', 'canEditPricing', 'directEntry', ts.transpileModule(permissionNode.getText(editorAst), { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText + '\nreturn canEditServiceFeePricing.value;');
+for (const [manage, modify, pricing, expected] of [[false, true, false, false], [false, true, true, false], [true, false, false, false], [true, true, false, true], [true, false, true, true]]) {
+  assert.equal(evaluatePermission(fn => ({ value: fn() }), { value: { canManage: manage } }, { value: modify }, { value: pricing }, { value: false }), expected);
+}
+for (const modify of [true, false]) assert.equal(evaluatePermission(fn => ({ value: fn() }), { value: { canManage: false } }, { value: modify }, { value: false }, { value: true }), modify);
+const directFee = fees.serviceFeeCopy({ ...source, guideMarkupRate: 50, guidePrice: 999 }, true);
+assert.equal(directFee.guidePrice, '0.00', '市场新选服务费默认零，不用基础库价格');
+const directPayload = fees.serviceFeePayload({ ...directFee, markupRate: null, guidePrice: 12.34, quantity: 3 }, { structure: true, cost: true, price: true }, true);
+assert.equal(directPayload.guidePrice, 12.34);
+assert.equal(directPayload.markupRate, undefined, '市场手填价格不要求或提交隐藏指导比例');
+assert.equal(fees.quotationAmount([directPayload], 'guidePrice', 'quantity'), '37.02');
+assert.equal(fees.serviceFeePayload(directFee, { structure: true, cost: true, price: true }, true).guidePrice, 0);
+updateCell({ ...cellProps, directQuotation: true, priceVisible: true, priceEditable: true, record: directFee }, cellEmit, fees.serviceFeePrice, 'costPrice', 500);
+assert.deepEqual(cellEvents.pop()[2], { costPrice: 500 }, '市场改成本不覆盖手填报价');
+updateCell({ ...cellProps, directQuotation: true, priceVisible: true, priceEditable: true, record: directFee }, cellEmit, fees.serviceFeePrice, 'guidePrice', 12.34);
+assert.deepEqual(cellEvents.pop()[2], { guidePrice: 12.34 });
+const feeAst = ts.createSourceFile('fees.ts', sfc.parse(feeTableSource).descriptor.scriptSetup.content, ts.ScriptTarget.Latest, true);
+const columnNodes = feeAst.statements.filter(node => ts.isVariableStatement(node) && node.declarationList.declarations.some(d => ['columns', 'pickerColumns'].includes(d.name.getText(feeAst))));
+const columnsFor = new Function('props', 'computed', ts.transpileModule(columnNodes.map(node => node.getText(feeAst)).join('\n'), { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText + '\nreturn [columns.value, pickerColumns.value];');
+for (const visible of [false, true]) {
+  const [main, picker] = columnsFor({ priceVisible: visible, structureEditable: true }, fn => ({ value: fn() }));
+  assert.equal(main.some(c => c.key === 'markupRate'), visible);
+  assert.equal(main.some(c => c.key === 'guidePrice'), visible);
+  assert.equal(picker.some(c => c.key === 'guideMarkupRate'), visible);
+}
+// Exercise the actual editor computed expressions across the template-ref lifecycle.
+const { ref } = require('vue');
+const readinessNames = ['materialRowsReady', 'totalsReady', 'summary'];
+const readinessSource = editorAst.statements.filter(node => ts.isVariableStatement(node)
+  && node.declarationList.declarations.some(decl => readinessNames.includes(decl.name.getText(editorAst))))
+  .map(node => node.getText(editorAst)).join('\n');
+const lifecycle = { loaded: ref(true), materialsReady: ref(true), feesReady: ref(true), tableRef: ref(), serviceFees: ref([]) };
+const readiness = new Function('computed', 'quotationSummary', ...Object.keys(lifecycle),
+  readinessSource + '\nreturn { materialRowsReady, totalsReady, summary };')(computed, fees.quotationSummary, ...Object.values(lifecycle));
+assert.equal(readiness.totalsReady.value, false);
+assert.doesNotThrow(() => readiness.summary.value);
+lifecycle.tableRef.value = { getRows: () => reactiveMaterialsForLifecycle };
+const reactiveMaterialsForLifecycle = reactive([{ plannedQty: 2, basePrice: 10 }]);
+assert.equal(readiness.totalsReady.value, true);
+assert.equal(readiness.summary.value.materialCost, '20.00');
+reactiveMaterialsForLifecycle[0].plannedQty = 3;
+assert.equal(readiness.summary.value.materialCost, '30.00');
+lifecycle.tableRef.value = null;
+assert.equal(readiness.totalsReady.value, false);
+assert.doesNotThrow(() => readiness.summary.value);
+lifecycle.tableRef.value = { getRows: () => [] };
+assert.equal(readiness.summary.value.materialCount, 0);
+assert.equal(readiness.totalsReady.value, true);
+lifecycle.materialsReady.value = false;
+assert.equal(readiness.totalsReady.value, false);
+assert(editorSource.includes(':price-visible="access.canManage"'));
+assert(editorSource.includes('<span v-if="showCostTotal">服务费合计：'));
+assert(editorSource.includes('<span v-if="showCostTotal">成本总计：'));
+assert(editorSource.includes(':approval-editable="reviewMode && loaded && caps.approve"'));
+const recalcNode = feeAst.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'recalculate');
+const recalc = new Function('props', 'serviceFeePrice', 'row', ts.transpileModule(recalcNode.getText(feeAst), { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText + '\nrecalculate(row);');
+const protectedRow = { costPrice: 200, markupRate: 6, guidePrice: 106 };
+recalc({ priceEditable: false, busy: false }, fees.serviceFeePrice, protectedRow);
+assert.equal(protectedRow.guidePrice, 106, '普通编辑改成本不得间接重算指导价');
+recalc({ priceEditable: true, busy: true }, fees.serviceFeePrice, protectedRow);
+assert.equal(protectedRow.guidePrice, 106);
+recalc({ priceEditable: true, busy: false }, fees.serviceFeePrice, protectedRow);
+assert.equal(protectedRow.guidePrice, '212.00');
+// Run actual picker handlers: multi-select, reopening, snapshot preservation and cancellation.
+const pickerDeclarations = feeAst.statements.filter(node =>
+  ts.isFunctionDeclaration(node) && ['openPicker', 'confirmSelection'].includes(node.name?.text))
+  .map(node => ts.transpile(node.getText(feeAst), { target: ts.ScriptTarget.ES2020 })).join('\n');
+const savedFee = { id: 'detail-1', serviceFeeId: 'source-1', quantity: 7, costPrice: 99 };
+const legacyFee = { id: 'legacy', quantity: 2 };
+const pickerProps = { modelValue: [savedFee, legacyFee], structureEditable: true, busy: false, ready: true };
+const pickerState = { selectedKeys: ref([]), selectedOptions: new Map(), keyword: ref(''), pickerOpen: ref(false), loading: ref(false), error: ref('') };
+const picker = new Function('props', ...Object.keys(pickerState), 'search', 'serviceFeeCopy', 'emit', 'createMessage',
+  'let seed = 0;\n' + pickerDeclarations + '\nreturn { openPicker, confirmSelection };')(
+  pickerProps, ...Object.values(pickerState), () => {}, fees.serviceFeeCopy,
+  (_, rows) => { pickerProps.modelValue = rows; }, { error(message) { throw Error(message); } });
+picker.openPicker();
+assert.deepEqual(pickerState.selectedKeys.value, ['source-1']);
+for (const id of ['source-2', 'source-3']) {
+  pickerState.selectedKeys.value.push(id);
+  pickerState.selectedOptions.set(id, { id, name: id, unit: '项', quantity: 1, costPrice: 10, markupRate: 0 });
+}
+picker.confirmSelection();
+assert.equal(pickerProps.modelValue.length, 4);
+assert.equal(pickerProps.modelValue[0], savedFee);
+assert.equal(pickerProps.modelValue[1], legacyFee);
+picker.openPicker();
+assert.deepEqual(pickerState.selectedKeys.value, ['source-1', 'source-2', 'source-3']);
+pickerState.selectedKeys.value = []; // Cancel by closing, without confirm.
+pickerState.pickerOpen.value = false;
+assert.equal(pickerProps.modelValue.length, 4);
+picker.openPicker();
+picker.confirmSelection();
+assert.equal(pickerProps.modelValue.length, 4, 'Reconfirm must not duplicate selected fees');
+picker.openPicker();
+pickerState.selectedKeys.value = ['source-3'];
+picker.confirmSelection();
+assert.deepEqual(pickerProps.modelValue.map(row => row.id || row.serviceFeeId), ['legacy', 'source-3']);
+assert(editorSource.indexOf('物料费合计') > editorSource.indexOf('</MaterialPlanTable>'));
+for (const label of ['已选物料数量', '物料费合计', '服务费合计', '总计']) assert(editorSource.includes(label));
+assert(!feeTableSource.includes('service-fees__total'));
+assert.deepEqual(fees.quotationSummary([{ basePrice: 10, finalPrice: 99, plannedQty: 2 }], [{ costPrice: 5, guidePrice: 8, quantity: 3 }]), { materialCount: 1, materialCost: '20.00', serviceFee: '15.00', total: '35.00' });
+assert.deepEqual(fees.quotationSummary([], []), { materialCount: 0, materialCost: '0.00', serviceFee: '0.00', total: '0.00' });
+assert.equal(fees.quotationSummary([{ basePrice: null, plannedQty: 2 }], []).total, null);
+assert.equal(fees.quotationSummary([], [{ costPrice: null, guidePrice: 10, quantity: 2 }]).total, null);
+assert.equal(fees.quotationSummary([], [{ costPrice: 12, guidePrice: null, quantity: 3 }]).total, '36.00');
+assert.equal(fees.quotationSummary([], [{ costPrice: 0, quantity: 3 }]).serviceFee, '0.00');
+assert.equal(fees.quotationSummary([], [{ costPrice: 1.01, quantity: 0.5 }]).total, '0.51');
 const reactiveMaterials = reactive([{ plannedQty: 1, basePrice: 10, finalPrice: 12 }]);
 const reactiveFees = reactive([]);
+const liveSummary = computed(() => fees.quotationSummary(reactiveMaterials, reactiveFees));
+assert.equal(liveSummary.value.total, '10.00');
 const liveTotals = computed(() => fees.quotationTotals(reactiveMaterials, reactiveFees));
 assert.deepEqual(liveTotals.value, { cost: '10.00', final: '12.00' });
 reactiveMaterials[0].plannedQty = 2;
 reactiveFees.push({ quantity: 1, costPrice: 5, guidePrice: 6 });
+assert.equal(liveSummary.value.total, '25.00');
+assert.equal(liveSummary.value.materialCount, 1);
 assert.deepEqual(liveTotals.value, { cost: '25.00', final: '30.00' });
 reactiveMaterials[0].finalPrice = 0;
 assert.equal(liveTotals.value.final, '6.00');
+reactiveFees[0].quantity = 3;
+assert.equal(liveSummary.value.serviceFee, '15.00');
+assert.equal(liveSummary.value.total, '35.00');
+reactiveFees.splice(0);
+assert.equal(liveSummary.value.total, '20.00');
 const quotationListSource = fs.readFileSync('src/views/plan/material-draft/index.vue', 'utf8');
 assert(quotationListSource.includes('v-if="canMaintainServiceFees"'));
 assert(quotationListSource.includes('v-if="serviceFeeOpen" embedded'));
 assert(quotationListSource.includes(':closable="!serviceFeeBusy"'));
-for (const file of ['src/views/plan/service-fee/index.vue', 'src/views/plan/material-draft/index.vue', 'src/views/plan/components/ServiceFeeTable.vue', 'src/views/plan/material-draft/editor.vue', 'src/views/plan/components/MaterialPlanTable.vue']) {
+for (const file of ['src/views/plan/components/QuotationServiceFeeCell.vue', 'src/views/plan/service-fee/index.vue', 'src/views/plan/material-draft/index.vue', 'src/views/plan/components/ServiceFeeTable.vue', 'src/views/plan/material-draft/editor.vue', 'src/views/plan/components/MaterialPlanTable.vue']) {
   const { descriptor, errors } = sfc.parse(fs.readFileSync(file, 'utf8'));
   assert.deepEqual(errors, []); sfc.compileScript(descriptor, { id: file });
   assert.deepEqual(sfc.compileTemplate({ source: descriptor.template.content, filename: file, id: file }).errors, []);
@@ -64,22 +344,52 @@ for (const file of ['src/views/plan/service-fee/index.vue', 'src/views/plan/mate
 let buffer;
 const excel = load('src/views/plan/materialExcel.ts', { './quotationPricing': pricing, '/@/utils/file/download': { downloadByData(data) { buffer = data; } } });
 (async () => {
+  const reviewNode = editorAst.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'review');
+  const requests = [];
+  let refreshed = 0;
+  const reviewState = { rejectError: ref(''), rejectReason: ref('驳回原因'), caps: ref({ approve: true }), feesReady: ref(true),
+    tableRef: ref({ getApprovalItems: () => [{ itemId: 'material', approvalOpinion: '物料意见' }] }),
+    record: ref({ id: 'candidate', version: 2 }), serviceFees: ref([{ id: 'fee-detail', serviceFeeId: 'library', approvalOpinion: '服务费意见' }]),
+    rejectOpen: ref(true), marketQuotation: ref(false) };
+  const doReview = new Function(...Object.keys(reviewState), 'run', 'verifyCurrent', 'candidateAction', 'serviceFeeApprovalItems', 'refreshAfterWrite', 'createMessage',
+    ts.transpile(reviewNode.getText(editorAst), { target: ts.ScriptTarget.ES2020 }) + '\nreturn review;')(
+    ...Object.values(reviewState), fn => fn(), async () => {}, async (...args) => requests.push(args), fees.serviceFeeApprovalItems,
+    async () => { refreshed++; }, { success() {} });
+  for (const result of ['1', '0']) {
+    await doReview(result);
+    const payload = requests.at(-1)[2];
+    assert.deepEqual(payload.serviceFeeApprovalItems, [{ itemId: 'fee-detail', approvalOpinion: '服务费意见' }]);
+    assert.deepEqual(payload.approvalItems, [{ itemId: 'material', approvalOpinion: '物料意见' }]);
+    assert.equal(payload.reason, result === '0' ? '驳回原因' : undefined);
+  }
+  assert.equal(refreshed, 2);
+  reviewState.caps.value.approve = false;
+  await assert.rejects(doReview('1'), /当前不可审批/);
+  assert.equal(requests.length, 2);
+  reviewState.caps.value.approve = true;
+  reviewState.feesReady.value = false;
+  await assert.rejects(doReview('1'), /尚未加载完成/);
   const fee = { name: '测试安装服务', description: '服务范围\n现场调试', remark: '一年维护', unit: '项', quantity: 1, guidePrice: 106, costPrice: 100, markupRate: 6 };
   await assert.rejects(() => excel.exportCandidateMaterials({ candidateId: 'test', records: [{ quantity: 1, finalPrice: 10 }] }), /服务费导出数据不完整/);
   await excel.exportCandidateMaterials({ candidateId: 'test', candidateName: '服务费导出测试', records: [{ materialName: '测试设备', quantity: 2, finalPrice: 50 }], serviceFees: [fee] });
   const wb = new ExcelJS.Workbook(); await wb.xlsx.load(buffer);
   const sheet = wb.worksheets[0];
-  assert.equal(sheet.getCell('A4').value, '服务费');
-  assert.equal(sheet.getCell('B5').value, fee.name);
-  assert.equal(sheet.getCell('E5').value, fee.description);
-  assert.equal(sheet.getCell('I5').result, 106);
-  assert.equal(sheet.getCell('I6').result, 206);
-  assert.equal(sheet.getCell('I6').formula, 'SUM(I3:I5)');
+  assert.equal(sheet.getCell('A3').value, 1);
+  assert.equal(sheet.getCell('A4').value, 2, '服务费紧接物料连续编号');
+  assert.equal(sheet.getCell('B4').value, fee.name);
+  assert.equal(sheet.getCell('E4').value, fee.description);
+  assert.equal(sheet.getCell('I4').result, 106);
+  assert.equal(sheet.getCell('I5').result, 206);
+  assert.equal(sheet.getCell('I5').formula, 'SUM(I3:I4)');
+  assert.equal(sheet.rowCount, 5, '不插入服务费分隔行');
   assert(!JSON.stringify(sheet.model).includes('costPrice'));
   if (process.env.SERVICE_FEE_PREVIEW_PATH) fs.writeFileSync(process.env.SERVICE_FEE_PREVIEW_PATH, buffer);
   await excel.exportCandidateMaterials({ candidateId: 'test', records: [], serviceFees: [fee] });
   const only = new ExcelJS.Workbook(); await only.xlsx.load(buffer);
-  assert.equal(only.worksheets[0].getCell('I5').result, 106);
+  assert.equal(only.worksheets[0].getCell('A3').value, 1);
+  assert.equal(only.worksheets[0].getCell('B3').value, fee.name);
+  assert.equal(only.worksheets[0].getCell('I4').result, 106);
+  assert.equal(only.worksheets[0].getCell('I4').formula, 'SUM(I3:I3)');
   await assert.rejects(() => excel.exportCandidateMaterials({ candidateId: 'test', records: [], serviceFees: [{ ...fee, guidePrice: null }] }));
   console.log('PASS service fee: decimal calculation, validation, copy isolation, masked totals, Vue compilation, mixed/service-only exports');
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -9,6 +9,32 @@ vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/views/project/contrac
 const api=ctx.exports;
 const data={instanceId:'i',businessId:'c',businessType:'PROJECT_CONTRACT'};
 const instance={id:'i',businessId:'c',businessType:'PROJECT_CONTRACT'};
+const roundSnapshot = { salesUserId: 'sales-id', salesUserName: '销售甲', projectContext: { customerName: '甲方甲', contactPerson: '对接人甲', projectName: '项目', periodName: '一期' }, materialAttachments: [{ id: 'not-copied' }] };
+const combined = api.contractSubmittedSnapshot({ submitted: { contractName: '合同' }, fieldPermissions: {} }, roundSnapshot);
+assert.equal(combined.salesUserName, '销售甲');
+assert.equal(combined.salesUserId, 'sales-id');
+assert.equal(combined.projectContext.customerName, '甲方甲');
+assert.equal(combined.projectContext.contactPerson, '对接人甲');
+assert.equal(combined.materialAttachments, undefined);
+assert.equal(api.contractSubmittedSnapshot({ submitted: { salesUserName: null }, fieldPermissions: {} }, roundSnapshot).salesUserName, null);
+for (const prefix of ['', 'snapshot.', 'submitted.']) {
+  const masked = api.contractSubmittedSnapshot({ submitted: {}, fieldPermissions: { [`${prefix}salesUserName`]: 'HIDDEN', [`${prefix}projectContext`]: 'HIDDEN' } }, roundSnapshot);
+  assert.equal(masked.salesUserName, undefined);
+  assert.equal(masked.projectContext, undefined);
+}
+assert(fs.readFileSync('src/views/project/contract/ContractApproval.vue', 'utf8').includes("const attachments = ['contractAttachments'];"));
+const contractPage = fs.readFileSync('src/views/project/contract/index.vue', 'utf8');
+const contractAst = ts.createSourceFile('contract.ts', sfc.parse(contractPage).descriptor.scriptSetup.content, ts.ScriptTarget.Latest, true);
+const nodeChange = contractAst.statements.find(n => ts.isFunctionDeclaration(n) && n.name?.text === 'handlePaybackNodeChange');
+let recalculated = 0;
+const changeNode = new Function('clearPaybackError', 'getOptionLabel', 'paybackNodeOptions', 'handlePaybackRatioChange', ts.transpile(nodeChange.getText(contractAst)) + '\nreturn handlePaybackNodeChange;')(
+  () => {}, (options, value) => options.find(o => o.value === value)?.label || '', { value: [{ value: 'once', label: '一次款' }, { value: 'deposit', label: '首付款' }] }, () => recalculated++);
+const once = { node: 'once', ratio: 20 }; changeNode(once); assert.equal(once.ratio, 100); assert.equal(recalculated, 1);
+const other = { node: 'deposit', ratio: 30 }; changeNode(other); assert.equal(other.ratio, 30);
+assert(contractPage.includes("if (!requestedCandidateId) throw new Error('请选择关联报价单')"));
+const successPath = contractPage.slice(contractPage.indexOf("createMessage.success(wasNewContract"), contractPage.indexOf("function goBack()"));
+assert(successPath.includes("await router.push('/project/list')"));
+assert(!successPath.includes('loadExistingContract()'));
 api.assertContractApprovalIdentity(data,instance,'i','c');
 assert.throws(()=>api.assertContractApprovalIdentity(data,instance,'i','other'));
 assert.throws(()=>api.assertContractApprovalIdentity(data,{...instance,businessType:'WORKFLOW_FORM'},'i'));
@@ -40,12 +66,12 @@ async function verifyHandling() {
   const mocks={
     vue:{ref:value=>({value}),computed:fn=>({get value(){return fn();}}),watch(){},onBeforeUnmount(){}},
     '/@/views/workflow/Workflow.api':{instanceDetail:async()=>workflow,instanceActions:async()=>handled?{tasks:[]}:permitted,handleInstance:async payload=>{sends.push(payload);if(fail)throw Error('network');handled=true;}},
-    '/@/views/workflow/workflow':{newId:()=> 'stable-request',statusLabels:{}},
+    '/@/views/workflow/workflow':{newId:()=> 'stable-request',newUUID:()=> 'withdraw-request',statusLabels:{}},
     '/@/views/todo/useTodoCenter':{refreshTodos:async()=>{todoRefresh++;}},
     './approval.api':{...api,contractApprovalDetail:async()=>({...data,submitted:{periodId:'period'},fieldPermissions:{}}), contractApprovalActions:async()=>({instanceId:'i',canWithdraw:!withdrawn,canResubmit:withdrawn}), withdrawContractApproval:async payload=>{withdrawals.push(payload);if(fail)throw Error('network');withdrawn=true;}},
   };
-  const context={exports:{},Error,crypto:{randomUUID:()=> 'withdraw-request'},defineEmits:()=> (...args)=>emitted.push(args),defineProps:()=>({instanceId:'i',contractId:'c'}),require:id=>mocks[id]||{}};
-  vm.runInNewContext(ts.transpileModule(script+'\nexport {load,submit,retry,pending,comment,allowedTasks,withdraw,withdrawComment,withdrawal,resubmit,businessActions,business,capabilityError};',{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText,context);
+  const context={exports:{},Error,crypto:{},defineEmits:()=> (...args)=>emitted.push(args),defineProps:()=>({instanceId:'i',contractId:'c'}),require:id=>mocks[id]||{}};
+  vm.runInNewContext(ts.transpileModule(script+'\nexport {load,submit,retry,pending,comment,allowedTasks,withdraw,withdrawComment,withdrawal,resubmit,businessActions,business,capabilityError,actionError,busy};',{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText,context);
   const page=context.exports;await page.load();
   await page.submit('wrong','APPROVE');assert.equal(sends.length,0);
   await page.submit('task','REJECT');assert.equal(sends.length,0,'reject requires comment');
@@ -53,7 +79,12 @@ async function verifyHandling() {
   await page.submit('task','APPROVE');assert.equal(sends.length,1,'unresolved request blocks a new action');
   fail=false;await page.retry();assert.equal(sends.length,2);assert.equal(sends[0].requestId,sends[1].requestId);assert.equal(sends[1].action,'REJECT');assert.equal(page.pending.value,undefined);assert.equal(page.allowedTasks.value.length,0);assert.equal(todoRefresh,1);
   await page.withdraw(); assert.equal(withdrawals.length,0,'withdraw requires reason');
-  page.withdrawComment.value='修改合同';fail=true;await page.withdraw();assert.equal(withdrawals.length,1);assert.ok(page.withdrawal.value);
+  page.withdrawComment.value='修改合同';
+  const createUUID=mocks['/@/views/workflow/workflow'].newUUID;
+  mocks['/@/views/workflow/workflow'].newUUID=()=>{throw Error('当前浏览器不支持安全随机数');};
+  await page.withdraw();assert.equal(withdrawals.length,0);assert.match(page.actionError.value,/不支持安全随机数/);assert.equal(page.busy.value,false);assert.equal(page.withdrawal.value,undefined);
+  mocks['/@/views/workflow/workflow'].newUUID=createUUID;
+  fail=true;await page.withdraw();assert.equal(withdrawals.length,1);assert.ok(page.withdrawal.value);
   fail=false;await page.withdraw();assert.equal(withdrawals.length,2);assert.equal(withdrawals[0].requestId,withdrawals[1].requestId);assert.equal(withdrawals[1].contractId,'c');assert.equal('instanceId' in withdrawals[1],false);assert.equal(page.withdrawal.value,undefined);assert.equal(todoRefresh,2);
   await page.resubmit();assert.deepEqual(emitted[0],['resubmit','period','c']);
   page.businessActions.value={instanceId:'new',canResubmit:true};await page.resubmit();assert.equal(emitted.length,1,'historic round cannot resubmit');
