@@ -2,6 +2,12 @@ node_modules
 .DS_Store
 .github
 dist
+# Generated release artifacts remain local; source and build instructions are versioned.
+/release-packages/
+# Local business deliverables (do not ignore Word documents elsewhere).
+/运维模块开发排期报告-论文格式.docx
+/运维模块开发排期表_2026年10月.docx
+/首汇OA系统培训计划.docx
 .cache
 .playwright-mcp
 
