@@ -21,6 +21,10 @@ for (const filename of files) {
   assert.deepEqual(result.errors, [], filename);
 }
 const display = fs.readFileSync(files[0], 'utf8');
+const member = fs.readFileSync('src/views/project/detail/components/DetailMember.vue', 'utf8');
+assert.match(member, /:options="roleOptions" :value="role"/);
+assert.match(member, /color: item.color \|\| undefined/);
+assert.match(member, /ajaxGetDictItems\('member_role', undefined, \{ joinTime: false \}\).then\(normalizeRoleOptions\)/);
 assert.match(display, /v-if="item.color" :color="item.color"/);
 assert.match(display, /props.options \|\| loaded.value/);
 assert.match(display, /String\(item.value\) === String\(value\)/);

@@ -33,7 +33,7 @@
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'index'">{{ record._index }}</template>
           <template v-else-if="column.key === 'memberRole'">
-            <DictValue v-for="role in record.memberRoles" :key="role" code="member_role" :value="role" :fallback="memberRoleText(role)" />
+            <DictValue v-for="role in record.memberRoles" :key="role" :options="roleOptions" :value="role" :fallback="memberRoleText(role)" />
           </template>
           <template v-else-if="column.key === 'inviteStatus'">
             <a-tag v-for="status in record.inviteStatuses" :key="status" :color="inviteStatusMeta(status).color">
@@ -154,7 +154,7 @@
 
   const members = ref<any[]>([]);
   const outsources = ref<any[]>([]);
-  const roleOptions = ref<{ label: string; value: string }[]>([]);
+  const roleOptions = ref<{ label: string; value: string; color?: string }[]>([]);
   const userOptions = ref<UserOption[]>([]);
   const memberRoleMap = ref<Record<string, string>>({});
   const outsourceTypeMap = ref<Record<string, string>>({});
@@ -197,7 +197,7 @@
     try {
       const [memberResult, roleResult] = await Promise.allSettled([
         getMembers({ periodId: props.projectId, pageNo: 1, pageSize: 1000 }),
-        loadDictOptions('member_role'),
+        ajaxGetDictItems('member_role', undefined, { joinTime: false }).then(normalizeRoleOptions),
       ]);
       if (memberResult.status === 'rejected') throw memberResult.reason;
       const payload: any = memberResult.value;
@@ -215,7 +215,7 @@
     }
   }
 
-  function normalizeRoleOptions(payload: any): { label: string; value: string }[] {
+  function normalizeRoleOptions(payload: any): { label: string; value: string; color?: string }[] {
     let source = payload;
     for (let depth = 0; depth < 3 && source?.result && !Array.isArray(source); depth += 1) source = source.result;
     const items = Array.isArray(source) ? source : source?.records || source?.list || [];
@@ -223,9 +223,9 @@
       .map((item: any) => {
         const value = item.value ?? item.dictItemValue ?? item.code;
         const label = item.text ?? item.label ?? item.title ?? item.dictItemText ?? item.name;
-        return value == null || label == null ? null : { value: String(value), label: String(label) };
+        return value == null || label == null ? null : { value: String(value), label: String(label), color: item.color || undefined };
       })
-      .filter(Boolean) as { label: string; value: string }[];
+      .filter(Boolean) as { label: string; value: string; color?: string }[];
   }
 
   function syncMemberRoleMap() {
