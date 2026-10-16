@@ -99,7 +99,8 @@
       },
       {
         field: 'departIds',
-        componentProps: { options: departOptions },
+        // schema 会被深拷贝，不能把 Ref 的响应式依赖图放进 options。
+        componentProps: { options: departOptions.value.map(({ label, value }) => ({ label, value })) },
       },
       {
         field: 'selecteddeparts',

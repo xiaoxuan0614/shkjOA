@@ -128,6 +128,11 @@
 
       const getBindValue = computed(() => {
         const bindValue = { ...attrs, ...props, ...unref(getProps) } as Recordable;
+        if (bindValue.validateOnSubmitOnly) {
+          bindValue.validateTrigger = [];
+          bindValue.validateOnRuleChange = false;
+        }
+        delete bindValue.validateOnSubmitOnly;
         // 代码逻辑说明: 【issues/8484】分类字典中的新增弹窗的label点击会触发查询区域的input
         if (bindValue.name === undefined && bindValue.source === 'table-query') {
           bindValue.name = 'top-query-form';

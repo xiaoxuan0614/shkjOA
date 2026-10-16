@@ -19,7 +19,7 @@
             {{ formatStock(record) }}
           </template>
           <template v-else-if="column.key === 'useNum'">
-            <a-input-number v-model:value="record.useNum" :min="1" :max="record.stock ?? 99999" placeholder="请输入使用数量" style="width: 100%" />
+            <a-input-number :precision="2" v-model:value="record.useNum" :min="1" :max="record.stock ?? 99999" placeholder="请输入使用数量" style="width: 100%" />
           </template>
           <template v-else-if="column.key === 'unit'">
             <a-select v-model:value="record.unit" allowClear placeholder="请选择单位" style="width: 100%" :options="unitOptions" />

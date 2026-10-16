@@ -1,0 +1,31 @@
+const fs = require('node:fs'), assert = require('node:assert/strict'), ts = require('typescript');
+const { parse, compileScript, compileTemplate } = require('@vue/compiler-sfc');
+const compiled = code => ts.transpileModule(code, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText;
+const api = {};
+new Function('exports', compiled(fs.readFileSync('src/views/project/plan/contractMaterialBaseline.ts', 'utf8')))(api);
+const items = api.contractMaterialBaseline({ sourceType: 'DRAFT', records: [{ materialId: 'm', quantity: 5, unitId: 'u' }], serviceFees: [{ quantity: 20 }] });
+assert.equal(items.length, 1);
+assert.equal(items[0].quantity, 5);
+assert.deepEqual(api.contractMaterialBaseline({ records: [] }), []);
+assert.throws(() => api.contractMaterialBaseline(null), /快照缺失/);
+assert.throws(() => api.contractMaterialBaseline({ records: [{ materialId: 'm', quantity: 0 }] }), /数量无效/);
+const source = fs.readFileSync('src/views/plan/components/MaterialPlanTable.vue', 'utf8');
+const functions = source.slice(source.indexOf('  function contractItem('), source.indexOf('  function removeRow('));
+const rows = { value: [{ materialId: 'm', plannedQty: 1, _unitValue: 'u' }, { materialId: 'extra', plannedQty: 2 }] };
+const rules = new Function('props', 'rows', compiled(functions) + '\nreturn { applyContractMinimums, validateContractRows, contractMinimum };')({ mode: 'plan', editable: true, contractItems: items }, rows);
+assert(rules.applyContractMinimums()); assert.equal(rows.value[0].plannedQty, 5); assert.equal(rows.value[1].plannedQty, 2);
+rows.value[0].plannedQty = 8; assert(!rules.applyContractMinimums()); assert.equal(rows.value[0].plannedQty, 8);
+assert.equal(rules.contractMinimum(rows.value[0]), 5);
+rules.validateContractRows(rows.value);
+assert.throws(() => rules.validateContractRows([]), /不可删除/);
+assert.throws(() => rules.validateContractRows([{ ...rows.value[0], plannedQty: 4 }]), /不能低于/);
+for (const filename of ['src/views/project/plan/PlanMaterial.vue', 'src/views/plan/components/MaterialPlanTable.vue']) {
+  const { descriptor, errors } = parse(fs.readFileSync(filename, 'utf8'), { filename });
+  assert.deepEqual(errors, []);
+  const script = compileScript(descriptor, { id: 'baseline' });
+  assert.deepEqual(compileTemplate({ source: descriptor.template.content, filename, id: 'baseline', compilerOptions: { bindingMetadata: script.bindings } }).errors, []);
+}
+const parent = fs.readFileSync('src/views/project/plan/PlanMaterial.vue', 'utf8');
+assert(parent.includes('contractMaterialBaseline(contract?.materialSnapshot)'));
+assert(!parent.includes('getAllMaterialCandidates'));
+console.log('PASS contract snapshot baseline, preserved increases, missing/lower rows rejected and SFC compilation');

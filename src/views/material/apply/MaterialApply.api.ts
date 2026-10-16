@@ -4,13 +4,12 @@ import { defHttp } from '/@/utils/http/axios';
  * 物料申请(出入库申请) - 接口定义
  * ⚠️ 路径与正式后端接口契约对齐(apifox)：
  *   出入库申请  /stock/apply/*（add 创建申请）
- *   普通物料选择/新增 /stock/material/*；项目领料候选 /project/materialAccount/page
+ *   普通物料选择 /stock/material/list；项目领料候选 /project/materialAccount/page
  * 说明：文档无「类别树」接口，物料类别树由前端静态提供；无「保存草稿」接口，保存/发起申请均走 /stock/apply/add。
  * 新增请求不回传申请人、部门和项目展示字段；itemList 仅传 materialId/unitQty/unitName。
  */
 enum Api {
   materialList = '/stock/material/list',
-  materialAdd = '/stock/material/add',
   projectMaterialAccountPage = '/project/materialAccount/page',
   applyAdd = '/stock/apply/add',
 }
@@ -26,12 +25,6 @@ export const selectMaterialList = (params) => defHttp.get({ url: Api.materialLis
  * @param params { periodId, keyword?, pageNo?, pageSize? }
  */
 export const selectProjectMaterialAccountPage = (params) => defHttp.get({ url: Api.projectMaterialAccountPage, params });
-
-/**
- * 新增物料(写入物料列表)
- * @param params 物料字段(StockMaterial)
- */
-export const addMaterial = (params) => defHttp.post({ url: Api.materialAdd, params }, { successMessageMode: 'success' });
 
 /**
  * 保存申请(创建出入库申请，后端落库)

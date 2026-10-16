@@ -15,6 +15,7 @@
     <template #suffixIcon v-if="loading">
       <LoadingOutlined spin />
     </template>
+    <template v-if="!$slots.option" #option="option"><span>{{ option.label }}</span></template>
     <template #notFoundContent v-if="loading">
       <span>
         <LoadingOutlined spin class="mr-1" />

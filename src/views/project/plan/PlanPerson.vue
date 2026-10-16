@@ -126,7 +126,7 @@
             />
           </template>
           <template v-else-if="column.key === 'hours'">
-            <a-input-number v-model:value="record.hours" :min="0" placeholder="工时" style="width: 100%" :disabled="!canEditOutsource" />
+            <a-input-number :precision="2" v-model:value="record.hours" :min="0" placeholder="工时" style="width: 100%" :disabled="!canEditOutsource" />
           </template>
           <template v-else-if="column.key === 'contact'">
             <a-input v-model:value="record.contact" placeholder="联系人" :disabled="!canEditOutsource" />

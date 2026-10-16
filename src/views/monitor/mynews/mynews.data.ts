@@ -38,8 +38,7 @@ export const columns: BasicColumn[] = [
     dataIndex: 'priority',
     width: 80,
     customRender: ({ text }) => {
-      const color = text == 'L' ? 'blue' : text == 'M' ? 'yellow' : 'red';
-      return render.renderTag(render.renderDict(text, 'priority'), color);
+      return render.renderDict(text, 'priority', true);
     },
   },
   {

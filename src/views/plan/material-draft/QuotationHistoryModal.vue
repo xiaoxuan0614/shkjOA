@@ -34,15 +34,14 @@
   </a-modal>
 </template>
 <script setup lang="ts">
-  import { ref, watch } from 'vue';
+  import { h, ref, watch } from 'vue';
+  import DictValue from '/@/components/DictValue.vue';
   import { getQuotationHistory } from '../Plan.api';
   import { initDictOptions } from '/@/utils/dict';
   const actionOptions = ref<any[]>([]);
   const resultOptions = ref<any[]>([]);
   function dictText(options: any[], value: unknown) {
-    if (value == null || value === '') return '—';
-    const item = options.find(item => String(item.value) === String(value));
-    return item?.text || item?.label || String(value);
+    return h(DictValue, { options, value });
   }
   const props = defineProps<{ open: boolean; periodId: string; candidateId?: string }>();
   const emit = defineEmits(['update:open']);

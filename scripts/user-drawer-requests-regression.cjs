@@ -9,6 +9,11 @@ function load(file, dependencies = {}) {
   return out;
 }
 const departments = load('src/views/system/user/userDepartment.ts');
+const cyclicLabel = { props: { title: '市场部' } };
+cyclicLabel.component = cyclicLabel;
+assert.deepEqual(departments.userDepartmentOptions([{ value: 'd', label: cyclicLabel }]), [{ value: 'd', label: '市场部' }]);
+assert.deepEqual(departments.userDepartmentOptions([{ value: 'd', label: { children: ['市', { children: '场部' }] } }]), [{ value: 'd', label: '市场部' }]);
+assert.deepEqual(departments.userDepartmentOptions([]), []);
 const { advancedUserFields, mergeUserFormValues } = load('src/views/system/user/userFormSections.ts');
 const fields = ['id', 'email', 'mainDepPostId', 'otherDepPostId', 'sort'].map(field => ({ field }));
 assert.deepEqual(mergeUserFormValues(fields,
@@ -44,6 +49,8 @@ const { loadUserDrawerRecord } = load('src/views/system/user/userDrawerLoader.ts
   assert.equal((schema.match(/isCustomRenderTag: false/g) || []).length, 3);
   const filename = 'src/views/system/user/UserDrawer.vue';
   const sourceVue = fs.readFileSync(filename, 'utf8');
+  assert(!sourceVue.includes('options: departOptions }'), '表单配置不能持有部门Ref');
+  assert(sourceVue.includes('options: departOptions.value.map(({ label, value }) => ({ label, value }))'));
   assert(sourceVue.includes('if (!ready.value || !showFooter.value) return;'));
   assert(sourceVue.includes('advancedOpen.value &&'));
   assert(sourceVue.includes('api: loadRoleOptions'));

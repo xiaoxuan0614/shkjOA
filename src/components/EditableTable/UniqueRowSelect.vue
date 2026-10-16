@@ -1,6 +1,10 @@
 <template>
   <div class="unique-row-select">
-    <a-select v-bind="$attrs" :value="modelValue" :options="availableOptions" :status="error ? 'error' : undefined" @change="handleChange" />
+    <a-select v-bind="$attrs" :value="modelValue" :options="availableOptions" :status="error ? 'error' : undefined" @change="handleChange">
+      <template v-if="$slots.dropdownRender" #dropdownRender="slotProps">
+        <slot name="dropdownRender" v-bind="slotProps" />
+      </template>
+    </a-select>
     <div v-if="error" class="unique-row-select__error" role="alert">{{ error }}</div>
   </div>
 </template>

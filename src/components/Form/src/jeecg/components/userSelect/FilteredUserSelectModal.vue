@@ -92,7 +92,7 @@
   import { defineComponent, computed, ref, toRaw, PropType } from 'vue';
   import { BasicModal, useModalInner } from '/@/components/Modal';
   import { SearchOutlined, CloseOutlined } from '@ant-design/icons-vue';
-  import { Pagination } from 'ant-design-vue';
+  import { BasicPagination as Pagination } from '/@/components/Pagination';
   import { defHttp } from '/@/utils/http/axios';
   import UserList from './UserList.vue';
   import SelectedUserItem from './SelectedUserItem.vue';

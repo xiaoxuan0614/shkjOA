@@ -10,7 +10,7 @@
       </template>
       <template #bodyCell="{ column, record }">
         <template v-if="column.dataIndex === 'projectType' || column.dataIndex === 'involvedProducts'">
-          {{ dictText(record[column.dataIndex], column.dataIndex) }}
+          <DictValue :code="column.dataIndex === 'projectType' ? 'project_type' : 'project_products'" :value="record[column.dataIndex]" :fallback="dictText(record[column.dataIndex], column.dataIndex)" />
         </template>
         <template v-else-if="column.dataIndex === 'status'">
           <a-tag :color="statusMeta[record.status]?.color || 'default'">
@@ -57,6 +57,7 @@ v-model:open="serviceFeeOpen" title="服务费维护" :width="1000" :footer="nul
 <script lang="ts" name="quotation-management-list" setup>
   import { computed, defineAsyncComponent, onMounted, ref, watch } from 'vue';
   import { loadProjectTypeOptions, loadProductOptions } from '/@/views/project/Project.data';
+  import DictValue from '/@/components/DictValue.vue';
   import { useRouter } from 'vue-router';
   import { BasicTable, TableAction } from '/@/components/Table';
   import type { ActionItem } from '/@/components/Table';
@@ -209,7 +210,9 @@ v-model:open="serviceFeeOpen" title="服务费维护" :width="1000" :footer="nul
     addModalOpen.value = false;
     router.push({
       path: '/plan/material-draft/editor',
-      query: { mode: 'create', periodId: selectedPeriodId.value, candidateName: candidateName.value.trim() },
+      query: { mode: 'create', periodId: selectedPeriodId.value, candidateName: candidateName.value.trim(),
+        projectName: periodOptions.value.find(item => item.value === selectedPeriodId.value)?.projectName,
+        periodName: periodOptions.value.find(item => item.value === selectedPeriodId.value)?.periodName },
     });
   }
 

@@ -40,7 +40,7 @@
       </a-spin>
     </div>
     <template #footer>
-      <a-pagination v-model:current="page" :total="total" :page-size="10" :show-size-changer="false" :disabled="loading" @change="loadList" />
+      <BasicPagination v-model:current="page" :total="total" :page-size="10" :show-size-changer="false" :disabled="loading" @change="loadList" />
     </template>
   </a-drawer>
   <a-modal v-model:open="detailOpen" title="通知详情" :footer="null" :width="700">

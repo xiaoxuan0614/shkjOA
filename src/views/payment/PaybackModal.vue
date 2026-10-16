@@ -31,7 +31,7 @@
         label: '回款金额',
         field: 'amount',
         component: 'InputNumber',
-        componentProps: { placeholder: '请输入回款金额', min: 0, style: { width: '100%' } },
+        componentProps: { precision: 2, placeholder: '请输入回款金额', min: 0, style: { width: '100%' } },
         dynamicRules: () => [{ required: true, message: '请输入回款金额!' }],
       },
       {
@@ -45,19 +45,19 @@
         label: '计划回款金额',
         field: 'planAmount',
         component: 'InputNumber',
-        componentProps: { placeholder: '请输入计划回款金额', min: 0, style: { width: '100%' } },
+        componentProps: { precision: 2, placeholder: '请输入计划回款金额', min: 0, style: { width: '100%' } },
       },
       {
         label: '已回款金额',
         field: 'paidAmount',
         component: 'InputNumber',
-        componentProps: { placeholder: '请输入已回款金额', min: 0, style: { width: '100%' } },
+        componentProps: { precision: 2, placeholder: '请输入已回款金额', min: 0, style: { width: '100%' } },
       },
       {
         label: '开票金额',
         field: 'invoiceAmount',
         component: 'InputNumber',
-        componentProps: { placeholder: '请输入开票金额', min: 0, style: { width: '100%' } },
+        componentProps: { precision: 2, placeholder: '请输入开票金额', min: 0, style: { width: '100%' } },
       },
       {
         label: '发票号',

@@ -13,9 +13,13 @@ export const isSessionExiting = () => exiting;
 export function invalidateSessionRequests(leaving: boolean) {
   generation++;
   exiting = leaving;
-  for (const cancel of pending.values()) cancel();
+  for (const cancel of pending.values()) {
+    try { cancel(); } catch { console.warn('请求取消失败，继续清理会话'); }
+  }
   pending.clear();
-  if (leaving) endListeners.forEach((callback) => callback());
+  if (leaving) endListeners.forEach((callback) => {
+    try { callback(); } catch { console.warn('会话清理回调失败，继续退出'); }
+  });
 }
 
 // Exact public authentication routes only; never whitelist all /sys requests.

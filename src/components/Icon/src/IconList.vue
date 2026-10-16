@@ -45,7 +45,8 @@
   import { useCopyToClipboard } from '@/hooks/web/useCopyToClipboard';
   import { useI18n } from '@/hooks/web/useI18n';
   import { useMessage } from '@/hooks/web/useMessage';
-  import { Empty, Pagination } from 'ant-design-vue';
+  import { Empty } from 'ant-design-vue';
+import { BasicPagination as Pagination } from '/@/components/Pagination';
   export default defineComponent({
     components: {
       SvgIcon,

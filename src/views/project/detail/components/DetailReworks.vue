@@ -10,7 +10,7 @@
       :data-source="rows"
       row-key="id"
       :loading="loading"
-      :pagination="{ current: page, pageSize: 10, total, showSizeChanger: false }"
+      :pagination="withPagination({ current: page, pageSize: 10, total, showSizeChanger: false })"
       :scroll="{ x: 900 }"
       @change="changePage"
     >
@@ -26,6 +26,7 @@
   </div>
 </template>
 <script setup lang="ts">
+  import { withPagination } from '/@/components/Pagination/config';
   import { ref, watch } from 'vue';
   import { getProjectReworks } from '../ProjectDetail.api';
   import { getApprovalStatusMeta, isApprovalPending } from '/@/utils/approvalStatus';

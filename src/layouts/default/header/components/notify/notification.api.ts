@@ -27,6 +27,9 @@ async function unwrap<T>(request: Promise<any>): Promise<T> {
 export function notificationPage(params: { pageNo: number; pageSize: number; readFlag?: number; titile?: string }) {
   return unwrap<NotificationPage>(defHttp.get({ url: '/sys/sysAnnouncementSend/getMyAnnouncementSend', params }, options));
 }
+export function notificationUnreadCount() {
+  return unwrap<{ count: number | null }>(defHttp.get({ url: '/sys/annountCement/getUnreadMessageCount' }, options));
+}
 export function notificationDetail(sendId: string) {
   return unwrap<NotificationRecord | null>(defHttp.get({ url: '/sys/sysAnnouncementSend/getOne', params: { sendId } }, options));
 }

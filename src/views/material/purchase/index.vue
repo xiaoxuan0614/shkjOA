@@ -9,7 +9,10 @@
         <TableAction :actions="getTableAction(record)" :dropDownActions="getDropDownAction(record)" />
       </template>
       <template #bodyCell="{ column, record }">
-        <template v-if="column.dataIndex === 'status'">
+        <template v-if="column.dataIndex === 'purchaseType'">
+          {{ purchaseTypeMap[String(record.purchaseType ?? '')]?.text || record.purchaseType || '—' }}
+        </template>
+        <template v-else-if="column.dataIndex === 'status'">
           <a-tag :color="statusMap[record.status]?.color || undefined">{{ record.status ? (statusMap[record.status]?.text || record.status) : '—' }}</a-tag>
         </template>
       </template>
@@ -47,8 +50,11 @@
 
   // 采购订单状态(后台数据字典，改后重新登录生效)
   const statusMap = ref<Record<string, { text: string; color: string }>>({});
+  const purchaseTypeMap = ref<Record<string, { text: string; color: string }>>({});
   onMounted(async () => {
-    statusMap.value = await loadDictMap('purchase_order_status');
+    [statusMap.value, purchaseTypeMap.value] = await Promise.all([
+      loadDictMap('purchase_order_status'), loadDictMap('purchase_order_type'),
+    ]);
     // 弹窗下拉数据在页面渲染时就预载(第 1 页 10 条)，打开「新增采购订单」弹窗直接展示，不再请求
     ensureSupplierOptions();
     // 供应商筛选保留远程搜索，项目名称直接输入 keyword。
@@ -85,7 +91,7 @@
       api: list,
       columns: purchaseColumns,
       canResize: true,
-      // 列表筛选：采购单号/供应商/项目名称/状态
+      // 列表筛选：采购类型/采购单号/供应商/项目名称/状态
       formConfig: {
         schemas: searchFormSchema,
         autoSubmitOnEnter: true,

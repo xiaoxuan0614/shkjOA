@@ -5,7 +5,7 @@
       <div class="plan-payment__group-title">合同主信息</div>
       <a-descriptions :column="3" size="middle" bordered>
         <a-descriptions-item label="合同编号">{{ contract.contractNo || '—' }}</a-descriptions-item>
-        <a-descriptions-item label="合同类型">{{ contractTypeText }}</a-descriptions-item>
+        <a-descriptions-item label="合同类型"><DictValue code="contract_type" :value="contract.contractType" :fallback="contractTypeText" /></a-descriptions-item>
         <a-descriptions-item label="合同金额">{{ contract.contractAmount != null ? `${contract.contractAmount} 元` : '—' }}</a-descriptions-item>
         <a-descriptions-item label="销售负责人">{{ salesUserText }}</a-descriptions-item>
         <a-descriptions-item label="质保期">{{ contract.warrantyPeriod != null ? `${contract.warrantyPeriod} 月` : '—' }}</a-descriptions-item>
@@ -49,10 +49,11 @@
             {{ record._key }}
           </template>
           <template v-else-if="column.key === 'node'">
-            {{ getNodeText(record.node) }}
+            <DictValue code="payback_node" :value="record.node" :fallback="getNodeText(record.node)" />
           </template>
           <template v-else-if="column.key === 'ratio'">
             <a-input-number
+              :precision="2"
               v-model:value="record.ratio"
               :min="0"
               :max="100"
@@ -75,6 +76,7 @@
 <script lang="ts" setup>
   import { computed, ref, unref, watch } from 'vue';
   import { initDictOptions } from '/@/utils/dict/index';
+  import DictValue from '/@/components/DictValue.vue';
   import { loadUserOptions, type UserOption } from '/@/views/resource/userOptions';
   import { getPlanMembers } from './Plan.api';
   import { previewFileInModal } from '/@/utils/filePreview';

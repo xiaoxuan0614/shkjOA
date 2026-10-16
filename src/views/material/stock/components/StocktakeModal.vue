@@ -8,7 +8,7 @@
 
     <a-form layout="vertical">
       <a-form-item label="盘点后数量" required>
-        <a-input-number v-model:value="afterQty" :min="0" style="width: 100%" />
+        <a-input-number :precision="2" v-model:value="afterQty" :min="0" style="width: 100%" />
       </a-form-item>
       <a-form-item label="差异">
         <span :class="{ 'text-danger': diff < 0 }">{{ diff >= 0 ? '+' : '' }}{{ diff }} {{ record.unit || '' }}</span>

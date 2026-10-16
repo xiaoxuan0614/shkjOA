@@ -24,6 +24,7 @@
       </template>
     </BasicForm>
     <BrandManageModal ref="brandManager" @updated="updateBrands" @created="selectCreatedBrand" />
+    <BrandManageModal ref="unitManager" dict-code="inv_unit" item-label="单位" @updated="updateUnits" @created="selectCreatedUnit" />
 
     <!-- 单位信息(子表格)：绑定多个单位，第一个单位即基准单位(固定不可移动/删除)，副单位可上移/下移调整顺序 -->
     <div class="unit-section">
@@ -56,8 +57,18 @@
               field="unitName"
               row-key="uid"
               :disabled="readOnly"
-              placeholder="请选择单位"
-            />
+              :open="unitDropdownUid === record.uid"
+              show-search
+              option-filter-prop="label"
+              placeholder="请选择或搜索单位"
+              @dropdown-visible-change="unitDropdownUid = $event ? record.uid : undefined"
+            >
+              <template #dropdownRender="{ menuNode }">
+                <component :is="menuNode" />
+                <a-divider style="margin: 4px 0" />
+                <a-button v-if="!readOnly" type="link" block :loading="unitOpening" @mousedown.prevent @click="openUnitCreate(record)">＋ 添加单位</a-button>
+              </template>
+            </UniqueRowSelect>
           </template>
           <!-- 换算系数：与基准单位的换算关系(1当前单位 = conversionQty基准单位)；第一行即基准单位，固定为 1 且不可改 -->
           <template v-else-if="column.key === 'conversionQty'">
@@ -97,7 +108,7 @@
   import { useMessage } from '/@/hooks/web/useMessage';
   import { formSchema } from '../Goods.data';
   import { saveOrUpdate } from '../Goods.api';
-  import { loadUnitOptions } from '../../material.util';
+  import { loadUnitOptions, updateUnitDictionary } from '../../material.util';
   import { UniqueRowSelect, useUniqueRowOptions, validateEditableRows } from '/@/components/EditableTable';
   import BrandManageModal from './BrandManageModal.vue';
   import { initDictOptions } from '/@/utils/dict';
@@ -141,6 +152,34 @@
 
   // 单位下拉选项（走数据字典 inv_unit，material.util.loadUnitOptions 加载）
   const unitOptionList = ref<{ label: string; value: string }[]>([]);
+  const unitManager = ref<InstanceType<typeof BrandManageModal>>();
+  const unitDropdownUid = ref<number>();
+  const unitCreateUid = ref<number>();
+  const unitOpening = ref(false);
+  async function openUnitCreate(row: any) {
+    if (readOnly.value || unitOpening.value) return;
+    unitDropdownUid.value = undefined;
+    unitCreateUid.value = row.uid;
+    unitOpening.value = true;
+    try {
+      await unitManager.value?.openCreate();
+    } finally {
+      unitOpening.value = false;
+    }
+  }
+  function updateUnits(rows: any[]) {
+    unitOptionList.value = updateUnitDictionary(rows);
+  }
+  function selectCreatedUnit(_value: string, created: any) {
+    const row = unitList.value.find(item => item.uid === unitCreateUid.value);
+    unitCreateUid.value = undefined;
+    if (readOnly.value || !row || !created?.itemText) return;
+    if (unitList.value.some(item => item !== row && item.unitName === created.itemText)) {
+      createMessage.warning('该单位已在其他行选择，请勿重复添加');
+      return;
+    }
+    row.unitName = created.itemText;
+  }
 
   // 单位子表列定义(第一行即基准单位，固定不可移动/删除，不再单选)
   const unitColumns = [
@@ -162,6 +201,8 @@
   const [register, { setModalProps, closeModal }] = useModalInner(async (data) => {
     brandDropdownOpen.value = false;
     await resetFields();
+    unitDropdownUid.value = undefined;
+    unitCreateUid.value = undefined;
     // 单位下拉选项：从数据字典 inv_unit 加载（改字典重新登录即生效）
     unitOptionList.value = await loadUnitOptions();
     isUpdate.value = !!data?.isUpdate;

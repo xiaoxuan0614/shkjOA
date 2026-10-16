@@ -1,0 +1,30 @@
+const fs = require('node:fs');
+const assert = require('node:assert/strict');
+const ts = require('typescript');
+const sfc = require('@vue/compiler-sfc');
+const { ref } = require('vue');
+const file = 'src/views/plan/components/QuotationOpinionButton.vue';
+const source = fs.readFileSync(file, 'utf8');
+const { descriptor, errors } = sfc.parse(source);
+assert.deepEqual(errors, []);
+sfc.compileScript(descriptor, { id: 'opinion' });
+assert.deepEqual(sfc.compileTemplate({ source: descriptor.template.content, filename: file, id: 'opinion' }).errors, []);
+assert(source.includes(':maxlength="100"'));
+const ast = ts.createSourceFile('opinion.ts', descriptor.scriptSetup.content, ts.ScriptTarget.Latest, true);
+const code = ast.statements.filter(ts.isFunctionDeclaration).map(n => n.getText(ast)).join('\n');
+const props = { value: '原意见', disabled: false }, open = ref(false), draft = ref('');
+const events = [];
+const api = new Function('props', 'open', 'draft', 'emit', ts.transpile(code) + '\nreturn {show,confirm};')(props, open, draft, (...args) => events.push(args));
+api.show(); assert.equal(draft.value, '原意见');
+draft.value = '取消的编辑'; open.value = false;
+api.show(); assert.equal(draft.value, '原意见'); assert.equal(events.length, 0);
+draft.value = '字'.repeat(101); api.confirm(); assert.equal(events.length, 0);
+draft.value = '字'.repeat(100); api.confirm(); assert.equal(events.pop()[1].length, 100);
+api.show(); draft.value = ''; api.confirm(); assert.deepEqual(events.pop(), ['change', '']);
+props.disabled = true; api.show(); assert.equal(open.value, false); api.confirm(); assert.equal(events.length, 0);
+for (const name of ['MaterialPlanTable', 'QuotationServiceFeeCell']) {
+  const text = fs.readFileSync(`src/views/plan/components/${name}.vue`, 'utf8');
+  assert(text.includes('<QuotationOpinionButton v-if="approvalEditable"'));
+  assert(!text.includes('最多500字'));
+}
+console.log('PASS quotation opinion: modal staging, cancel/reopen, 100-character limit, empty and disabled');

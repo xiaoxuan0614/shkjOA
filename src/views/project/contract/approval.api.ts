@@ -1,4 +1,9 @@
 import { defHttp } from '/@/utils/http/axios';
+/** 合同流程暂时停用；恢复前须重新核对后端开关及接口。 */
+export const CONTRACT_WORKFLOW_ENABLED = false;
+function assertWorkflowEnabled() {
+  if (!CONTRACT_WORKFLOW_ENABLED) throw new Error('合同审批流已停用，请使用原合同审批入口');
+}
 export interface ContractApprovalDetail {
   instanceId: string;
   businessId: string;
@@ -8,6 +13,7 @@ export interface ContractApprovalDetail {
   fieldPermissions: Record<string, string>;
 }
 async function read<T>(path: string, params: object): Promise<T> {
+  assertWorkflowEnabled();
   const body = await defHttp.get({ url: `/project/contract/approval/${path}`, params }, { isTransformResponse: false, errorMessageMode: 'none' });
   if (path === 'actions' && body?.code === 404) throw new Error('后端尚未提供合同审批动作接口，请更新并重启后端服务');
   if (body?.success !== true || body.code !== 200) throw new Error(body?.message || '合同审批资料读取失败');
@@ -16,6 +22,7 @@ async function read<T>(path: string, params: object): Promise<T> {
 export const currentContractApproval = (contractId: string) => read<string | null>('current', { contractId });
 export const contractApprovalDetail = (instanceId: string) => read<ContractApprovalDetail>('detail', { instanceId });
 export async function contractApprovalAttachment(instanceId: string, attachmentId: string): Promise<Blob> {
+  assertWorkflowEnabled();
   const result = await defHttp.get({ url: '/project/contract/approval/attachment', params: { instanceId, attachmentId }, responseType: 'blob' }, { isTransformResponse: false, errorMessageMode: 'none' });
   if (!(result instanceof Blob)) throw new Error('附件响应异常');
   if (/json|text|html/i.test(result.type)) {
@@ -72,6 +79,7 @@ export interface ContractApprovalActions {
 }
 export const contractApprovalActions = (contractId: string) => read<ContractApprovalActions | null>('actions', { contractId });
 export async function withdrawContractApproval(payload: { contractId: string; requestId: string; comment: string }) {
+  assertWorkflowEnabled();
   const { contractId, requestId, comment } = payload;
   if (!comment.trim()) throw new Error('请填写撤回原因');
   const body = await defHttp.post({ url: '/project/contract/approval/withdraw', params: { contractId, requestId, comment } }, { isTransformResponse: false, errorMessageMode: 'none' });

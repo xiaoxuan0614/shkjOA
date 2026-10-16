@@ -4,7 +4,7 @@
     <div class="fee-tax">税率：{{ serviceFeeTaxText(record.taxRate) }}</div>
   </div>
   <ServiceFeeUnitSelect v-else-if="columnKey === 'unit'" :value="record.unit" :disabled="!structureEditable || busy" :label="`${record.name}单位`" @change="update('unit', $event)" />
-  <a-input-number v-else-if="columnKey === 'plannedQty'" :value="record.quantity" :disabled="!structureEditable || busy" :min="0.0001" :max="9999999999" :precision="4" :aria-label="`${record.name}数量`" aria-required="true" @change="update('quantity', $event)" />
+  <a-input-number v-else-if="columnKey === 'plannedQty'" :value="record.quantity" :disabled="!structureEditable || busy" :min="0.01" :max="9999999999" :precision="2" :aria-label="`${record.name}数量`" aria-required="true" @change="update('quantity', $event)" />
   <a-input-number v-else-if="columnKey === 'basePrice'" :value="record.costPrice" :disabled="!costEditable || busy" :min="0" :max="9999999999" :precision="2" :aria-label="`${record.name}成本价`" aria-required="true" @change="update('costPrice', $event)" />
   <span v-else-if="columnKey === 'costTotal'">{{ quotationAmount([record], 'costPrice', 'quantity') ?? '—' }}</span>
   <span v-else-if="columnKey === 'guideTotal'">{{ quotationAmount([record], 'guidePrice', 'quantity') ?? '—' }}</span>
@@ -20,22 +20,21 @@
   </template>
   <a-input v-else-if="columnKey === 'remark'" :value="record.remark" :disabled="!editable || busy" :maxlength="500" :aria-label="`${record.name}备注`" placeholder="选填" @change="update('remark', $event.target.value)" />
   <template v-else-if="columnKey === 'action'">
-    <a-popconfirm v-if="structureEditable" title="从本报价移除该服务费？" @confirm="remove">
+    <QuotationOpinionButton v-if="approvalEditable" :value="record.approvalOpinion" :name="record.name" :disabled="busy" @change="update('approvalOpinion', $event)" />
+    <a-popconfirm v-else-if="structureEditable" title="从本报价移除该服务费？" @confirm="remove">
       <a-button type="link" size="small" danger :disabled="busy">移除</a-button>
     </a-popconfirm>
     <span v-else>—</span>
   </template>
   <template v-else-if="columnKey === 'approvalOpinion'">
-    <a-textarea v-if="approvalEditable" :value="record.approvalOpinion" :disabled="busy"
-      :maxlength="500" :auto-size="{ minRows: 1, maxRows: 4 }" :aria-label="`${record.name} 审批意见`"
-      placeholder="选填，最多500字" @change="update('approvalOpinion', $event.target.value)" />
-    <span v-else style="white-space: pre-wrap; overflow-wrap: anywhere">{{ record.approvalOpinion || '—' }}</span>
+    <span style="white-space: pre-wrap; overflow-wrap: anywhere">{{ record.approvalOpinion || '—' }}</span>
   </template>
   <span v-else>—</span>
 </template>
 
 <script setup lang="ts">
   import { computed } from 'vue';
+  import QuotationOpinionButton from './QuotationOpinionButton.vue';
   import { serviceFeePrice, quotationAmount, serviceFeeTaxText } from '../serviceFee';
   import { quotationPercent } from '../quotationPricing';
   import ServiceFeeUnitSelect from './ServiceFeeUnitSelect.vue';

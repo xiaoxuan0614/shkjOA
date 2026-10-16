@@ -1,0 +1,122 @@
+const fs = require('node:fs');
+const vm = require('node:vm');
+const assert = require('node:assert/strict');
+const ts = require('typescript');
+const { parse, compileScript, compileTemplate } = require('@vue/compiler-sfc');
+function load(path, dependencies = {}) {
+  const context = { exports: {}, require: name => dependencies[name] || {} };
+  vm.runInNewContext(ts.transpileModule(fs.readFileSync(path, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText, context);
+  return context.exports;
+}
+const uuid = load('src/utils/uuid.ts');
+const model = load('src/views/payment/receiptModel.ts', { '/@/utils/uuid': uuid });
+assert.doesNotThrow(() => model.validateInvoiceContractAmount(100, 100));
+assert.doesNotThrow(() => model.validateInvoiceContractAmount(99.99, '100'));
+assert.throws(() => model.validateInvoiceContractAmount(100.01, 100), /不可大于合同总价/);
+for (const total of [null, undefined, '', ' ', NaN, -1]) assert.throws(() => model.validateInvoiceContractAmount(1, total), /未获取到有效合同总价/);
+const { groupReceiptRows } = load('src/views/payment/receiptRows.ts');
+const plans = [{ id: 'p1', plannedAmount: 100 }, { id: 'p2', plannedAmount: 200 }];
+assert.equal(groupReceiptRows([], plans).length, 0);
+const grouped = groupReceiptRows([{ id: 'r1', paymentRecordId: 'p1' }, { id: 'r2', paymentRecordId: 'p1' }, { id: 'r3', paymentRecordId: 'missing' }], plans);
+assert.equal(grouped.length, 3);
+assert.equal(grouped[0].span, 2);
+assert.equal(grouped[1].span, 0);
+assert.equal(grouped[2].id, 'r3');
+assert.equal(model.canManageFinance(['admin']), true);
+assert.equal(model.canManageFinance(['finance_staff']), true);
+assert.equal(model.canManageFinance(['project_manager']), false);
+assert.equal(model.canManageFinance(['general_manager']), false);
+assert.equal(model.canManageFinance([]), false);
+assert.equal(model.canRequestFinance([]), true); // server summary must authenticate
+assert.equal(model.canRequestFinance(['project_manager']), false);
+const requestId = model.financeRequestId();
+assert.match(requestId, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+const draft = { amount: 123.45, date: '2026-10-14', paymentRecordId: 'plan', invoiceNo: ' INV-1 ', remark: ' note ', type: 'unsupported', actualAmount: 999 };
+const receipt = model.financePayload('receipt', 'period', draft, requestId, ['path']);
+assert.deepEqual(JSON.parse(JSON.stringify(receipt)), { periodId: 'period', amount: 123.45, remark: 'note', requestId, fileIds: [], paymentRecordId: 'plan', receiptDate: '2026-10-14' });
+assert.throws(() => model.financePayload('invoice', 'period', draft, requestId, ['a', 'b']), /最多上传1个/);
+assert.equal(model.financePayload('invoice', 'period', draft, requestId, ['a']).fileIds.length, 1);
+assert.equal(model.financePayload('receipt', 'period', { ...draft, amount: 999999 }, requestId, []).amount, 999999); // allow overpayment
+for (const amount of [0, -1, NaN, Infinity, 0.001, 10000000000000000]) assert.throws(() => model.financePayload('receipt', 'period', { ...draft, amount }, requestId, []));
+assert.throws(() => model.financePayload('receipt', 'period', { ...draft, paymentRecordId: '' }, requestId, []));
+assert.throws(() => model.financePayload('receipt', 'period', { ...draft, date: '' }, requestId, []));
+const invoice = model.financePayload('invoice', 'period', draft, requestId, []);
+for (const invoiceType of ['普通发票', '专用发票']) assert.equal(model.financePayload('invoice', 'period', { ...draft, invoiceType }, requestId, []).invoiceType, invoiceType);
+assert.equal(invoice.invoiceType, undefined);
+assert.throws(() => model.financePayload('invoice', 'period', { ...draft, invoiceType: 'invalid' }, requestId, []), /有效的开票类型/);
+assert.equal(invoice.invoiceNo, 'INV-1');
+assert.equal(invoice.invoiceDate, draft.date);
+for (const field of ['paymentRecordId', 'receiptDate', 'type', 'actualAmount']) assert.equal(invoice[field], undefined);
+const requests = [];
+let response = { success: true, code: 200, result: { id: 'saved' } };
+const api = load('src/views/payment/Receipt.api.ts', { '/@/utils/http/axios': { defHttp: {
+  get: (r) => { requests.push(r); return Promise.resolve({}); },
+  post: (r) => { requests.push(r); return Promise.resolve(response); },
+  uploadFile: (r, p, cb) => { assert.equal(cb.isReturnResponse, true); requests.push(r); return Promise.resolve({ success: true, code: 200, message: 'project/finance/a.pdf' }); },
+} } });
+(async () => {
+  await api.financePeriods({ keyword: ' 主项目-分期 ', customerName: ' 甲方 ', pageNo: 2, pageSize: 10, username: 'wrong', unknown: 1 });
+  assert.equal(requests.at(-1).url, '/project/receipt/summaryPage');
+  assert.equal(requests.at(-1).params.username, undefined);
+  assert.equal(requests.at(-1).params.keyword, '主项目-分期');
+  assert.equal(requests.at(-1).params.customerName, '甲方');
+  assert.equal(requests.at(-1).params.pageNo, 2);
+  await api.financePeriods({ periodId: 'period', pageNo: 1, pageSize: 10 });
+  assert.equal(requests.at(-1).params.periodId, 'period');
+  await api.financePeriods({ keyword: '  ', customerName: '', pageNo: 1, pageSize: 10 });
+  assert.equal(requests.at(-1).params.keyword, undefined);
+  assert.equal(requests.at(-1).params.customerName, undefined);
+  await api.financePeriod('period'); assert.equal(requests.at(-1).params.periodId, 'period');
+  await api.financePeriods({ pageNo: 1, pageSize: 10, keyword: '项目', customerName: '甲方', receiptStatus: ' PARTIAL ', invoiceStatus: 'INVOICED' });
+  assert.equal(requests.at(-1).params.receiptStatus, 'PARTIAL');
+  assert.equal(requests.at(-1).params.invoiceStatus, 'INVOICED');
+  assert.equal(requests.at(-1).params.customerName, '甲方');
+  await api.financePeriods({ pageNo: 1, pageSize: 10, receiptStatus: '', invoiceStatus: undefined });
+  assert.equal(requests.at(-1).params.receiptStatus, undefined);
+  assert.equal(requests.at(-1).params.invoiceStatus, undefined);
+  await api.receiptSummary('period'); assert.equal(requests.at(-1).url, '/project/receipt/summary');
+  await api.receiptList({ periodId: 'period', pageNo: 2, pageSize: 10 }); assert.equal(requests.at(-1).params.pageNo, 2);
+  await api.invoiceList({ periodId: 'period', pageNo: 3, pageSize: 10 }); assert.equal(requests.at(-1).url, '/project/invoice/list');
+  await api.addFinanceEntry('receipt', receipt); assert.equal(requests.at(-1).url, '/project/receipt/add');
+  await api.addFinanceEntry('invoice', invoice); assert.equal(requests.at(-1).url, '/project/invoice/add');
+  response = { success: false, code: 500, message: 'denied' }; await assert.rejects(() => api.addFinanceEntry('receipt', receipt), /denied/);
+  response = { success: true, code: 200, result: {} }; await assert.rejects(() => api.addFinanceEntry('receipt', receipt), /未确认/);
+  assert.equal(await api.uploadFinanceFile({}), 'project/finance/a.pdf');
+  for (const name of ['FinanceDetail.vue', 'FinanceEntryDrawer.vue', 'FinanceWorkspace.vue', 'index.vue', 'detail/index.vue']) {
+    const filename = `src/views/payment/${name}`;
+    const source = fs.readFileSync(filename, 'utf8');
+    const { descriptor, errors } = parse(source);
+    assert.equal(errors.length, 0);
+    const script = compileScript(descriptor, { id: name });
+    const compiled = compileTemplate({ source: descriptor.template.content, filename, id: name, compilerOptions: { bindingMetadata: script.bindings } });
+    assert.deepEqual(compiled.errors, []);
+  }
+  const drawer = fs.readFileSync('src/views/payment/FinanceEntryDrawer.vue', 'utf8');
+  assert.match(drawer, /previewFileInModal\(file\)/);
+  assert.match(drawer, /v-if="kind === 'invoice'" label="发票附件/);
+  assert.doesNotMatch(drawer, /type="file" multiple/);
+  assert.ok(drawer.indexOf('validateInvoiceContractAmount(form.amount') < drawer.indexOf('await uploadFinanceFile(file)'));
+  const detail = fs.readFileSync('src/views/payment/FinanceDetail.vue', 'utf8');
+  assert.match(detail, /查看合同详情/);
+  assert.match(detail, /DetailContract v-if="contractOpen && allowed" :project-id="periodId"/);
+  assert.doesNotMatch(detail, /本页无该回款项明细|暂无逐笔回款/);
+  assert.match(drawer, /if \(!submitted\)/);
+  assert.match(drawer, /attempted\.value = true/);
+  assert.match(drawer, /if \(saving\.value \|\| loading\.value/);
+  assert.doesNotMatch(fs.readFileSync('src/views/payment/index.vue', 'utf8'), /PaymentPreview|ContractModal/);
+  const workspace = fs.readFileSync('src/views/payment/FinanceWorkspace.vue', 'utf8');
+  assert.match(workspace, /title: '销售负责人', dataIndex: 'salesUserName'/);
+  assert.match(workspace, /title: '回款状态', dataIndex: 'receiptStatus'/);
+  assert.match(workspace, /title: '开票状态', dataIndex: 'invoiceStatus'/);
+  assert.match(workspace, /loadDictOptions\('payment_status'\)/);
+  assert.match(workspace, /loadDictOptions\('invoice_status'\)/);
+  assert.doesNotMatch(workspace, /UNPAID:|UNINVOICED:/);
+  assert.match(workspace, /financePeriods\(\{ periodId: event.periodId/);
+  assert.doesNotMatch(workspace.slice(workspace.indexOf('api: async'), workspace.indexOf('columns:')), /receiptSummary\(/);
+  assert.match(workspace, /record\.salesUserName \|\| '—'/);
+  assert.match(workspace, /field: 'keyword', label: '项目名称'/);
+  assert.match(workspace, /field: 'customerName', label: '甲方名称'/);
+  assert.match(workspace, /field: 'receiptStatus', label: '回款状态', component: 'JDictSelectTag'/);
+  assert.match(workspace, /field: 'invoiceStatus', label: '开票状态', component: 'JDictSelectTag'/);
+  console.log('Finance payload, permissions, UUID, request paths, pagination, upload and SFC regression passed.');
+})().catch(e => { console.error(e); process.exitCode = 1; });

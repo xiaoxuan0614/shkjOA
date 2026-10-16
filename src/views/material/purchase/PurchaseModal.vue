@@ -11,7 +11,7 @@
       <a-table :columns="detailColumns" :scroll="{ x: 'max-content' }" :data-source="detailList" :row-key="(r) => r._key" :pagination="false" size="small" bordered>
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'quantity'">
-            <a-input-number v-model:value="record.quantity" :min="1" placeholder="采购数量" style="width: 100%" />
+            <a-input-number :precision="2" v-model:value="record.quantity" :min="1" placeholder="采购数量" style="width: 100%" />
           </template>
           <template v-else-if="column.key === 'unitPrice'">
             <a-input-number v-model:value="record.unitPrice" :min="0" :precision="2" placeholder="单价" style="width: 100%" />

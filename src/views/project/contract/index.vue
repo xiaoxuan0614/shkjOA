@@ -1,5 +1,5 @@
 <template>
-  <ContractApproval v-if="approvalInstanceId" :key="approvalInstanceId" :instance-id="approvalInstanceId" :contract-id="approvalContractId" :period-id="periodId" @resubmit="editWorkflowContract" />
+  <ContractApproval v-if="CONTRACT_WORKFLOW_ENABLED && approvalInstanceId" :key="approvalInstanceId" :instance-id="approvalInstanceId" :contract-id="approvalContractId" :period-id="periodId" @resubmit="editWorkflowContract" />
   <a-result v-else-if="approvalResolveError" status="error" title="无法读取合同审批" :sub-title="approvalResolveError"><template #extra><a-button @click="initializeContract">重试</a-button></template></a-result>
   <a-spin v-else-if="approvalResolving" tip="正在定位合同审批" />
   <div v-else class="contract-page">
@@ -24,7 +24,7 @@
               {{ getApprovalStatusMeta(info.status).text }}
             </a-tag>
           </a-descriptions-item>
-          <a-descriptions-item label="合同类型">{{ contractTypeText }}</a-descriptions-item>
+          <a-descriptions-item label="合同类型"><DictValue :value="info.contractType" :options="contractTypeOptions" :fallback="contractTypeText" /></a-descriptions-item>
           <a-descriptions-item label="合同编号">{{ info.contractNo || '—' }}</a-descriptions-item>
           <a-descriptions-item label="合同名称">{{ info.contractName || '—' }}</a-descriptions-item>
           <a-descriptions-item label="合同签订日期">{{ info.contractSignedDate || '—' }}</a-descriptions-item>
@@ -50,11 +50,8 @@
             </a-space>
             <span v-else>—</span>
           </a-descriptions-item>
-          <a-descriptions-item label="关联报价单" :span="2">
-            <a-button v-if="materialCandidateId" @click="openQuotation(false)">{{ selectedCandidate?.candidateName || '查看报价详情' }}</a-button>
-            <span v-else-if="candidatesLoading">正在读取关联报价…</span>
-            <span v-else-if="candidatesFailed">关联报价读取失败 <a-button type="link" @click="loadContractCandidates(true)">重试</a-button></span>
-            <span v-else>未关联报价单</span>
+          <a-descriptions-item label="合同清单" :span="2">
+            <a-button @click="openQuotationPreview">查看报价单预览</a-button>
           </a-descriptions-item>
           <a-descriptions-item label="备注" :span="2">{{ info.remark || '—' }}</a-descriptions-item>
         </a-descriptions>
@@ -83,7 +80,7 @@
             </template>
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'index'">{{ record._key }}</template>
-              <template v-else-if="column.key === 'node'">{{ record.paymentNode_dictText || record.node_dictText || getOptionLabel(paybackNodeOptions, record.node) }}</template>
+              <template v-else-if="column.key === 'node'"><DictValue :value="record.node" :options="paybackNodeOptions" :fallback="record.paymentNode_dictText || record.node_dictText || getOptionLabel(paybackNodeOptions, record.node)" /></template>
               <template v-else-if="column.key === 'ratio'">{{ record.ratio ?? '—' }}%</template>
               <template v-else-if="column.key === 'rollbackTime'">{{ record.rollbackTime ?? 7 }} 天</template>
               <template v-else-if="column.key === 'amount'">{{ record.amount != null ? `${record.amount.toFixed(2)} 元` : '—' }}</template>
@@ -116,17 +113,25 @@
                 show-search
                 :filter-option="filterQuotationByName"
                 allow-clear
-                placeholder="请选择已通过的报价单（必填）"
+                placeholder="请选择已定价的原报价单（选填）"
                 style="min-width: 240px"
               />
               <a-button :disabled="!materialCandidateId || candidatesLoading || candidatesFailed || submitting || quotationSaving" :loading="quotationPreviewLoading" @click="openQuotationPreview">查看报价预览</a-button>
               <a-tooltip v-if="selectedQuotationAccess.canRevise" :title="quotationAdjustDisabledReason">
-                <span><a-button :disabled="!!quotationAdjustDisabledReason" @click="openQuotation(true)">修改调整</a-button></span>
+                <span><a-button :disabled="!!quotationAdjustDisabledReason" @click="openQuotation(true)">{{ quotationDraft ? '继续调整' : '基于此单调整' }}</a-button></span>
               </a-tooltip>
-              <a-popconfirm v-if="canReleaseQuotation" title="解除采用后可调整同一张报价单，确认解锁？" @confirm="releaseQuotation">
-                <a-button :loading="quotationSaving">解锁报价</a-button>
-              </a-popconfirm>
             </a-space>
+            <div v-if="quotationDraft" style="margin-top: 12px">
+              <a-space wrap>
+                <span>本次合同使用：</span>
+                <a-radio-group v-model:value="quotationVersionChoice" :disabled="submitting || quotationSaving" @change="closeQuotationPreview">
+                  <a-radio value="original">原报价</a-radio>
+                  <a-radio value="draft">调整稿（仅本次合同使用）</a-radio>
+                </a-radio-group>
+                <a-popconfirm title="放弃调整稿并使用原报价？" @confirm="discardQuotationDraft"><a-button :disabled="submitting || quotationSaving" danger type="link">放弃调整</a-button></a-popconfirm>
+              </a-space>
+              <a-alert type="warning" show-icon message="调整稿未修改原报价，仅当前页面有效；刷新或离开后丢弃，最长保留30分钟。" />
+            </div>
           </template>
           <template #contractAttachment>
             <div class="contract-page__attachment-upload">
@@ -289,9 +294,9 @@
           show-search
           option-filter-prop="label"
           placeholder="请选择项目经理"
-          :loading="userOptionsLoading"
-          :options="userOptions"
-          @dropdown-visible-change="(open) => { if (open && !usersLoaded && !userOptionsLoading) loadUsers(); }"
+          :loading="managerOptionsLoading"
+          :options="managerOptions"
+          @dropdown-visible-change="(open) => { if (open) loadManagers(); }"
           style="flex: 1"
         />
       </div>
@@ -305,7 +310,7 @@
         <a-button
           type="primary"
           :danger="approvalResult === 'reject'"
-          :disabled="!approvalResult || (approvalResult === 'approve' && userOptionsLoading)"
+          :disabled="!approvalResult || (approvalResult === 'approve' && managerOptionsLoading)"
           :loading="actionSubmitting"
           @click="handleAuditSubmit"
         >
@@ -331,17 +336,18 @@
       </template>
     </div>
   </div>
-  <InstanceDrawer :open="workflowOpen" :instance-id="workflowRecordId" @close="workflowOpen = false" @processed="loadExistingContract" />
-  <a-drawer :open="quotationPreviewOpen" title="关联报价单预览（当前已保存内容）" width="min(1400px, 96vw)" @close="closeQuotationPreview">
+  <InstanceDrawer v-if="CONTRACT_WORKFLOW_ENABLED" :open="workflowOpen" :instance-id="workflowRecordId" @close="workflowOpen = false" @processed="loadExistingContract" />
+  <a-drawer :open="quotationPreviewOpen" :title="readonly && !editing ? '合同清单预览（合同快照）' : quotationVersionChoice === 'draft' ? '合同清单预览（调整稿）' : '合同清单预览（原报价）'" width="min(1400px, 96vw)" @close="closeQuotationPreview">
     <a-spin :spinning="quotationPreviewLoading">
       <a-alert v-if="quotationPreviewError" type="error" show-icon :message="quotationPreviewError"><template #action><a-button @click="openQuotationPreview">重试</a-button></template></a-alert>
-      <QuotationSnapshotPreview v-else-if="quotationPreviewData" :quotation="quotationPreviewData" live />
+      <QuotationSnapshotPreview v-else-if="readonly && !editing" :quotation="quotationPreviewData" material-only />
+      <QuotationSnapshotPreview v-else-if="quotationPreviewData" :quotation="quotationPreviewData" live hide-amounts />
     </a-spin>
   </a-drawer>
-  <InstanceRounds :open="workflowRoundsOpen" :instance-id="workflowInstanceId" @close="workflowRoundsOpen = false" @select="openWorkflowRound" />
+  <InstanceRounds v-if="CONTRACT_WORKFLOW_ENABLED" :open="workflowRoundsOpen" :instance-id="workflowInstanceId" @close="workflowRoundsOpen = false" @select="openWorkflowRound" />
   <a-modal
     v-model:open="quotationOpen"
-    :title="quotationEditing ? '关联报价单修改调整' : '关联报价单详情'"
+    :title="quotationEditing ? '合同清单修改调整' : '合同清单详情'"
     :width="1100"
     :mask-closable="false"
     :closable="!quotationSaving"
@@ -356,10 +362,14 @@
       :key="materialCandidateId"
       ref="quotationTable"
       :candidate-id="materialCandidateId"
+      @loaded="restoreQuotationAdjustment"
+      include-service-fees
+      :service-fee-rows="quotationServiceFees"
+      @service-fees="receiveQuotationServiceFees"
       mode="quotation"
       paginated
       :editable="quotationEditing && !quotationSaving"
-      :structure-editable="quotationEditing && !isQuotationAdopted(quotationSnapshot)"
+      :structure-editable="quotationEditing"
       snapshot-only
       :quote-pricing="false"
       :cost-visible="false"
@@ -367,16 +377,33 @@
       :base-price-editable="false"
       :pricing-editable="false"
       :busy="quotationSaving"
-      :combined-material-identity="!quotationEditing"
-    />
+      combined-material-identity
+    >
+      <template #toolbar-after-select>
+        <a-button type="primary" preIcon="ant-design:plus-outlined" :disabled="!quotationEditing || quotationSaving || !quotationFeesReady" @click="quotationFeePicker?.openPicker()">选择服务费</a-button>
+      </template>
+      <template #service-fee-cell="{ column, record: fee }">
+        <QuotationServiceFeeCell
+          :record="fee" :column-key="column.key" :editable="quotationEditing" :structure-editable="quotationEditing"
+          :cost-editable="false" :price-visible="false" :price-editable="false" :busy="quotationSaving"
+          @change="updateQuotationServiceFee" @remove="removeQuotationServiceFee" />
+      </template>
+    </MaterialPlanTable>
+    <ServiceFeeTable
+      v-if="quotationOpen" ref="quotationFeePicker" picker-only :model-value="quotationServiceFees" :ready="quotationFeesReady"
+      :editable="quotationEditing" :structure-editable="quotationEditing" :busy="quotationSaving" :cost-editable="false" :cost-visible="false"
+      :price-visible="false" :price-editable="false" @update:model-value="selectQuotationServiceFees" />
   </a-modal>
 </template>
 
 <script lang="ts" setup>
-  import { ref, computed, nextTick, onMounted, onActivated, watch } from 'vue';
+  import { ref, computed, nextTick, onMounted, onActivated, onDeactivated, onBeforeUnmount, watch } from 'vue';
   import ContractApproval from './ContractApproval.vue';
   import QuotationSnapshotPreview from './QuotationSnapshotPreview.vue';
-  import { currentContractApproval, contractApprovalActions, type ContractApprovalActions } from './approval.api';
+  import ServiceFeeTable from '/@/views/plan/components/ServiceFeeTable.vue';
+  import QuotationServiceFeeCell from '/@/views/plan/components/QuotationServiceFeeCell.vue';
+  import { contractServiceFeePayload, contractServiceFeeRows } from './quotationServiceFees';
+  import { CONTRACT_WORKFLOW_ENABLED, currentContractApproval, contractApprovalActions, type ContractApprovalActions } from './approval.api';
   import { readContractProjectContext } from './projectContext';
   import Big from 'big.js';
   import { useRoute, useRouter } from 'vue-router';
@@ -399,6 +426,7 @@
   } from '/@/views/payment/Payment.api';
   import { projectDetail } from '../Project.api';
   import { loadDictOptions } from '../Project.data';
+  import DictValue from '/@/components/DictValue.vue';
   import PlanProjectInfo from '../plan/PlanProjectInfo.vue';
   import { expandContractAttachments } from './contractAttachments';
   import MaterialPlanTable from '/@/views/plan/components/MaterialPlanTable.vue';
@@ -413,6 +441,7 @@
   } from '/@/views/plan/Plan.api';
   import { assertQuotationVersion, noQuotationAccess, quotationCapabilities } from '/@/views/plan/quotationGovernance';
   import { loadUserOptions, type UserOption } from '/@/views/resource/userOptions';
+  import { loadProjectManagerOptions } from '/@/views/resource/projectManagerOptions';
   import {
     getApprovalStatusMeta,
     isApprovalPending,
@@ -425,7 +454,7 @@
 
   const route = useRoute();
   const router = useRouter();
-  const { createMessage } = useMessage();
+  const { createMessage, createConfirm } = useMessage();
   const { hasPermission } = usePermission();
   const userStore = useUserStore();
 
@@ -435,11 +464,12 @@
   const pageMode = ref<ContractPageMode>(routeMode === 'view' || routeMode === 'edit' ? routeMode : 'create');
   const periodId = ref((route.query?.periodId as string) || '');
   const projectId = ref((route.query?.projectId as string) || '');
-  const approvalInstanceId = ref(String(route.query.instanceId || ''));
+  const approvalInstanceId = ref(CONTRACT_WORKFLOW_ENABLED ? String(route.query.instanceId || '') : '');
   const approvalContractId = ref(String(route.query.contractId || ''));
   const approvalResolving = ref(pageMode.value === 'view' && !!approvalContractId.value && !approvalInstanceId.value);
   const approvalResolveError = ref('');
   async function resolveApproval() {
+    if (!CONTRACT_WORKFLOW_ENABLED) return;
     if (approvalInstanceId.value || pageMode.value !== 'view' || !approvalContractId.value) return;
     approvalResolving.value = true; approvalResolveError.value = '';
     try {
@@ -480,8 +510,53 @@
   const quotationEditing = ref(false);
   const quotationSaving = ref(false);
   const quotationTable = ref();
-  const quotationAccess = ref({ ...noQuotationAccess });
   const quotationSnapshot = ref<Recordable>({});
+  const quotationFeePicker = ref<InstanceType<typeof ServiceFeeTable>>();
+  const quotationServiceFees = ref<Recordable[]>([]);
+  const quotationFeesReady = ref(false);
+  function receiveQuotationServiceFees(rows: Recordable[]) {
+    quotationServiceFees.value = contractServiceFeeRows(JSON.parse(JSON.stringify(quotationDraft.value?.serviceFees || rows)));
+    quotationFeesReady.value = true;
+  }
+  function selectQuotationServiceFees(rows: Recordable[]) {
+    if (!quotationEditing.value || quotationSaving.value || !quotationFeesReady.value) return;
+    quotationServiceFees.value = contractServiceFeeRows(rows);
+  }
+  function updateQuotationServiceFee(row: Recordable, patch: Recordable) {
+    if (!quotationEditing.value || quotationSaving.value || !quotationFeesReady.value) return;
+    // 组件事件也只允许内容字段，价格权限保持原边界。
+    for (const key of ['unit', 'quantity', 'remark']) if (key in patch) row[key] = patch[key];
+    row.guideAmount = null;
+  }
+  function removeQuotationServiceFee(row: Recordable) {
+    if (!quotationEditing.value || quotationSaving.value || !quotationFeesReady.value) return;
+    quotationServiceFees.value = quotationServiceFees.value.filter(item => item !== row);
+  }
+  const quotationDraft = ref<{ token: string; candidateId: string; version: number; expiresAt: number; rows: Recordable[]; items: Recordable[]; serviceFees: Recordable[] }>();
+  const quotationVersionChoice = ref<'original' | 'draft'>('original');
+  let restoreAdjustmentPending = false;
+  let quotationLifecycle = 0;
+  function discardQuotationDraft() {
+    quotationDraft.value = undefined;
+    quotationVersionChoice.value = 'original';
+    closeQuotationPreview();
+  }
+  onDeactivated(() => { quotationLifecycle++; quotationOpen.value = false; discardQuotationDraft(); resetQuotationAccess(); });
+  onBeforeUnmount(() => { quotationLifecycle++; discardQuotationDraft(); resetQuotationAccess(); });
+  function requireQuotationDraft() {
+    const draft = quotationDraft.value;
+    if (!draft || draft.candidateId !== materialCandidateId.value || Date.now() >= draft.expiresAt) throw new Error('调整稿已失效，请放弃后重新调整，或明确选择原报价');
+    if (Number(selectedCandidate.value?.version) !== draft.version) throw new Error('原报价版本已变化，请放弃调整稿后重新调整');
+    return draft;
+  }
+  async function restoreQuotationAdjustment() {
+    if (!restoreAdjustmentPending) return;
+    restoreAdjustmentPending = false;
+    if (quotationDraft.value) {
+      try { await quotationTable.value?.restoreQuotationDraft(requireQuotationDraft().rows); }
+      catch (error: any) { quotationOpen.value = false; createMessage.warning(error.message); }
+    }
+  }
   const quotationPreviewOpen = ref(false);
   const quotationPreviewLoading = ref(false);
   const quotationPreviewError = ref('');
@@ -493,8 +568,15 @@
     quotationPreviewLoading.value = false;
     quotationPreviewData.value = null;
   }
-  watch(materialCandidateId, closeQuotationPreview);
+  watch([materialCandidateId, quotationVersionChoice, editing], closeQuotationPreview);
   async function openQuotationPreview() {
+    if (readonly.value && !editing.value) {
+      closeQuotationPreview();
+      quotationPreviewError.value = '';
+      quotationPreviewData.value = info.value.materialSnapshot ?? null;
+      quotationPreviewOpen.value = true;
+      return;
+    }
     if (!materialCandidateId.value || quotationPreviewLoading.value || submitting.value || quotationSaving.value) return;
     const id = materialCandidateId.value;
     const sequence = ++quotationPreviewSequence;
@@ -506,7 +588,15 @@
       await loadContractCandidates();
       if (candidatesFailed.value || String(selectedCandidate.value?.id || '') !== id) throw new Error('报价信息已变化，请重新选择');
       const header = { ...selectedCandidate.value };
-      const access = await getQuotationAccess(periodId.value, id);
+      const access = selectedQuotationAccess.value;
+      if (quotationVersionChoice.value === 'draft') {
+        const draft = requireQuotationDraft();
+        if (sequence !== quotationPreviewSequence || materialCandidateId.value !== id) return;
+        quotationPreviewData.value = { candidateName: `${header.candidateName}（调整稿）`,
+          items: draft.items.map(row => ({ ...row, finalPrice: access.canViewQuote ? row.finalPrice : null })),
+          serviceFees: draft.serviceFees.map(row => access.canViewQuote ? row : { ...row, guidePrice: null, guideAmount: null }) };
+        return;
+      }
       let fees: Recordable[] = [];
       const items = await getAllMaterialCandidateItems(id, rows => { fees = rows; });
       if (sequence !== quotationPreviewSequence || materialCandidateId.value !== id) return;
@@ -522,64 +612,61 @@
   const canReleaseQuotation = computed(
     () =>
       canEditContract.value &&
-      quotationCapabilities(selectedCandidate.value, quotationAccess.value, userStore.getUserInfo, hasPermission).edit &&
+      quotationCapabilities(selectedCandidate.value, selectedQuotationAccess.value, userStore.getUserInfo, hasPermission).edit &&
       (isApprovalRejected(info.value.status) || isApprovalWithdrawn(info.value.status)) &&
       isQuotationAdopted(selectedCandidate.value)
   );
-  async function releaseQuotation() {
-    if (!canReleaseQuotation.value || quotationSaving.value) return;
-    quotationSaving.value = true;
-    try {
-      const seen = { ...selectedCandidate.value };
-      await loadContractCandidates();
-      assertQuotationVersion(seen, selectedCandidate.value);
-      if (candidatesFailed.value || !canReleaseQuotation.value) throw new Error('报价状态已变化，请刷新');
-      await updateMaterialCandidateAdoption(selectedCandidate.value!, 0, false);
-      await loadContractCandidates();
-      createMessage.success('报价已解除采用，可按报价授权修改');
-    } catch (error: any) {
-      createMessage.error(error?.message || '解锁失败');
-    } finally {
-      quotationSaving.value = false;
-    }
-  }
   const selectedCandidate = computed(() => contractCandidates.value.find((item) => String(item.id) === materialCandidateId.value));
   const contractCandidateOptions = computed(() =>
     contractCandidates.value
-      .filter((item) => String(item.status) === QUOTATION_STATUS_APPROVED || String(item.id) === materialCandidateId.value)
-      .map((item) => ({ value: String(item.id), label: item.candidateName || '未命名报价单' }))
+      .filter((item) => (String(item.status) === QUOTATION_STATUS_APPROVED && Number(item.priced) === 1) || String(item.id) === materialCandidateId.value)
+      .map((item) => ({ value: String(item.id), label: item.candidateName || '未命名报价单', disabled: String(item.status) !== QUOTATION_STATUS_APPROVED || Number(item.priced) !== 1 }))
   );
   const selectedQuotationAccess = ref({ ...noQuotationAccess });
   let quotationAccessSequence = 0;
-  async function refreshSelectedQuotationAccess(candidate = selectedCandidate.value) {
-    const sequence = ++quotationAccessSequence;
+  let quotationAccessKey = '';
+  let quotationAccessPending: Promise<void> | undefined;
+  function resetQuotationAccess() {
+    quotationAccessSequence++;
+    quotationAccessKey = '';
+    quotationAccessPending = undefined;
     selectedQuotationAccess.value = { ...noQuotationAccess };
-    if (!candidate?.id) return;
-    try {
-      const access = await getQuotationAccess(periodId.value, String(candidate.id));
-      if (sequence === quotationAccessSequence) selectedQuotationAccess.value = access;
-    } catch (error: any) {
-      if (sequence === quotationAccessSequence) createMessage.error(error?.message || '报价修改权限读取失败，请刷新');
-    }
   }
-  watch(selectedCandidate, () => { void refreshSelectedQuotationAccess(); }, { immediate: true });
-  const canAdjustQuotation = computed(
-    () =>
-      !!selectedCandidate.value &&
-      selectedQuotationAccess.value.canRevise &&
-      String(selectedCandidate.value.status) === QUOTATION_STATUS_APPROVED &&
-      !isQuotationAdopted(selectedCandidate.value) &&
-      (!readonly.value || editing.value)
-  );
+  async function refreshSelectedQuotationAccess(candidate = selectedCandidate.value) {
+    const targetPeriodId = periodId.value;
+    const candidateId = candidate?.id ? String(candidate.id) : '';
+    const key = candidateId && targetPeriodId ? JSON.stringify([targetPeriodId, candidateId]) : '';
+    if (!key) { resetQuotationAccess(); return; }
+    if (key === quotationAccessKey) return quotationAccessPending;
+    const sequence = ++quotationAccessSequence;
+    quotationAccessKey = key;
+    selectedQuotationAccess.value = { ...noQuotationAccess };
+    quotationAccessPending = (async () => {
+      try {
+        const access = await getQuotationAccess(targetPeriodId, candidateId);
+        if (sequence === quotationAccessSequence) selectedQuotationAccess.value = access;
+      } catch (error: any) {
+        if (sequence === quotationAccessSequence) {
+          quotationAccessKey = '';
+          createMessage.error(error?.message || '报价修改权限读取失败，请刷新');
+        }
+      } finally {
+        if (sequence === quotationAccessSequence) quotationAccessPending = undefined;
+      }
+    })();
+    return quotationAccessPending;
+  }
+  watch([periodId, materialCandidateId], () => {
+    resetQuotationAccess();
+    if (!candidatesLoading.value) void refreshSelectedQuotationAccess();
+  }, { flush: 'sync' });
+  const canAdjustQuotation = computed(() => !!selectedCandidate.value && selectedQuotationAccess.value.canRevise);
 
   const quotationAdjustDisabledReason = computed(() => {
     if (submitting.value || quotationSaving.value || candidatesLoading.value) return '正在处理，请稍候';
     if (candidatesFailed.value) return '报价信息加载失败，请刷新后重试';
     if (!selectedCandidate.value) return '请先选择报价单';
     if (!selectedQuotationAccess.value.canRevise) return '当前未获报价修改权限，请联系授权管理员';
-    if (String(selectedCandidate.value.status) !== QUOTATION_STATUS_APPROVED) return '仅已通过的报价单可修改调整';
-    if (isQuotationAdopted(selectedCandidate.value)) return '请先按业务规则解除报价采用，再修改调整';
-    if (readonly.value && !editing.value) return '请先进入合同编辑状态';
     return '';
   });
 
@@ -592,6 +679,13 @@
   async function handleQuotationSelection(value?: string) {
     if (submitting.value || quotationSaving.value || candidatesLoading.value) return;
     if (value === materialCandidateId.value) return;
+    if (quotationDraft.value) {
+      createConfirm({ title: '更换原报价单', content: '更换后将清除当前调整稿，是否继续？', onOk: async () => {
+        discardQuotationDraft();
+        await handleQuotationSelection(value);
+      } });
+      return;
+    }
     if (isQuotationAdopted(selectedCandidate.value)) {
       if (!canReleaseQuotation.value) {
         createMessage.warning('已采用报价须在合同驳回或撤回后解除采用，才能取消或更换');
@@ -616,18 +710,12 @@
     candidatesLoading.value = true;
     candidatesFailed.value = false;
     try {
-      quotationAccess.value = { ...noQuotationAccess };
       const candidates = await getAllMaterialCandidates(periodId.value);
       contractCandidates.value = candidates;
       const adopted = contractCandidates.value.filter((item) => isQuotationAdopted(item));
       if (adopted.length > 1) throw new Error('当前分期存在多张已采用报价，请联系管理员核对');
       if (restoreSelection && !materialCandidateId.value && adopted.length) materialCandidateId.value = String(adopted[0].id);
-      try {
-        quotationAccess.value = await getQuotationAccess(periodId.value, materialCandidateId.value);
-      } catch {
-        // 价格授权读取失败不抹掉已经读取到的报价关联，所有编辑动作仍按无权限处理。
-        quotationAccess.value = { ...noQuotationAccess };
-      }
+      await refreshSelectedQuotationAccess();
     } catch (error: any) {
       candidatesFailed.value = true;
       createMessage.error(error?.message || '关联报价加载失败');
@@ -637,10 +725,16 @@
   }
 
   async function openQuotation(edit: boolean) {
+    if (submitting.value || quotationSaving.value || candidatesLoading.value) return;
     await loadContractCandidates();
     if (candidatesFailed.value || !selectedCandidate.value) return;
-    await refreshSelectedQuotationAccess();
     if (edit && !canAdjustQuotation.value) return createMessage.warning('当前报价不可修改');
+    if (quotationDraft.value) {
+      try { requireQuotationDraft(); } catch (error: any) { createMessage.warning(error.message); return; }
+    }
+    restoreAdjustmentPending = !!quotationDraft.value;
+    quotationServiceFees.value = [];
+    quotationFeesReady.value = false;
     quotationSnapshot.value = { ...selectedCandidate.value };
     quotationEditing.value = edit;
     quotationOpen.value = true;
@@ -653,17 +747,35 @@
     }
     if (quotationSaving.value) return;
     quotationSaving.value = true;
+    const lifecycle = quotationLifecycle;
     try {
       const records = quotationTable.value?.getData();
-      if (!records?.length) throw new Error('报价至少需要一条物料');
+      if (!records) throw new Error('报价尚未加载完成');
+      const rows = JSON.parse(JSON.stringify(quotationTable.value.getRows()));
       await loadContractCandidates();
-      await refreshSelectedQuotationAccess();
       if (candidatesFailed.value || !canAdjustQuotation.value) throw new Error('报价状态已变化，请重新打开');
       assertQuotationVersion(quotationSnapshot.value, selectedCandidate.value);
-      await reviseMaterialCandidate({ candidateId: materialCandidateId.value, candidateName: quotationSnapshot.value.candidateName, version: quotationSnapshot.value.version, records });
-      await loadContractCandidates();
+      const previous = quotationDraft.value ? requireQuotationDraft() : undefined;
+      if (!quotationFeesReady.value) throw new Error('服务费尚未加载完成，请重新打开');
+      const serviceFees = JSON.parse(JSON.stringify(quotationServiceFees.value));
+      const serviceFeeRecords = contractServiceFeePayload(serviceFees);
+      if (lifecycle !== quotationLifecycle) return;
+      const result = await reviseMaterialCandidate({ candidateId: materialCandidateId.value, candidateName: quotationSnapshot.value.candidateName, version: quotationSnapshot.value.version, records, serviceFees: serviceFeeRecords, ...(previous ? { draftToken: previous.token } : {}) });
+      if (lifecycle !== quotationLifecycle) return;
+      if (!result?.draftToken) {
+        if (previous) throw new Error('暂存响应缺少令牌，请重试');
+        quotationOpen.value = false;
+        createMessage.info('内容未发生变化，继续使用原报价');
+        return;
+      }
+      const ttl = Number(result.draftExpiresIn);
+      if (!Number.isFinite(ttl) || ttl <= 0) throw new Error('调整稿有效期无效，请重试');
+      quotationDraft.value = { token: result.draftToken, candidateId: materialCandidateId.value!, version: Number(quotationSnapshot.value.version), expiresAt: Date.now() + ttl * 1000,
+        rows, items: rows.map(row => ({ ...row, quantity: row.plannedQty, unit: row._unitOptions?.find(option => String(option.value) === String(row._unitValue))?.label || row.unit, finalPrice: row.id ? row.finalPrice : null })), serviceFees };
+      quotationVersionChoice.value = 'draft';
+      closeQuotationPreview();
       quotationOpen.value = false;
-      createMessage.success('报价调整已保存；计价基础变更需重新审批后才能用于合同');
+      createMessage.success('调整稿已暂存，本次合同默认使用调整稿；原报价未改变');
     } catch (error: any) {
       createMessage.error(error?.message || '报价调整保存失败');
     } finally {
@@ -672,6 +784,37 @@
   }
   const userOptions = ref<UserOption[]>([]);
   const userOptionsLoading = ref(false);
+  const managerOptions = ref<UserOption[]>([]);
+  const managerOptionsLoading = ref(false);
+  let managerOptionsKey = '';
+  let managerOptionsSequence = 0;
+  const managerRequestKey = () => JSON.stringify([userStore.getToken, periodId.value]);
+  function resetManagers() {
+    managerOptionsSequence++;
+    managerOptionsKey = '';
+    managerOptions.value = [];
+    managerOptionsLoading.value = false;
+  }
+  onDeactivated(resetManagers);
+  onBeforeUnmount(resetManagers);
+  watch(() => [userStore.getToken, periodId.value], resetManagers);
+  async function loadManagers() {
+    const key = managerRequestKey();
+    if (managerOptionsKey === key) return;
+    if (managerOptionsLoading.value) return;
+    const sequence = ++managerOptionsSequence;
+    managerOptionsLoading.value = true;
+    managerOptions.value = [];
+    try {
+      const options = await loadProjectManagerOptions();
+      if (sequence === managerOptionsSequence && key === managerRequestKey()) {
+        managerOptions.value = options;
+        managerOptionsKey = key;
+      }
+    } catch (error: any) {
+      if (sequence === managerOptionsSequence && key === managerRequestKey()) createMessage.error(error?.message || '项目经理列表加载失败');
+    } finally { if (sequence === managerOptionsSequence) managerOptionsLoading.value = false; }
+  }
   const approvalResult = ref<'approve' | 'reject'>();
   const projectManagerUserId = ref<string>();
   const approvalReason = ref('');
@@ -812,7 +955,7 @@
   const businessActions = ref<ContractApprovalActions | null>();
   const workflowIdentityError = ref('');
   const workflowInstanceId = computed(() => String(info.value.workflowInstanceId || '').trim());
-  const isWorkflowContract = computed(() => !!workflowInstanceId.value || !!businessActions.value);
+  const isWorkflowContract = computed(() => CONTRACT_WORKFLOW_ENABLED && (!!workflowInstanceId.value || !!businessActions.value));
   const workflowContractHint = computed(() => info.value.workflowStatus === 'RUNNING'
     ? '合同审批中，不能修改合同或回款计划；可在合同信息的申请操作中按权限撤回。'
     : info.value.workflowStatus === 'APPROVED' ? '合同审批已通过，本试点不支持覆盖修改。'
@@ -832,6 +975,7 @@
   const isContractFormRendered = computed(() => !readonly.value || editing.value);
 
   const [registerForm, { resetFields, setFieldsValue, validate, updateSchema, getFieldsValue }] = useForm({
+    validateOnSubmitOnly: true,
     labelWidth: 110,
     schemas: [
       {
@@ -915,10 +1059,7 @@
         } }],
         colProps: { span: 24 },
       },
-      { label: '关联报价单', field: 'quotation', component: 'Input', slot: 'quotation', colProps: { span: 24 },
-        rules: [{ required: true, validator: async () => {
-          if (!materialCandidateId.value) throw new Error('请选择关联报价单');
-        } }] },
+      { label: '合同清单', field: 'quotation', component: 'Input', slot: 'quotation', colProps: { span: 24 } },
       {
         label: '备注',
         field: 'remark',
@@ -938,6 +1079,7 @@
   });
 
   async function initializeContract() {
+    resetQuotationAccess();
     approvalResolveError.value = '';
     if (approvalInstanceId.value) return;
     // 新合同恢复原状态审批：先查业务详情，只有后端标记的历史流程合同才定位实例。
@@ -964,6 +1106,7 @@
       await loadProjectRecord();
       await initializeCreateMode();
       await restoreContractDraft();
+      await loadContractCandidates(true);
       return;
     }
 
@@ -1005,12 +1148,15 @@
   onActivated(() => {
     if (!activatedOnce) { activatedOnce = true; return; }
     // 未提交的新建/编辑标签仍保留用户输入；提交成功后 pageMode 已转为 view。
-    if (routeMode !== 'view' && pageMode.value !== 'view') return;
+    if (routeMode !== 'view' && pageMode.value !== 'view') {
+      void refreshSelectedQuotationAccess();
+      return;
+    }
     pageMode.value = 'view';
     readonly.value = true;
     editing.value = false;
     // 显式带实例的历史审批入口仍查看指定轮次，普通合同入口查询最新轮次。
-    approvalInstanceId.value = String(route.query.instanceId || '');
+    approvalInstanceId.value = CONTRACT_WORKFLOW_ENABLED ? String(route.query.instanceId || '') : '';
     approvalContractId.value = approvalContractId.value || contractId.value;
     approvalResolveError.value = '';
     approvalResolving.value = !approvalInstanceId.value;
@@ -1093,7 +1239,7 @@
       const { contractFile, materialFile, records, ...contract } = detail || {};
       if (!contract?.id) throw new Error('合同详情不存在');
       if (contractId.value && String(contract.id) !== contractId.value) throw new Error('合同与当前分期不匹配');
-      const hasWorkflowInstance = !!String(contract.workflowInstanceId || '').trim();
+      const hasWorkflowInstance = CONTRACT_WORKFLOW_ENABLED && !!String(contract.workflowInstanceId || '').trim();
       if (pageMode.value === 'view' && hasWorkflowInstance) {
         approvalContractId.value = String(contract.id);
         await resolveApproval();
@@ -1243,6 +1389,7 @@
   }
 
   async function editWorkflowContract(targetPeriodId: string, targetContractId: string) {
+    if (!CONTRACT_WORKFLOW_ENABLED) return;
     try {
     const capabilities = await contractApprovalActions(targetContractId);
     if (!capabilities?.canResubmit || capabilities.instanceId !== approvalInstanceId.value) {
@@ -1318,7 +1465,15 @@
       createMessage.warning('请选择项目经理');
       return;
     }
-    const selected = userOptions.value.find((item) => String(item.value) === String(projectManagerUserId.value));
+    if (managerOptionsLoading.value) return;
+    actionSubmitting.value = true;
+    await loadManagers();
+    const selected = managerOptions.value.find((item) => String(item.value) === String(projectManagerUserId.value));
+    if (!selected) {
+      actionSubmitting.value = false;
+      createMessage.warning('请选择项目经理角色下的用户');
+      return;
+    }
     actionSubmitting.value = true;
     try {
       await editContractWithPaymentRecords({
@@ -1339,7 +1494,7 @@
         projectManagerUserName: selected?.label || '',
       };
       createMessage.success('合同审批通过，请由项目经理完善并提交分期计划');
-      await router.push('/project/list');
+      await goBack();
     } catch (error: any) {
       createMessage.error(error?.message || '合同审批失败，请刷新后确认当前状态');
     } finally {
@@ -1363,7 +1518,7 @@
       await changeContractStatus({ periodId: periodId.value, status: '0', approvalReason: reason });
       info.value = { ...info.value, status: '0', approvalReason: reason };
       createMessage.success('合同已驳回');
-      await router.push('/project/list');
+      await goBack();
     } catch (error: any) {
       createMessage.error(error?.message || '合同驳回失败');
     } finally {
@@ -1551,9 +1706,7 @@
       if (contractAttachments.value.length < 1 || contractAttachments.value.length > CONTRACT_ATTACHMENT_LIMIT) {
         throw new Error(`合同附件至少上传 1 个、最多 ${CONTRACT_ATTACHMENT_LIMIT} 个`);
       }
-      if (candidatesFailed.value) throw new Error('关联报价读取失败，请重试后再保存合同');
       const requestedCandidateId = materialCandidateId.value;
-      if (!requestedCandidateId) throw new Error('请选择关联报价单');
       if (requestedCandidateId) {
         if (candidatesLoading.value) throw new Error('请等待报价加载完成');
         await loadContractCandidates();
@@ -1562,6 +1715,7 @@
           requestedCandidateId !== materialCandidateId.value ||
           !selectedCandidate.value ||
           String(selectedCandidate.value.status) !== QUOTATION_STATUS_APPROVED
+          || Number(selectedCandidate.value.priced) !== 1
         ) {
           throw new Error('报价状态已变化，请重新确认关联报价');
         }
@@ -1570,6 +1724,7 @@
 
       recalculateAllPaybackAmounts(values.contractAmount);
       const wasNewContract = !contractId.value;
+      const selectedDraft = quotationVersionChoice.value === 'draft' ? requireQuotationDraft() : undefined;
       submitting.value = true;
       if (wasNewContract) {
         const payload = {
@@ -1579,6 +1734,7 @@
           projectId: projectId.value,
         };
         const result: any = await addContractWithPaymentRecords({
+          ...(selectedDraft ? { materialCandidateDraftToken: selectedDraft.token } : {}),
           ...(requestedCandidateId ? { materialCandidateId: requestedCandidateId } : {}),
           contract: {
             ...payload,
@@ -1596,6 +1752,7 @@
         info.value = { ...info.value, ...savedContract, workflowInstanceId: result.workflowInstanceId, workflowStatus: result.workflowStatus };
       } else {
         const result: any = await editContractWithPaymentRecords({
+          ...(selectedDraft ? { materialCandidateDraftToken: selectedDraft.token } : {}),
           ...(requestedCandidateId ? { materialCandidateId: requestedCandidateId } : {}),
           contract: { ...buildChangedContract(values), contractFileId: contractAttachments.value.map((file) => file.fileId).join(',') },
           records: buildPaybackRecords(true, values.contractAmount),
@@ -1605,14 +1762,19 @@
 
       createMessage.success(wasNewContract ? '合同已提交，等待审批' : '合同与回款计划已修改并重新提交审批');
       contractDraft.clear();
+      discardQuotationDraft();
       pageMode.value = 'view';
       approvalContractId.value = contractId.value;
       approvalInstanceId.value = '';
       readonly.value = true;
       editing.value = false;
-      await router.push('/project/list');
+      await goBack();
     } catch (error: any) {
-      if (error?.errorFields) return Promise.reject(error.errorFields);
+      if (Array.isArray(error?.errorFields)) {
+        const messages = error.errorFields.flatMap((field: any) => field.errors || []).filter((message: unknown) => typeof message === 'string' && message.trim());
+        createMessage.warning(messages[0] || '请填写完整必填信息后再提交');
+        return;
+      }
       createMessage.error(error?.message || '合同提交失败，请确认当前保存状态后重试');
     } finally {
       submitting.value = false;
@@ -1620,7 +1782,9 @@
   }
 
   function goBack() {
-    router.push('/project/list');
+    return router.push(route.query.from === 'periodDetail' && periodId.value
+      ? { path: `/project/detail/${periodId.value}`, query: { tab: 'contract' } }
+      : '/project/list');
   }
 </script>
 

@@ -30,6 +30,23 @@ async function postApproval(action: 'submit' | 'approve' | 'withdraw', data: Rec
   return unwrap<PeriodApprovalRecord>(response);
 }
 
+/** 只按快照中冻结的用户ID翻译姓名，不查询当前工序负责人。 */
+export async function getSnapshotLeaderNames(ids: string[], periodId: string): Promise<Record<string, string>> {
+  const unique = [...new Set(ids.filter(Boolean))];
+  if (!unique.length) return {};
+  const names: Record<string, string> = {};
+  for (let pageNo = 1; ; pageNo++) {
+    const response = await defHttp.get({ url: '/project/member/list', params: { periodId, pageNo, pageSize: 100 } }, options);
+    const page = unwrap<{ records?: { userId: string; userName?: string; periodId: string }[]; total?: number; pages?: number }>(response);
+    const rows = page?.records || [];
+    for (const row of rows) {
+      if (String(row.periodId) === periodId && unique.includes(String(row.userId)) && row.userName) names[String(row.userId)] = row.userName;
+    }
+    if (unique.every(id => names[id]) || !rows.length || pageNo >= Number(page.pages || Math.ceil(Number(page.total || 0) / 100)) || rows.length < 100) break;
+  }
+  return names;
+}
+
 export const submitPeriodApproval = (periodId: string) => postApproval('submit', { periodId });
 export const approvePeriodPlan = (data: { periodId: string; approvalId: string; approvalStatus: '1' | '0'; approvalReason?: string }) => postApproval('approve', data);
 export const withdrawPeriodApproval = (data: { periodId: string; approvalId: string; approvalReason?: string }) => postApproval('withdraw', data);

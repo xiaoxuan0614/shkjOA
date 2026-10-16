@@ -3,7 +3,6 @@ const vm = require('node:vm');
 const ts = require('typescript');
 const assert = require('node:assert/strict');
 const calls = [];
-const user = { getUserInfo: { username: ' userA ' } };
 function load(file, dependencies) {
   const exports = {};
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(file, 'utf8'), {
@@ -20,20 +19,21 @@ const api = load('src/views/project/Project.api.ts', {
   '/@/utils/http/axios': { defHttp: { get: (request) => { calls.push(request); return Promise.resolve({ records: [] }); } } },
   '/@/enums/httpEnum': { ContentTypeEnum: {} },
   './projectListFilters': filters,
-  '/@/store/modules/user': { useUserStoreWithOut: () => user },
 });
 (async () => {
   await api.projectList({ username: 'anotherUser', pageNo: 2, status: ['NEW', 'IMPLEMENTING'], arrivalStatus: [0] });
   assert.equal(calls[0].url, '/project/project/projectPeriodList');
-  assert.equal(calls[0].params.username, 'userA');
+  assert.equal(Object.hasOwn(calls[0].params, 'username'), false);
   assert.equal(calls[0].params.pageNo, 2);
   assert.equal(calls[0].params.status, 'NEW,IMPLEMENTING');
   assert.equal(calls[0].params.arrivalStatus, '0');
-  user.getUserInfo.username = 'userB';
   await api.projectList({});
-  assert.equal(calls[1].params.username, 'userB');
-  user.getUserInfo.username = '';
-  await assert.rejects(api.projectList({ username: 'admin' }), /登录用户名缺失/);
-  assert.equal(calls.length, 2);
-  console.log('Current username, caller override protection, account switch and missing identity request blocking passed');
+  assert.equal(Object.hasOwn(calls[1].params, 'username'), false);
+  const input = { username: 'admin', pageSize: 20 };
+  await api.projectList(input);
+  assert.equal(Object.hasOwn(calls[2].params, 'username'), false);
+  assert.equal(calls[2].params.pageSize, 20);
+  assert.equal(input.username, 'admin');
+  assert.equal(calls.length, 3);
+  console.log('PASS project list omits username, preserves paging/filters and does not mutate callers');
 })().catch((error) => { console.error(error); process.exitCode = 1; });

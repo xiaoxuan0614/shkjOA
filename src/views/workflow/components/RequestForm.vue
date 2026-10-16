@@ -5,6 +5,7 @@
         <a-input v-if="kind(field) === 'string'" :value="value[field.key]" :disabled="locked(field)" @update:value="(v) => set(field.key, v)" />
         <a-input-number
           v-else-if="kind(field) === 'number'"
+          :precision="2"
           :value="value[field.key]"
           :disabled="locked(field)"
           @update:value="(v) => set(field.key, v)"

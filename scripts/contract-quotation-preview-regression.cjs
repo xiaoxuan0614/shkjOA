@@ -45,7 +45,10 @@ const approval = fs.readFileSync('src/views/project/contract/ContractApproval.vu
 assert(approval.includes(':quotation="snapshot.quotation"'));
 assert(!approval.includes('<SubmittedValue'));
 const contract = fs.readFileSync('src/views/project/contract/index.vue', 'utf8');
-assert(contract.indexOf('查看报价预览</a-button>') < contract.indexOf('修改调整</a-button>'));
+assert(!contract.includes('openQuotation(false)'), 'readonly contract must not open the material editor');
+const readonlyQuote = contract.match(/<a-descriptions-item label="关联报价单"[\s\S]*?<\/a-descriptions-item>/)[0];
+assert(readonlyQuote.includes('@click="openQuotationPreview"'));
+assert(contract.indexOf('查看报价预览</a-button>') < contract.indexOf("'基于此单调整'"));
 assert(contract.includes('getAllMaterialCandidateItems(id, rows => { fees = rows; })'));
 assert(contract.includes('sequence !== quotationPreviewSequence || materialCandidateId.value !== id'));
 assert(contract.includes('finalPrice: access.canViewQuote ? row.finalPrice : null'));

@@ -1,5 +1,6 @@
 import type { App } from 'vue';
 import { Icon } from './Icon';
+import { BasicPagination } from './Pagination';
 import AIcon from '/@/components/jeecg/AIcon.vue';
 //Tinymce富文本
 //  import Editor from '/@/components/Tinymce/src/Editor.vue'
@@ -8,7 +9,7 @@ import { Button, JUploadButton } from './Button';
 import { Space } from 'ant-design-vue';
 
 // ant-design-vue 组件通过 unplugin-vue-components + AntDesignVueResolver 自动按需导入，无需手动注册
-const compList = [Icon, AIcon, JUploadButton];
+const compList = [Icon, AIcon, JUploadButton, BasicPagination];
 import { createAsyncComponent } from '/@/utils/factory/createAsyncComponent';
 
 

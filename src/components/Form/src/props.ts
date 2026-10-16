@@ -10,6 +10,7 @@ import componentSetting from '/@/settings/componentSetting';
 
 const { form } = componentSetting;
 export const basicProps = {
+  validateOnSubmitOnly: propTypes.bool.def(false),
   model: {
     type: Object as PropType<Recordable>,
     default: {},

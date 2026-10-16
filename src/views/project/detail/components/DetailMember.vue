@@ -33,9 +33,7 @@
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'index'">{{ record._index }}</template>
           <template v-else-if="column.key === 'memberRole'">
-            <a-tag v-for="role in record.memberRoles" :key="role" color="blue">
-              {{ memberRoleText(role) }}
-            </a-tag>
+            <DictValue v-for="role in record.memberRoles" :key="role" code="member_role" :value="role" :fallback="memberRoleText(role)" />
           </template>
           <template v-else-if="column.key === 'inviteStatus'">
             <a-tag v-for="status in record.inviteStatuses" :key="status" :color="inviteStatusMeta(status).color">
@@ -74,7 +72,7 @@
       >
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'index'">{{ record._index }}</template>
-          <template v-else-if="column.key === 'unitType'">{{ outsourceTypeText(record.unitType) }}</template>
+          <template v-else-if="column.key === 'unitType'"><DictValue code="outsourcing_type" :value="record.unitType" :fallback="outsourceTypeText(record.unitType)" /></template>
           <template v-else-if="column.key === 'headcount'">{{ valueWithUnit(record.headcount, '人') }}</template>
           <template v-else-if="column.key === 'workHours'">{{ valueWithUnit(record.workHours, '小时') }}</template>
           <template v-else-if="column.key === 'text'">{{ record[column.dataIndex] || '—' }}</template>
@@ -134,6 +132,7 @@
   import { useMessage } from '/@/hooks/web/useMessage';
   import { getMemberOutsources, getMembers, inviteProjectMembers } from '../ProjectDetail.api';
   import { loadDictOptions } from '../../Project.data';
+  import DictValue from '/@/components/DictValue.vue';
   import { readProjectMembership } from '../../projectMembership';
   import { useUserStore } from '/@/store/modules/user';
 

@@ -3,6 +3,18 @@ import Big from 'big.js';
 export const snapshotQuotationHeaders = ['序号', '名称', '品牌', '型号', '规格参数', '数量', '单位', '单价（元）', '小计（元）', '备注'];
 export const snapshotQuotationWidths = [6, 24, 18, 24, 62, 10, 8, 16, 18, 18];
 
+/** 合同无价格快照：物料与服务独立列表合并展示，白名单隔离所有金额字段。 */
+export function contractSnapshotRows(snapshot: Record<string, any> | null | undefined) {
+  const objects = (value: unknown): Record<string, any>[] => Array.isArray(value)
+    ? value.filter(row => row && typeof row === 'object' && !Array.isArray(row)) : [];
+  return [
+    ...objects(snapshot?.records).map(row => ({ materialCategory: row.materialCategory, materialName: row.materialName,
+      brand: row.brand, model: row.model, quantity: row.quantity, unit: row.unit, remark: row.remark, description: '' })),
+    ...objects(snapshot?.serviceFees).map(row => ({ materialCategory: '服务费', materialName: row.name,
+      brand: '', model: '', quantity: row.quantity, unit: row.unit, remark: row.remark, description: row.description })),
+  ];
+}
+
 function decimal(value: unknown): Big | null {
   if (value == null || String(value).trim() === '') return null;
   try { const number = new Big(String(value)); return number.gte(0) ? number : null; } catch { return null; }

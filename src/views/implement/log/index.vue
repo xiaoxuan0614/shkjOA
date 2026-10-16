@@ -107,7 +107,7 @@
                 :columns="logColumns"
                 :data-source="getLogState(process.id).records"
                 :loading="getLogState(process.id).loading"
-                :pagination="getLogPagination(process.id)"
+                :pagination="withPagination(getLogPagination(process.id))"
                 :row-key="(record) => record.id"
                 :scroll="{ x: 1230 }"
                 size="middle"
@@ -144,6 +144,7 @@
 </template>
 
 <script lang="ts" setup>
+  import { withPagination } from '/@/components/Pagination/config';
   import { onMounted, reactive, ref } from 'vue';
   import { getContractDetail } from '../../project/detail/ProjectDetail.api';
   import { formatLogHours } from '../logDisplay';

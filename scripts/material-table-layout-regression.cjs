@@ -58,9 +58,11 @@ const columns = [
 const before = JSON.stringify(columns);
 const result = unifyMaterialColumns(columns);
 assert.equal(unifyMaterialColumns(columns, { secondaryField: 'model' })[0].customRender({ record: {} }).props.secondaryField, 'model');
-assert.equal(result[0].customRender({ record: {} }).props.secondaryField, undefined, '其他页面保持默认编码');
+assert.equal(result[0].customRender({ record: {} }).props.secondaryField, undefined, '使用名称组件统一默认型号');
+assert(fs.readFileSync('src/views/material/components/MaterialIdentityCell.vue', 'utf8').includes("secondaryField: 'model'"));
+assert.equal(unifyMaterialColumns([{ key: 'materialCode' }, { key: 'model' }, { key: 'materialCategory' }]).length, 1);
 const quotationTable = fs.readFileSync('src/views/plan/components/MaterialPlanTable.vue', 'utf8');
-assert(quotationTable.includes("secondaryField: props.mode === 'quotation' ? 'model' : 'materialCode'"));
+assert(quotationTable.includes("secondaryField: 'model'"));
 assert(quotationTable.includes("props.mode !== 'quotation' ? [{ title: '型号'"));
 assert.equal(JSON.stringify(columns), before, '不修改原列或业务定义');
 assert.equal(result.length, 4);
@@ -73,6 +75,13 @@ assert.equal(unifyMaterialColumns(columns.slice(0, -1)).some(c => c.key === 'act
 assert.equal(unifyMaterialColumns([{ dataIndex: 'name' }, { key: 'brand' }], { nameField: 'name' }).length, 1);
 assert.equal(unifyMaterialColumns([{ key: 'materialIdentity' }, { key: 'materialCode' }, { key: 'brand' }]).length, 1);
 const picker = fs.readFileSync('src/views/material/apply/components/MaterialSelectDrawer.vue', 'utf8');
+const pickerColumnsSource = picker.match(/const columns = computed\(\(\) => (\[[\s\S]*?\n  \])\);/)[1];
+const getPickerColumns = new Function('props', 'isProjectMode', 'renderMaterialSpecification', ts.transpileModule(`return ${pickerColumnsSource};`, { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText);
+for (const props of [{}, { quotationLayout: true }, { pickLayout: true }]) {
+  for (const project of [true, false]) {
+    assert(!getPickerColumns(props, { value: project }, x => x).some(c => ['model', 'materialCategory', 'materialCode'].includes(c.key)));
+  }
+}
 assert.match(picker, /width="min\(900px, 100vw\)"/);
 assert.match(picker, /fixed: 'left'/);
 assert.match(picker, /fixed: 'right'/);

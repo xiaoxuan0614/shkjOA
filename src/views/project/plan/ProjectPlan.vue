@@ -1,7 +1,8 @@
 <template>
-  <div class="project-plan">
+  <PlanSubmissionDetail v-if="isHistoryView" :period-id="periodId" :approval-id="String(route.query.approvalId || '')" />
+  <div v-else class="project-plan">
     <!-- 第1部分: 顶部工具栏（按页保存） -->
-    <div class="project-plan__toolbar">
+    <div v-if="!embeddedPeriodId" class="project-plan__toolbar">
       <div class="project-plan__toolbar-left">
         <a-button type="link" preIcon="ant-design:arrow-left-outlined" @click="handleCancel">返回</a-button>
         <span class="project-plan__toolbar-title">{{ pageTitle }}</span>
@@ -36,7 +37,7 @@
       </div>
     </div>
 
-    <div class="project-plan__approval-summary" aria-live="polite">
+    <div v-if="!embeddedPeriodId" class="project-plan__approval-summary" aria-live="polite">
       <span v-if="approvalSummary.loading">正在加载最新审批结果…</span>
       <span v-else-if="approvalSummary.error">{{ approvalSummary.error }}</span>
       <template v-else>
@@ -105,7 +106,10 @@
           />
         </a-tab-pane>
         <a-tab-pane key="payment" tab="回款计划" force-render>
-          <PlanPayment ref="paymentRef" :period-id="periodId" :contract-record="contractRecord" :project-record="projectRecord" />
+          <a-alert v-if="embeddedPeriodId && contractLoadFailed" type="warning" show-icon message="合同信息未加载成功，暂无法查看回款计划。">
+            <template #action><a-button @click="loadContext">重试</a-button></template>
+          </a-alert>
+          <PlanPayment v-else ref="paymentRef" :period-id="periodId" :contract-record="contractRecord" :project-record="projectRecord" />
         </a-tab-pane>
       </a-tabs>
     </div>
@@ -130,13 +134,17 @@
   import ProjectBasicDrawer from '../components/ProjectBasicDrawer.vue';
   import { projectDetail } from '../Project.api';
   import PeriodApprovalActions from './PeriodApprovalActions.vue';
+  import PlanSubmissionDetail from './PlanSubmissionDetail.vue';
   import { canEditPeriodPlan } from './periodApproval';
   import { addPlanProcessesBatch, editPlanOutsourcesBatch, editPlanProcessesBatch, editPlanLocationsBatch } from './Plan.api';
   import { editPlanMaterialBatch } from '/@/views/plan/Plan.api';
   import { contractDetail } from '/@/views/payment/Payment.api';
 
   const router = useRouter();
+  // 详情页内只读复用；不创建审批操作组件，也不因外层路由参数开放编辑。
+  const props = withDefaults(defineProps<{ embeddedPeriodId?: string }>(), { embeddedPeriodId: '' });
   const route = useRoute();
+  const isHistoryView = computed(() => !props.embeddedPeriodId && route.query.history === '1');
   const { createMessage } = useMessage();
   const userStore = useUserStore();
   const [registerProjectBasicDrawer, { openDrawer: openProjectBasicDrawer }] = useDrawer();
@@ -145,6 +153,7 @@
   const activeKey = ref('file');
 
   const contractRecord = ref<Recordable>({});
+  const contractLoadFailed = ref(false);
   const periodStatus = ref('');
   const approvalRef = ref<InstanceType<typeof PeriodApprovalActions>>();
   const approvalSummary = ref<Recordable>({ loading: true });
@@ -161,7 +170,7 @@
   // 当前分期已接受的项目经理或管理员可编写计划。
   const editable = computed(
     () =>
-      route.query.mode !== 'view' &&
+      !isHistoryView.value && !props.embeddedPeriodId && route.query.mode !== 'view' &&
       permissionLoaded.value &&
       contextReady.value &&
       canEditPeriodPlan({ status: periodStatus.value }) &&
@@ -182,6 +191,7 @@
 
   // 分期 ID 必须跟随路由变化：同路由切换 query 时 Vue 会复用当前组件。
   const periodId = computed(() => {
+    if (props.embeddedPeriodId) return props.embeddedPeriodId;
     const value = route.query?.periodId;
     return String(Array.isArray(value) ? value[0] || '' : value || '').trim();
   });
@@ -402,6 +412,7 @@
    */
   async function loadContext() {
     const requestSequence = ++contextLoadSequence;
+    if (isHistoryView.value) { contextReady.value = false; return; }
     const targetPeriodId = periodId.value;
     contextLoading.value = true;
     contextReady.value = false;
@@ -409,6 +420,7 @@
     permissionLoaded.value = false;
     isProjectManager.value = false;
     contractRecord.value = {};
+    contractLoadFailed.value = false;
     projectRecord.value = {};
     periodStatus.value = '';
     if (!targetPeriodId) {
@@ -422,12 +434,13 @@
       const [projectResult, contractResult, membershipResult] = await Promise.allSettled([
         projectDetail({ periodId: targetPeriodId }, true),
         contractDetail({ periodId: targetPeriodId }, true),
-        userStore.getIdentity.roleCodes?.includes('admin')
+        props.embeddedPeriodId || userStore.getIdentity.roleCodes?.includes('admin')
           ? Promise.resolve({ manager: false })
           : readProjectMembership(targetPeriodId, currentUserId.value),
       ]);
       if (requestSequence !== contextLoadSequence || targetPeriodId !== periodId.value) return;
-      if (projectResult.status === 'rejected' || contractResult.status === 'rejected') {
+      contractLoadFailed.value = contractResult.status === 'rejected';
+      if (projectResult.status === 'rejected' || (!props.embeddedPeriodId && contractResult.status === 'rejected')) {
         const bothFailed = projectResult.status === 'rejected' && contractResult.status === 'rejected';
         contextLoadFailed.value = true;
         contextErrorText.value = bothFailed
@@ -437,7 +450,7 @@
       }
 
       const project = (projectResult.value as Recordable) || {};
-      const contract = (contractResult.value as Recordable) || {};
+      const contract = contractResult.status === 'fulfilled' ? (contractResult.value as Recordable) || {} : {};
       contractRecord.value = contract;
       isProjectManager.value = membershipResult.status === 'fulfilled' && membershipResult.value.manager;
       periodStatus.value = String(project.status || '');
@@ -534,13 +547,15 @@
    * 取消
    */
   function handleCancel() {
-    router.push('/project/list');
+    router.push(route.query.from === 'periodDetail' && periodId.value
+      ? { path: `/project/detail/${periodId.value}`, query: { tab: 'plan' } }
+      : '/project/list');
   }
 
   let contextLoadSequence = 0;
 
   watch(
-    () => [periodId.value, currentUserId.value, userStore.getToken, JSON.stringify(userStore.getIdentity)],
+    () => [periodId.value, isHistoryView.value, currentUserId.value, userStore.getToken, JSON.stringify(userStore.getIdentity)],
     () => {
       activeKey.value = 'file';
       Object.assign(tabEditing, { file: false, material: false, person: false, implement: false, position: false });

@@ -22,7 +22,7 @@ export function quotationApprovalItems(rows: any[]) {
     if (!itemId || ids.has(itemId)) throw new Error('报价明细 ID 缺失或重复，请刷新后审批');
     ids.add(itemId);
     const approvalOpinion = String(row.approvalOpinion ?? '');
-    if (approvalOpinion.length > 500) throw new Error('每条物料的审批意见不能超过 500 字');
+    if (approvalOpinion.length > 100) throw new Error('每条物料的审批意见不能超过 100 字');
     return { itemId, approvalOpinion };
   });
 }

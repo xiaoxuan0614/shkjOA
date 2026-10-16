@@ -33,7 +33,7 @@ export const formSchema: FormSchema[] = [
     rules: [{ required: true, whitespace: true, message: '请输入负责人姓名' }],
   },
   { label: '行车模式', field: 'driveMode', component: 'Select', componentProps: { options: driveModeOptions } },
-  { label: '当前里程', field: 'currentMileage', component: 'InputNumber', componentProps: { min: 0, addonAfter: '公里', style: { width: '100%' } } },
+  { label: '当前里程', field: 'currentMileage', component: 'InputNumber', componentProps: { precision: 2, min: 0, addonAfter: '公里', style: { width: '100%' } } },
   { label: '', field: 'vehicleId', component: 'Input', show: false },
 ];
 export const driveColumns: BasicColumn[] = [

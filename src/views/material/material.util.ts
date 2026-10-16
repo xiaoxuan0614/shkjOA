@@ -65,11 +65,18 @@ export async function loadDictMap(code: string): Promise<Record<string, { text: 
 /**
  * 把字典 map 转成 Select options（{ label, value }）
  */
-export function dictToOptions(map: Record<string, { text: string; color: string }>): { label: string; value: string }[] {
-  return Object.entries(map).map(([value, it]) => ({ label: it.text, value }));
+export function dictToOptions(map: Record<string, { text: string; color: string }>): { label: string; value: string; color: string }[] {
+  return Object.entries(map).map(([value, it]) => ({ label: it.text, value, color: it.color }));
 }
 
 let unitOptionsCache: { label: string; value: string }[] | null = null;
+/** 字典维护回读后同步单位名称选项及名称到ID映射。 */
+export function updateUnitDictionary(rows: any[]) {
+  const enabled = rows.filter(row => String(row.status) === '1');
+  dictCache.inv_unit = Object.fromEntries(enabled.map(row => [String(row.itemValue), { text: row.itemText, color: row.itemColor || '' }]));
+  unitOptionsCache = enabled.map(row => ({ label: row.itemText, value: row.itemText }));
+  return unitOptionsCache;
+}
 /**
  * 物料单位下拉选项（数据源：数据字典 inv_unit，不再前端写死）。
  * ⚠️ 单位存储/展示用单位名称(unitName/unit 存字典 text)；故下拉 label/value 均取字典 text，

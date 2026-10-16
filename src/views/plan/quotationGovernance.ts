@@ -10,6 +10,14 @@ export interface QuotationAccess {
   canRevise: boolean;
 }
 export const noQuotationAccess: QuotationAccess = { canApprove: false, canManage: false, canViewCost: false, canViewRate: false, canViewQuote: false, canEditPrice: false, canExport: false, canRevise: false };
+export function canEditDraftQuotation(record: any, canEdit: boolean) {
+  return !!record?.id && String(record.status) === '-1' && String(record.adopted) === '0' && canEdit;
+}
+/** Navigation intent is not authorization; use the freshly loaded record and edit capability. */
+export function canContinueCreatedQuotation(query: Record<string, unknown>, record: any, canEdit: boolean) {
+  return query.from === 'project-detail' && query.mode === 'edit' && query.continueCreated === '1'
+    && !!record?.id && String(record.status) === '-1' && String(record.adopted) === '0' && canEdit;
+}
 export function isQuotationApplicant(record: any, user: any) {
   if (!record?.createBy) return false;
   const identities = [user?.username, user?.id, user?.userId].filter(Boolean).map(String);

@@ -1,6 +1,6 @@
 <template>
   <div>
-    <!-- 库存管理：所有在库物料数量，库管在此做手动入库/出库 -->
+    <!-- 库存管理：查看在库物料数量及盘存 -->
     <BasicTable @register="registerTable">
       <!-- 操作栏 -->
       <template #action="{ record }">
@@ -14,8 +14,6 @@
       </template>
     </BasicTable>
 
-    <!-- 手动入库/出库弹窗(复用物料模块 IOModal，走 /stock/ioRecord/manualIn|manualOut) -->
-    <IOModal @register="registerIOModal" @success="handleSuccess" />
     <!-- 盘存弹窗(留痕) -->
     <StocktakeModal @register="registerStocktakeModal" @success="handleSuccess" />
   </div>
@@ -28,13 +26,10 @@
   import { useListPage } from '/@/hooks/system/useListPage';
   import { columns, searchFormSchema } from './Stock.data';
   import { list } from '../goods/Goods.api';
-  import IOModal from '../goods/components/IOModal.vue';
   import StocktakeModal from './components/StocktakeModal.vue';
 
   const queryParam = reactive<any>({});
 
-  // 注册手动出入库弹窗
-  const [registerIOModal, { openModal: openIOModal }] = useModal();
   // 注册盘存弹窗
   const [registerStocktakeModal, { openModal: openStocktakeModal }] = useModal();
 
@@ -65,13 +60,6 @@
   const [registerTable, { reload }] = tableContext;
 
   /**
-   * 出入库事件：打开手动入库/出库弹窗(库存数量维护，走 ioRecord)
-   */
-  function handleIo(record: Recordable) {
-    openIOModal(true, { record });
-  }
-
-  /**
    * 盘存事件：打开盘存弹窗(调整在库数量，留痕)
    */
   function handleStocktake(record: Recordable) {
@@ -86,15 +74,10 @@
   }
 
   /**
-   * 操作栏(出入库 + 盘存)
+   * 操作栏(盘存)
    */
   function getTableAction(record) {
     return [
-      {
-        label: '出入库',
-        onClick: handleIo.bind(null, record),
-        auth: 'mtl:goods:io',
-      },
       {
         label: '盘存',
         onClick: handleStocktake.bind(null, record),

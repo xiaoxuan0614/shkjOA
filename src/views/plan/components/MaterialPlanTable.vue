@@ -22,7 +22,7 @@
       :columns="mode === 'quotation' ? quotationColumns : columns"
       :data-source="displayRows"
       :row-key="(record) => record._serviceFee ? record._key : `material:${record._key}`"
-      :pagination="tablePagination"
+      :pagination="withPagination(tablePagination)"
       :loading="loading"
       :scroll="{ x: tableScrollX, ...(mode === 'quotation' ? { y: 'clamp(240px, 50vh, 520px)' } : {}) }"
       size="middle"
@@ -73,21 +73,11 @@
           <span>{{ quotationPercent(record.basePrice, record.finalPrice) }}</span>
         </template>
         <template v-else-if="column.key === 'approvalOpinion'">
-          <a-textarea
-            v-if="approvalEditable"
-            v-model:value="record.approvalOpinion"
-            :disabled="busy || loading"
-            :maxlength="500"
-            :auto-size="{ minRows: 1, maxRows: 4 }"
-            :aria-label="`${record.materialName} 审批意见`"
-            placeholder="选填，最多500字"
-          />
-          <span v-else style="white-space: pre-wrap; overflow-wrap: anywhere">{{ record.approvalOpinion || '—' }}</span>
+          <span style="white-space: pre-wrap; overflow-wrap: anywhere">{{ record.approvalOpinion || '—' }}</span>
         </template>
         <template v-else-if="(column.key === 'markupRate' && directQuotation) || (['markupRate', 'finalPrice', 'quotationPercent'].includes(column.key) && !priceVisible)"><span>—</span></template>
         <template v-else-if="['basePrice', 'markupRate', 'finalPrice'].includes(column.key)">
           <a-input-number
-            v-if="column.key === 'basePrice' || pricingEditable || directQuotation"
             :value="record[column.key]"
             :disabled="busy || (column.key === 'basePrice' ? !basePriceEditable : !pricingEditable)"
             :min="0"
@@ -101,7 +91,6 @@
             @change="(value) => changeQuotePrice(record, column.key, value)"
             @blur="changeQuotePrice(record, column.key, record[column.key], true)"
           />
-          <span v-else>{{ column.key === 'markupRate' && hasPrice(record[column.key]) ? Number(record[column.key]).toFixed(2) + '%' : record[column.key] ?? '—' }}</span>
           <div v-if="record._priceError?.key === column.key" role="alert" class="material-plan-table__price-error">{{
             record._priceError.message
           }}</div>
@@ -135,7 +124,8 @@
           />
         </template>
         <template v-else-if="column.key === 'action'">
-          <a-tooltip v-if="contractItem(record)" title="合同物料，不可移除">
+          <QuotationOpinionButton v-if="approvalEditable" :value="record.approvalOpinion" :name="record.materialName" :disabled="busy || loading || !loaded || loadFailed" @change="record.approvalOpinion = $event" />
+          <a-tooltip v-else-if="contractItem(record)" title="合同物料，不可移除">
             <span><a-button type="link" size="small" danger disabled>移除</a-button></span>
           </a-tooltip>
           <a-popconfirm v-else-if="editable && structureEditable && !contractLoading" title="确定移除该物料吗？" @confirm="removeRow(record._key)">
@@ -163,8 +153,10 @@
 </template>
 
 <script lang="ts" setup>
+  import { withPagination } from '/@/components/Pagination/config';
   import { unifyMaterialColumns } from '/@/views/material/materialTableColumns';
   import { computed, ref, watch } from 'vue';
+  import QuotationOpinionButton from './QuotationOpinionButton.vue';
   import { Table } from 'ant-design-vue';
   import { QuestionCircleOutlined } from '@ant-design/icons-vue';
   import { BasicTable } from '/@/components/Table';
@@ -185,6 +177,7 @@
       contractItems?: Recordable[];
       contractLoading?: boolean;
       candidateId?: string;
+      initialCandidatePage?: Recordable;
       editable?: boolean;
       busy?: boolean;
       quotePricing?: boolean;
@@ -311,8 +304,8 @@
     ...(props.mode === 'quotation' && props.guideTotalVisible ? [{ title: props.directQuotation ? '报价总价' : '指导总价', key: 'guideTotal', width: 120 }] : []),
     ...(props.showRemark ? [{ title: '备注', key: 'remark', width: props.mode === 'quotation' ? undefined : 100 }] : []),
     ...(props.showApprovalOpinion ? [{ title: '审批意见', key: 'approvalOpinion', width: 220 }] : []),
-    ...(props.showAction ? [{ title: '操作', key: 'action', width: 80, align: 'center', fixed: 'right' }] : []),
-  ], { source: 'detail', nameField: 'materialName', secondaryField: props.mode === 'quotation' ? 'model' : 'materialCode' }).map((column) =>
+    ...(props.showAction ? [{ title: '操作', key: 'action', width: props.approvalEditable ? 110 : 80, align: 'center', fixed: 'right' }] : []),
+  ], { source: 'detail', nameField: 'materialName', secondaryField: 'model' }).map((column) =>
     props.serviceFeeRows && column.key === 'unifiedMaterial'
       ? { ...column, title: '物料 / 服务费名称' }
       : column,
@@ -389,6 +382,7 @@
     return useUnitId ? (baseUnit?.id ? String(baseUnit.id) : options[0]?.value) : baseUnit?.unitName || material?.unit || options[0]?.value;
   }
 
+  let consumedCandidatePage: Recordable | undefined;
   async function load() {
     currentPage.value = 1;
     const requestSequence = ++loadSequence;
@@ -416,13 +410,15 @@
     loaded.value = false;
     loadFailed.value = false;
     try {
+      const firstPage = props.initialCandidatePage !== consumedCandidatePage ? props.initialCandidatePage : undefined;
+      consumedCandidatePage = props.initialCandidatePage;
       const listRequest =
         props.mode === 'quotation'
           ? getAllMaterialCandidateItems(props.candidateId!, props.includeServiceFees ? (fees) => {
               if (requestSequence === loadSequence) emit('serviceFees', fees);
-            } : undefined)
+            } : undefined, firstPage)
           : getPlanMaterialList({ periodId: props.periodId, pageNo: 1, pageSize: 1000 });
-      if (props.snapshotOnly) {
+      if (props.snapshotOnly || props.mode === 'quotation') {
         const result = await listRequest;
         await hydrateRows(result?.records || result || [], requestSequence, {});
         return;
@@ -445,8 +441,9 @@
   }
 
   async function hydrateRows(list: any[], requestSequence?: number, providedMaterialMap?: Record<string, any>) {
-    // 物料分页列表已包含 unitList，统一从模块缓存补齐编码和单位，避免保存后逐条请求 queryById。
-    const materialMap = providedMaterialMap || (await loadMaterialMap());
+    // 报价回显只读单据快照，不为补齐编码/单位加载全量物料库。
+    // 计划等其他模式继续沿用原物料主数据补齐逻辑。
+    const materialMap = providedMaterialMap || (props.mode === 'quotation' ? {} : await loadMaterialMap());
     if (requestSequence && requestSequence !== loadSequence) return;
     rows.value = list.map((item: any) => {
       const pricingDefaults: Record<string, any> = {};
@@ -459,7 +456,7 @@
           catch (error: any) { pricingDefaults._priceError = { key: 'markupRate', message: error.message }; }
         }
       }
-      const material = materialMap[String(item.materialId || '')] || {};
+      const material = materialMap[String(item.materialId || '')] || item;
       const unitOptions = createUnitOptions(material, item.unitId, item.unit);
       return {
         ...item,
@@ -544,6 +541,19 @@
 
   function contractMinimum(row: Recordable) {
     return Math.max(0.01, Number(contractItem(row)?.quantity) || 0);
+  }
+
+  function applyContractMinimums() {
+    if (props.mode !== 'plan' || !props.editable) return false;
+    let changed = false;
+    rows.value.forEach((row) => {
+      const item = contractItem(row);
+      if (item && (!Number.isFinite(Number(row.plannedQty)) || Number(row.plannedQty) < Number(item.quantity))) {
+        row.plannedQty = Number(item.quantity);
+        changed = true;
+      }
+    });
+    return changed;
   }
 
   function validateContractRows(data: Recordable[]) {
@@ -751,6 +761,7 @@
     getRows: () => rows.value,
     showLastPage: () => { currentPage.value = Math.max(1, Math.ceil(displayRows.value.length / pageSize.value)); },
     importRows,
+    applyContractMinimums,
     getMaterialIds: () => rows.value.map((item) => String(item.materialId)),
     hydrateSavedQuotationRows,
     reload: load,
@@ -811,32 +822,6 @@
 
       :deep(.ant-table-cell) {
         overflow-wrap: anywhere;
-      }
-    }
-
-    &--quotation {
-      :deep(.ant-pagination) {
-        align-items: center;
-      }
-      :deep(.ant-pagination-options) {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        white-space: nowrap;
-      }
-      :deep(.ant-pagination-options-size-changer.ant-select) {
-        flex: 0 0 100px;
-        width: 100px;
-        margin-inline-end: 0;
-      }
-      :deep(.ant-pagination-options-quick-jumper) {
-        display: inline-flex;
-        align-items: center;
-        white-space: nowrap;
-      }
-      :deep(.ant-pagination-options-quick-jumper input) {
-        flex: 0 0 48px;
-        width: 48px;
       }
     }
 

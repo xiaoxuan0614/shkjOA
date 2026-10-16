@@ -7,6 +7,7 @@ import { h } from 'vue';
 import { Tag } from 'ant-design-vue';
 import { createPasswordLengthRule } from '/@/utils/password';
 import { useMessage } from '/@/hooks/web/useMessage';
+import { userDepartmentOptions } from './userDepartment';
 export const columns: BasicColumn[] = [
   {
     title: '用户账号',
@@ -576,7 +577,7 @@ function updateDepartOption(options, updateSchema) {
     updateSchema([
       {
         field: 'departIds',
-        componentProps: { options },
+        componentProps: { options: userDepartmentOptions(options) },
       },
     ]);
   } else {

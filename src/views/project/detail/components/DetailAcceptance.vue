@@ -187,7 +187,7 @@
               :columns="historyColumns"
               :data-source="historyRows"
               :row-key="(record) => `${record.acceptType}-${record.id}`"
-              :pagination="{ current: historyPage, total: historyTotal, pageSize: 10, showSizeChanger: false }"
+              :pagination="withPagination({ current: historyPage, total: historyTotal, pageSize: 10, showSizeChanger: false })"
               size="small"
             >
               <template #emptyText><a-empty description="暂无历史验收记录" /></template>
@@ -258,6 +258,7 @@
 </template>
 
 <script lang="ts" setup>
+  import { withPagination } from '/@/components/Pagination/config';
   import { computed, nextTick, reactive, ref, watch } from 'vue';
   import dayjs from 'dayjs';
   import { getDictItems } from '/@/api/common/api';

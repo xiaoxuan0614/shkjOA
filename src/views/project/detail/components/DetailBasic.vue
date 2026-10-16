@@ -5,13 +5,13 @@
     </div>
     <a-descriptions :column="2" bordered size="middle">
       <a-descriptions-item label="项目名称"><span class="detail-basic__name">{{ projectDisplayName }}</span></a-descriptions-item>
-      <a-descriptions-item label="项目类型">{{ projectTypeText || project.projectType || '—' }}</a-descriptions-item>
+      <a-descriptions-item label="项目类型"><DictValue code="project_type" :value="project.projectType" :fallback="projectTypeText" /></a-descriptions-item>
       <a-descriptions-item label="甲方名称">{{ project.customerName || '—' }}</a-descriptions-item>
       <a-descriptions-item label="甲方联系人">{{ project.contactPerson || '—' }}</a-descriptions-item>
       <a-descriptions-item label="甲方联系电话">{{ project.contactPhone || '—' }}</a-descriptions-item>
       <a-descriptions-item label="项目对接人">{{ project.projectLiaisonUserName || '—' }}</a-descriptions-item>
-      <a-descriptions-item label="业务属性">{{ businessAttributeText || project.businessAttribute || '—' }}</a-descriptions-item>
-      <a-descriptions-item label="涉及产品">{{ involvedProductsText || project.involvedProducts || '—' }}</a-descriptions-item>
+      <a-descriptions-item label="业务属性"><DictValue code="project_business_attr" :value="project.businessAttribute" :fallback="businessAttributeText" /></a-descriptions-item>
+      <a-descriptions-item label="涉及产品"><DictValue code="project_products" :value="project.involvedProducts" :fallback="involvedProductsText" /></a-descriptions-item>
       <a-descriptions-item label="进度(%)">{{ project.totalProgress ?? '—' }}</a-descriptions-item>
       <a-descriptions-item label="甲方信息">{{ project.customerInfo || '—' }}</a-descriptions-item>
       <a-descriptions-item label="项目地址" :span="2">{{ project.projectAddress || '—' }}</a-descriptions-item>
@@ -34,6 +34,7 @@
 
 <script lang="ts" setup>
   import { computed } from 'vue';
+  import DictValue from '/@/components/DictValue.vue';
   import { previewFileInModal } from '/@/utils/filePreview';
 
   const props = defineProps<{

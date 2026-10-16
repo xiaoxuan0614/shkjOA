@@ -104,7 +104,7 @@
               />
             </template>
             <template v-else-if="column.key === 'plannedHours'">
-              <a-input-number v-model:value="record.plannedHours" :min="0" :precision="1" placeholder="小时" style="width: 100%" />
+              <a-input-number v-model:value="record.plannedHours" :min="0" :precision="2" placeholder="小时" style="width: 100%" />
             </template>
             <template v-else-if="column.key === 'remove'"><a-button danger @click="processRows.splice(index, 1)">移除</a-button></template>
             <template v-else-if="column.key === 'remark'">

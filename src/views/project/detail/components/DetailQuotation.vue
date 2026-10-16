@@ -4,6 +4,7 @@
       <template #action><a-button size="small" @click="reload()">重试</a-button></template>
     </a-alert>
     <BasicTable @register="registerTable">
+      <template #toolbar><a-button v-if="canCreate" type="primary" preIcon="ant-design:plus-outlined" @click="$emit('create')">新增报价</a-button></template>
       <template #action="{ record }">
         <TableAction :actions="[{ label: '查看详情', disabled: !record.id, onClick: () => handleView(record) }]" />
       </template>
@@ -16,6 +17,11 @@
         <template v-else-if="column.dataIndex === 'adopted'">
           <a-tag :color="isQuotationAdopted(record) ? 'success' : 'default'">{{ isQuotationAdopted(record) ? '已采用' : '未采用' }}</a-tag>
         </template>
+        <template v-else-if="column.dataIndex === 'priced'">
+          <a-tag v-if="String(record.priced) === '1'" color="success">已定价</a-tag>
+          <a-tag v-else-if="String(record.priced) === '0'">未定价</a-tag>
+          <span v-else>—</span>
+        </template>
       </template>
     </BasicTable>
   </div>
@@ -26,9 +32,10 @@
   import { useRouter } from 'vue-router';
   import { BasicTable, TableAction, useTable } from '/@/components/Table';
   import { quotationList, isQuotationAdopted } from '/@/views/plan/Plan.api';
-  import { quotationColumns, quotationListStatusMap } from '/@/views/plan/Plan.data';
+  import { quotationListStatusMap } from '/@/views/plan/Plan.data';
 
-  const props = defineProps<{ periodId: string }>();
+  const props = defineProps<{ periodId: string; canCreate?: boolean }>();
+  defineEmits(['create']);
   const router = useRouter();
   function handleView(record: Recordable) {
     if (!record.id || !props.periodId.trim()) return;
@@ -43,6 +50,7 @@
   }
   const loadError = ref('');
   const [registerTable, { reload }] = useTable({
+    showIndexColumn: false,
     title: '报价信息',
     rowKey: 'id',
     actionColumn: { title: '操作', dataIndex: 'action', width: 120, fixed: 'right', slots: { customRender: 'action' } },
@@ -57,10 +65,17 @@
         throw error;
       }
     },
-    columns: quotationColumns.filter((column) => !['projectName', 'periodName'].includes(String(column.dataIndex))),
+    columns: [
+      { title: '报价名称', dataIndex: 'candidateName', ellipsis: true },
+      { title: '审批状态', dataIndex: 'status', width: 100 },
+      { title: '定价状态', dataIndex: 'priced', width: 100 },
+      { title: '采用状态', dataIndex: 'adopted', width: 100 },
+      { title: '创建人', dataIndex: 'createBy', width: 120, customRender: ({ text }) => text || '—' },
+    ],
     useSearchForm: false,
     showTableSetting: false,
     canResize: false,
     pagination: { pageSize: 10 },
   });
+  defineExpose({ reload });
 </script>

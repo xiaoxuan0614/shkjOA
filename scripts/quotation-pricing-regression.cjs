@@ -25,8 +25,8 @@ assert.equal(pricing.quotationApprovalItems([{ id: '1', approvalOpinion: '' }])[
 assert.throws(() => pricing.quotationApprovalItems([]));
 assert.throws(() => pricing.quotationApprovalItems([{ materialId: '1' }]));
 assert.throws(() => pricing.quotationApprovalItems([{ id: '1' }, { id: '1' }]));
-assert.throws(() => pricing.quotationApprovalItems([{ id: '1', approvalOpinion: '字'.repeat(501) }]));
-assert.doesNotThrow(() => pricing.quotationApprovalItems([{ id: '1', approvalOpinion: '字'.repeat(500) }]));
+assert.throws(() => pricing.quotationApprovalItems([{ id: '1', approvalOpinion: '字'.repeat(101) }]));
+assert.doesNotThrow(() => pricing.quotationApprovalItems([{ id: '1', approvalOpinion: '字'.repeat(100) }]));
 assert.doesNotThrow(() => pricing.validateDirectQuotation(0, '0.00'));
 assert.doesNotThrow(() => pricing.validateDirectQuotation('12.34', '12.34'));
 assert.doesNotThrow(() => pricing.validateDirectQuotation('12.34', '12.35'));

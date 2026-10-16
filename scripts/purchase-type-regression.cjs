@@ -8,6 +8,23 @@ function load(path, dependencies = {}) {
   return context.exports;
 }
 const logic = load('src/views/material/purchase/purchaseType.ts');
+const search = load('src/views/material/purchase/Purchase.data.ts', { './purchaseType': logic }).searchFormSchema;
+const filter = search.find((item) => item.field === 'purchaseType');
+assert.equal(search.filter((item) => item.field === 'purchaseType').length, 1);
+assert.equal(filter.component, 'JDictSelectTag');
+assert.equal(filter.componentProps.dictCode, 'purchase_order_type');
+assert.equal(filter.componentProps.type, 'list');
+assert.equal(filter.componentProps.allowClear, true);
+assert.equal(filter.required, undefined);
+assert.equal(filter.defaultValue, undefined);
+const requests = [];
+const api = load('src/views/material/purchase/Purchase.api.ts', { '/@/utils/http/axios': { defHttp: { get: (request) => requests.push(request) } } });
+for (const purchaseType of ['1', '2', undefined]) {
+  const params = { purchaseType, keyword: '项目', pageNo: 2, pageSize: 10 };
+  api.list(params);
+  assert.equal(requests.at(-1).url, '/project/purchaseOrder/list');
+  assert.equal(requests.at(-1).params, params);
+}
 const schema = load('src/views/material/purchase/Purchase.data.ts', { './purchaseType': logic }).purchaseFormSchema;
 const type = schema.find((item) => item.field === 'purchaseType');
 const project = schema.find((item) => item.field === 'periodId');

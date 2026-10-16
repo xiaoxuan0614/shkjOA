@@ -68,6 +68,9 @@
   const selectedParentProjectId = computed(() => String(route.query?.parentProjectId || ''));
   const selectedMainProjectName = ref('');
   const inheritedCustomer = ref<Recordable>();
+  const editIdentity = ref<Recordable>();
+  const identityFields = ['projectId', 'projectName', 'customerId', 'customerName', 'contactPerson', 'contactPhone', 'customerInfo'];
+  const parentLockedFields = ['projectId', 'projectName', 'customerId', 'customerName'];
   const createModeTitle = computed(() => (isPeriodCreate.value ? '已有主项目下新增分期' : '新建主项目'));
 
   // 客户列表(甲方选择带出)
@@ -83,8 +86,8 @@
   const [registerForm, { setFieldsValue, getFieldsValue, resetFields, validate, updateSchema }] = useForm({
     labelWidth: 120,
     schemas: projectFormSchema.map((schema) =>
-      ['projectName', 'customerId', 'contactPerson', 'contactPhone', 'customerInfo'].includes(schema.field)
-        ? { ...schema, dynamicDisabled: () => isPeriodCreate.value } : schema
+      identityFields.includes(schema.field)
+        ? { ...schema, dynamicDisabled: () => (isPeriodCreate.value && parentLockedFields.includes(schema.field)) || (!!editId.value && schema.field === 'projectId') } : schema
     ),
     showActionButtonGroup: false,
     baseColProps: { span: 12 },
@@ -157,9 +160,10 @@
         options: (data || []).map((p) => ({ label: p.projectName, value: p.id })),
         showSearch: true,
         optionFilterProp: 'label',
-        placeholder: '不选则本记录作为主项目',
+        placeholder: editId.value ? '当前所属主项目' : '不选则本记录作为主项目',
         onChange: handleParentChange,
       },
+      helpMessage: editId.value ? '当前编辑接口不支持变更所属主项目；主项目名称和客户信息可修改，可能影响同主项目其他分期。' : undefined,
     });
     if (isPeriodCreate.value) {
       const parent = mainProjectMap[selectedParentProjectId.value];
@@ -175,8 +179,8 @@
         const customerPage = await getCustomerList({ id: String(parent.customerId), pageNo: 1, pageSize: 1 });
         const customer = (customerPage?.records || []).find((item) => String(item.id) === String(parent.customerId));
         if (!customer?.id || String(customer.id) !== String(parent.customerId)) throw new Error('主项目甲方不存在或不可访问');
-        if (!customer.customerName || !customer.contactPerson || !customer.contactPhone) {
-          throw new Error('主项目甲方名称、联系人或电话不完整，请先在客户维护中补齐');
+        if (!customer.customerName) {
+          throw new Error('主项目甲方名称不完整，请先在客户维护中补齐');
         }
         customerMap[customer.id] = customer;
         inheritedCustomer.value = {
@@ -198,6 +202,7 @@
    * 选择所属主项目后, 带出主项目名称(只读)
    */
   async function handleParentChange(id: any) {
+    if (editId.value) return;
     const p = mainProjectMap[id];
     await setFieldsValue({ projectName: p ? p.projectName : '' });
   }
@@ -264,6 +269,7 @@
    */
   async function loadDetail() {
     if (!editId.value) return;
+    editIdentity.value = undefined;
     const data = await projectDetail({ periodId: editId.value });
     const user: any = userStore.getUserInfo;
     const currentUserId = String(user?.id ?? user?.userId ?? '');
@@ -273,6 +279,13 @@
       return;
     }
     const values: Recordable = { ...data };
+    editIdentity.value = Object.fromEntries(identityFields.map(field => [field, data[field]]));
+    if (data.customerId && !customerMap[data.customerId]) customerMap[data.customerId] = { id: data.customerId, customerName: data.customerName };
+    // 当前主项目/客户可能不在下拉列表第一页，仍使用详情名称回显。
+    await updateSchema([
+      { field: 'projectId', componentProps: { options: data.projectId ? [{ value: data.projectId, label: data.projectName || data.projectId }] : [] } },
+      { field: 'customerId', componentProps: { options: Object.values(customerMap).map((customer: any) => ({ value: customer.id, label: customer.customerName || customer.name || customer.id })) } },
+    ]);
     existingAttachmentPath.value = String(data?.attachmentFileId || '');
     attachmentReplacementRequired.value = false;
     attachmentFileList.value = existingAttachmentPath.value
@@ -354,12 +367,21 @@
   async function handleSave() {
     try {
       saving.value = true;
+      if (editId.value) {
+        if (!editIdentity.value) {
+          createMessage.warning('项目基本信息尚未加载完成，请重新打开后再保存');
+          return;
+        }
+      }
       if (isPeriodCreate.value) {
         if (!inheritedCustomer.value) {
           createMessage.warning('甲方信息未完整加载，请先维护主项目关联客户或刷新重试');
           return;
         }
-        await setFieldsValue(inheritedCustomer.value);
+        await setFieldsValue({
+          projectId: selectedParentProjectId.value, projectName: selectedMainProjectName.value,
+          customerId: inheritedCustomer.value.customerId, customerName: inheritedCustomer.value.customerName,
+        });
       }
       const values = await validate();
       if (isPeriodCreate.value && !selectedParentProjectId.value) {
@@ -436,8 +458,8 @@
         if (isPeriodCreate.value) {
           values.projectId = selectedParentProjectId.value;
           values.projectName = selectedMainProjectName.value;
-          for (const field of ['customerId', 'customerName', 'contactPerson', 'contactPhone', 'customerInfo']) delete values[field];
-          Object.assign(values, inheritedCustomer.value || {});
+          values.customerId = inheritedCustomer.value?.customerId;
+          values.customerName = inheritedCustomer.value?.customerName;
         }
         await setFieldsValue(values);
         await updateSchema({ field: 'projectAddress', componentProps: { lng: values.longitude ?? null, lat: values.latitude ?? null } });

@@ -16,7 +16,7 @@
   import { materialIdentity, loadMaterialBrandNames } from '../materialIdentity';
 
   const props = withDefaults(defineProps<{ record: Record<string, any>; source?: 'master' | 'detail'; nameField?: string; secondaryField?: 'materialCode' | 'model' }>(), {
-    source: 'detail', nameField: 'materialName', secondaryField: 'materialCode',
+    source: 'detail', nameField: 'materialName', secondaryField: 'model',
   });
   const brands = ref<Record<string, { text: string }>>({});
   onMounted(async () => { brands.value = await loadMaterialBrandNames(); });

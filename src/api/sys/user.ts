@@ -91,8 +91,13 @@ export function getPermCode() {
   return defHttp.get({ url: Api.GetPermCode });
 }
 
-export function doLogout() {
-  return defHttp.get({ url: Api.Logout }, { errorMessageMode: 'none', successMessageMode: 'none' });
+export async function doLogout(token: string) {
+  // 固定注销旧会话；异步拦截器不能读取稍后登录的新 Token。
+  const response = await defHttp.get(
+    { url: Api.Logout, timeout: 5000, headers: { 'X-Access-Token': token, Authorization: token } },
+    { withToken: false, isTransformResponse: false, errorMessageMode: 'none', successMessageMode: 'none' }
+  );
+  if (response?.success !== true) throw new Error(response?.message || '退出登录失败，请重试');
 }
 
 export function getCodeInfo(currdatetime) {

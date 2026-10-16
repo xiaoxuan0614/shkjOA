@@ -8,7 +8,13 @@ import { propTypes } from '/@/utils/propTypes';
 export const basicProps = {
   clickToRowSelect: propTypes.bool.def(true),
   isTreeTable: propTypes.bool.def(false),
-  tableSetting: propTypes.shape<TableSetting>({}),
+  tableSetting: propTypes.shape<TableSetting>({
+    redo: propTypes.bool,
+    size: propTypes.bool,
+    setting: propTypes.bool,
+    cacheKey: propTypes.string,
+    fullScreen: propTypes.bool,
+  }),
   inset: propTypes.bool,
   sortFn: {
     type: Function as PropType<(sortInfo: SorterResult) => any>,

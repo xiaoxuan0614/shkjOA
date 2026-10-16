@@ -10,24 +10,27 @@
 
     <div v-else class="detail-contract">
       <section class="detail-contract__section" aria-labelledby="contract-main-title">
-        <h3 id="contract-main-title" class="detail-contract__title">合同主信息</h3>
+        <div class="detail-contract__heading">
+          <h3 id="contract-main-title" class="detail-contract__title">合同主信息</h3>
+          <a-button v-if="canEdit" type="primary" preIcon="ant-design:edit-outlined" :disabled="loading || withdrawing" @click="editContract">修改重提</a-button>
+          <a-popconfirm v-if="canWithdraw" title="撤回后可修改合同并重新提交，确认撤回？" ok-text="确认撤回" cancel-text="取消" :disabled="withdrawing || loading" @confirm="withdraw">
+            <a-button danger preIcon="ant-design:rollback-outlined" :loading="withdrawing" :disabled="loading">撤回申请</a-button>
+          </a-popconfirm>
+        </div>
         <a-descriptions :column="{ xs: 1, sm: 1, md: 2, xl: 3 }" bordered size="middle">
           <a-descriptions-item label="合同编号">{{ contract.contractNo || '—' }}</a-descriptions-item>
           <a-descriptions-item label="合同名称">{{ contract.contractName || '—' }}</a-descriptions-item>
-          <a-descriptions-item label="合同类型">{{ contractTypeText }}</a-descriptions-item>
+          <a-descriptions-item label="合同类型"><DictValue code="contract_type" :value="contract.contractType" :fallback="contractTypeText" /></a-descriptions-item>
           <a-descriptions-item label="审批状态">
             <a-tag :color="contractStatusMeta.color">{{ contractStatusMeta.text }}</a-tag>
           </a-descriptions-item>
           <a-descriptions-item label="合同签订日期">{{ contract.contractSignedDate || '—' }}</a-descriptions-item>
           <a-descriptions-item label="计划交付日期">{{ contract.plannedDeliveryDate || '—' }}</a-descriptions-item>
           <a-descriptions-item label="项目金额">{{ formatAmount(contract.contractAmount) }}</a-descriptions-item>
-          <a-descriptions-item label="累计已回款">{{ formatAmount(contract.receivedAmount) }}</a-descriptions-item>
           <a-descriptions-item label="质保期">
             {{ contract.warrantyPeriod != null ? `${contract.warrantyPeriod} 月` : '—' }}
           </a-descriptions-item>
-          <a-descriptions-item label="质保结束日期">{{ contract.warrantyEndDate || '—' }}</a-descriptions-item>
           <a-descriptions-item label="销售负责人">{{ salesUserText }}</a-descriptions-item>
-          <a-descriptions-item label="项目经理">{{ projectManagerText }}</a-descriptions-item>
           <a-descriptions-item label="合同附件" :span="3">
             <a-space v-if="contractAttachments.length" direction="vertical" size="small">
               <a-button
@@ -43,6 +46,12 @@
             </a-space>
             <span v-else>—</span>
           </a-descriptions-item>
+          <a-descriptions-item label="合同清单" :span="3">
+            <a-button v-if="contract.materialSnapshot || contract.materialCandidateId" type="link" :disabled="loading" @click="openQuotationPreview">
+              {{ contract.materialSnapshot?.candidateName || '查看合同清单' }}
+            </a-button>
+            <span v-else>暂无合同清单</span>
+          </a-descriptions-item>
           <a-descriptions-item v-if="contractStatusMeta.rejected" label="驳回原因" :span="3">
             {{ contract.approvalReason || '未填写驳回原因' }}
           </a-descriptions-item>
@@ -57,44 +66,91 @@
           :data-source="paymentRows"
           :row-key="(record) => record.id || record._key"
           :pagination="false"
-          :scroll="{ x: 1000 }"
+          :scroll="{ x: 580 }"
           size="middle"
           bordered
         >
           <template #bodyCell="{ column, record }">
             <template v-if="column.key === 'index'">{{ record._key }}</template>
-            <template v-else-if="column.key === 'paymentNode'">{{ record.paymentNode_dictText || record.node_dictText || getPaymentNodeText(record.paymentNode) }}</template>
+            <template v-else-if="column.key === 'paymentNode'"><DictValue code="payback_node" :value="record.paymentNode" :fallback="record.paymentNode_dictText || record.node_dictText || getPaymentNodeText(record.paymentNode)" /></template>
             <template v-else-if="column.key === 'ratio'">{{ record.ratio != null ? `${record.ratio}%` : '—' }}</template>
             <template v-else-if="column.key === 'rollbackTime'">
               {{ `${record.rollbackTime == null ? 7 : record.rollbackTime} 天` }}
             </template>
             <template v-else-if="column.key === 'plannedAmount'">{{ formatAmount(record.plannedAmount) }}</template>
-            <template v-else-if="column.key === 'actualAmount'">{{ formatAmount(record.actualAmount) }}</template>
-            <template v-else-if="['plannedDate', 'paymentDate', 'remark'].includes(column.dataIndex)">
-              {{ record[column.dataIndex] || '—' }}
-            </template>
           </template>
         </a-table>
       </section>
     </div>
   </a-spin>
+  <a-drawer :open="quotationPreviewOpen" title="合同清单预览（合同快照）" width="min(1400px, 96vw)" @close="quotationPreviewOpen = false">
+    <QuotationSnapshotPreview v-if="quotationPreviewOpen" :quotation="contract.materialSnapshot ?? null" material-only hide-amounts />
+  </a-drawer>
 </template>
 
 <script lang="ts" setup>
   import { expandContractAttachments } from '../../contract/contractAttachments';
-  import { computed, ref, watch } from 'vue';
+  import DictValue from '/@/components/DictValue.vue';
+  import { computed, ref, watch, onDeactivated, onBeforeUnmount } from 'vue';
+  import QuotationSnapshotPreview from '../../contract/QuotationSnapshotPreview.vue';
   import { getContractDetail } from '../ProjectDetail.api';
   import { loadDictOptions } from '../../Project.data';
   import type { UserOption } from '/@/views/resource/userOptions';
   import { previewFileInModal } from '/@/utils/filePreview';
   import { getApprovalStatusMeta } from '/@/utils/approvalStatus';
+  import { useUserStore } from '/@/store/modules/user';
+  import { useMessage } from '/@/hooks/web/useMessage';
+  import { changeContractStatus } from '/@/views/payment/Payment.api';
+  import { refreshTodos } from '/@/views/todo/useTodoCenter';
+  import { canWithdrawDetailContract, canEditDetailContract } from '../contractWithdrawal';
 
   const props = defineProps<{
     projectId: string;
     project?: Recordable;
+    allowWithdraw?: boolean;
   }>();
+  const emit = defineEmits(['changed', 'edit']);
+  const userStore = useUserStore();
+  const { createMessage } = useMessage();
+  const withdrawing = ref(false);
+  const canWithdraw = computed(() => props.allowWithdraw && !loadFailed.value && canWithdrawDetailContract(contract.value, userStore.getUserInfo));
+  const canEdit = computed(() => props.allowWithdraw && !loadFailed.value && canEditDetailContract(contract.value, userStore.getUserInfo));
+  function editContract() {
+    if (!canEdit.value || loading.value || withdrawing.value) return;
+    emit('edit');
+  }
+  async function withdraw() {
+    if (withdrawing.value || loading.value || !canWithdraw.value) return;
+    const periodId = props.projectId, contractId = contract.value.id, request = loadSequence;
+    const token = userStore.getToken;
+    withdrawing.value = true;
+    try {
+      const latest = await getContractDetail({ periodId });
+      if (request !== loadSequence || periodId !== props.projectId || token !== userStore.getToken) return;
+      if (latest?.id !== contractId || !canWithdrawDetailContract(latest, userStore.getUserInfo)) {
+        createMessage.warning('合同状态或提交人已变化，请刷新后查看');
+        await load(); return;
+      }
+      await changeContractStatus({ periodId, status: '3', approvalReason: '' });
+      if (request !== loadSequence || periodId !== props.projectId || token !== userStore.getToken) return;
+      contract.value = { ...contract.value, status: '3' };
+      createMessage.success('合同已撤回，可修改后重新提交');
+      await load();
+      emit('changed');
+      refreshTodos(true).catch(() => createMessage.warning('合同已撤回，待办刷新失败，请稍后刷新'));
+    } catch (error: any) {
+      if (periodId === props.projectId && token === userStore.getToken) createMessage.error(error?.message || '撤回失败，请刷新后重试');
+    } finally { withdrawing.value = false; }
+  }
 
   const loading = ref(false);
+  const quotationPreviewOpen = ref(false);
+  function openQuotationPreview() {
+    if (loading.value || loadFailed.value || !hasContract.value) return;
+    quotationPreviewOpen.value = true;
+  }
+  onDeactivated(() => { quotationPreviewOpen.value = false; });
+  onBeforeUnmount(() => { loadSequence++; quotationPreviewOpen.value = false; });
   const loadFailed = ref(false);
   const contract = ref<Recordable>({});
   const paymentRows = ref<Recordable[]>([]);
@@ -109,7 +165,6 @@
   const contractStatusMeta = computed(() => getApprovalStatusMeta(contract.value.status));
   const contractTypeText = computed(() => mapDictionaryValue(contract.value.contractType, contractTypeMap.value));
   const salesUserText = computed(() => resolveSalesUserText());
-  const projectManagerText = computed(() => resolveUserText(contract.value.projectManagerUserName, contract.value.projectManagerUserId));
 
   const paymentColumns = [
     { title: '序号', key: 'index', width: 60 },
@@ -117,16 +172,19 @@
     { title: '比例', dataIndex: 'ratio', key: 'ratio', width: 100 },
     { title: '回款周期', dataIndex: 'rollbackTime', key: 'rollbackTime', width: 120 },
     { title: '计划回款金额', dataIndex: 'plannedAmount', key: 'plannedAmount', width: 150 },
-    { title: '实际回款金额', dataIndex: 'actualAmount', key: 'actualAmount', width: 150 },
-    { title: '计划回款日期', dataIndex: 'plannedDate', width: 140 },
-    { title: '实际回款日期', dataIndex: 'paymentDate', width: 140 },
-    { title: '备注', dataIndex: 'remark', width: 180 },
   ];
 
   async function load() {
-    const periodId = props.projectId;
-    if (!periodId) return;
+    quotationPreviewOpen.value = false;
     const currentSequence = ++loadSequence;
+    const periodId = props.projectId;
+    if (!periodId) {
+      contract.value = {};
+      paymentRows.value = [];
+      contractAttachments.value = [];
+      loading.value = false;
+      return;
+    }
     loading.value = true;
     loadFailed.value = false;
     try {
@@ -183,13 +241,6 @@
   function mapDictionaryValue(value: unknown, dictionary: Record<string, string>) {
     if (value == null || value === '') return '—';
     return dictionary[String(value)] || String(value);
-  }
-
-  function resolveUserText(snapshot: unknown, userId: unknown) {
-    const name = String(snapshot || '').trim();
-    if (name && name !== '-' && name !== '—') return name;
-    if (userId == null || userId === '') return '—';
-    return userOptions.value.find((item) => String(item.value) === String(userId))?.label || String(userId);
   }
 
   function resolveSalesUserText() {
@@ -255,6 +306,15 @@
 
 <style lang="less" scoped>
   .detail-contract {
+    &__heading {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 12px;
+      .detail-contract__title { margin: 0; }
+    }
     &__section + &__section {
       margin-top: 20px;
     }

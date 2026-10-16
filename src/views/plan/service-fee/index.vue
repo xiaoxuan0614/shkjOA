@@ -1,5 +1,6 @@
 <template>
-  <div class="service-fee-page" :class="{ 'service-fee-page--embedded': embedded }">
+  <div class="service-fee-page" :class="{ 'service-fee-page--embedded': embedded || formOnly }">
+    <template v-if="!formOnly">
     <div class="service-fee-page__toolbar">
       <h2 v-if="!embedded">服务费维护</h2>
       <a-input-search v-model:value="keyword" placeholder="搜索费用名称" aria-label="搜索费用名称" allow-clear :loading="loading" @search="search" />
@@ -8,7 +9,7 @@
     <a-alert v-if="error" type="error" :message="error" show-icon><template #action><a-button size="small" @click="load">重试</a-button></template></a-alert>
     <a-table
 row-key="id" bordered :columns="columns" :data-source="rows" :loading="loading" :scroll="{ x: 900 }"
-      :pagination="{ current: page, pageSize: 10, total, showSizeChanger: false, showTotal: n => `共 ${n} 条` }" @change="changePage">
+      :pagination="withPagination({ current: page, pageSize: 10, total, showSizeChanger: false, showTotal: n => `共 ${n} 条` })" @change="changePage">
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'markupRate'">{{ record.markupRate ?? '—' }}%</template>
         <template v-else-if="column.key === 'guideMarkupRate'">{{ serviceFeeTaxText(record.guideMarkupRate) }}</template>
@@ -23,6 +24,7 @@ row-key="id" bordered :columns="columns" :data-source="rows" :loading="loading" 
         </template>
       </template>
     </a-table>
+    </template>
     <a-modal
 v-model:open="formOpen" :title="formReadonly ? '服务费详情' : form.id ? '编辑服务费' : '新增服务费'" :confirm-loading="saving"
       :footer="formReadonly ? null : undefined" :ok-button-props="{ disabled: formLoading || !!formLoadError }" :mask-closable="!saving" :closable="!saving" @ok="save">
@@ -45,6 +47,7 @@ v-model:open="formOpen" :title="formReadonly ? '服务费详情' : form.id ? '�
   </div>
 </template>
 <script setup lang="ts">
+  import { withPagination } from '/@/components/Pagination/config';
   import { onMounted, onBeforeUnmount, ref, watch } from 'vue';
   import { usePermission } from '/@/hooks/web/usePermission';
   import { useMessage } from '/@/hooks/web/useMessage';
@@ -53,8 +56,8 @@ v-model:open="formOpen" :title="formReadonly ? '服务费详情' : form.id ? '�
   import { decimalPrice, hasPrice } from '../quotationPricing';
   import { initDictOptions } from '/@/utils/dict';
   defineOptions({ name: 'ServiceFeeMaintenance' });
-  defineProps<{ embedded?: boolean }>();
-  const emit = defineEmits<{ busy: [value: boolean] }>();
+  const props = defineProps<{ embedded?: boolean; formOnly?: boolean }>();
+  const emit = defineEmits<{ busy: [value: boolean]; saved: [] }>();
   const { hasPermission } = usePermission();
   const { createMessage } = useMessage();
   const keyword = ref(''), page = ref(1), total = ref(0), loading = ref(false), saving = ref(false), error = ref('');
@@ -123,7 +126,8 @@ v-model:open="formOpen" :title="formReadonly ? '服务费详情' : form.id ? '�
       if (hasPrice(form.value.guideMarkupRate)) payload.guideMarkupRate = Number(decimalPrice(form.value.guideMarkupRate, '报价指导比例', 4));
       saving.value = true;
       await saveServiceFee(payload);
-      formOpen.value = false; createMessage.success('服务费已保存'); await load();
+      formOpen.value = false; createMessage.success('服务费已保存'); emit('saved');
+      if (!props.formOnly) await load();
     } catch (e: any) { formError.value = e?.message || '保存失败，请重试'; }
     finally { saving.value = false; }
   }
@@ -134,7 +138,8 @@ v-model:open="formOpen" :title="formReadonly ? '服务费详情' : form.id ? '�
     catch (e: any) { createMessage.error(e?.message || '删除失败'); }
     finally { saving.value = false; }
   }
-  onMounted(load);
+  defineExpose({ openForm });
+  onMounted(() => { if (!props.formOnly) void load(); });
   onBeforeUnmount(() => { sequence++; formSequence++; });
 </script>
 <style scoped>

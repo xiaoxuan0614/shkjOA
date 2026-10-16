@@ -91,7 +91,7 @@ export function serviceFeeApprovalItems(rows: Record<string, any>[]) {
     if (!itemId || ids.has(itemId)) throw new Error('服务费明细 ID 缺失或重复，请刷新后审批');
     ids.add(itemId);
     const approvalOpinion = row.approvalOpinion ?? '';
-    if (typeof approvalOpinion !== 'string' || approvalOpinion.length > 500) throw new Error('每条服务费的审批意见必须为字符串且不能超过 500 字');
+    if (typeof approvalOpinion !== 'string' || approvalOpinion.length > 100) throw new Error('每条服务费的审批意见必须为字符串且不能超过 100 字');
     return { itemId, approvalOpinion };
   });
 }

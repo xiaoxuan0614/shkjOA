@@ -41,7 +41,7 @@
       >
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'returnQty'">
-            <a-input-number v-model:value="record.returnQty" :min="0" :max="record.shouldReturnQty" placeholder="还料数量" style="width: 100%" />
+            <a-input-number :precision="2" v-model:value="record.returnQty" :min="0" :max="record.shouldReturnQty" placeholder="还料数量" style="width: 100%" />
           </template>
           <template v-else-if="column.key === 'differenceReason'">
             <a-input

@@ -32,7 +32,8 @@
 import { computed, defineExpose, defineProps, nextTick, reactive, ref } from "vue";
 import { useMessage } from '/@/hooks/web/useMessage';
 import { getApiList, getPermissionList, permissionAddFunction } from '../OpenApiAuth.api';
-import { Form, Pagination } from 'ant-design-vue';
+import { Form } from 'ant-design-vue';
+import { BasicPagination as Pagination } from '/@/components/Pagination';
 
 const props = defineProps({
     formDisabled: { type: Boolean, default: false },

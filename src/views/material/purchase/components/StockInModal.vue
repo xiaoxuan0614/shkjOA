@@ -11,7 +11,7 @@
     <a-table :columns="columns" :scroll="{ x: 'max-content' }" :data-source="items" :row-key="(r) => r._key" :pagination="false" size="small" bordered>
       <template #bodyCell="{ column, record: it }">
         <template v-if="column.key === 'inQty'">
-          <a-input-number v-model:value="it.inQty" :min="0" :max="Number(it.remainingQty)" :disabled="submitting || Number(it.remainingQty) === 0" placeholder="实际入库数" style="width: 100%" />
+          <a-input-number :precision="2" v-model:value="it.inQty" :min="0" :max="Number(it.remainingQty)" :disabled="submitting || Number(it.remainingQty) === 0" placeholder="实际入库数" style="width: 100%" />
         </template>
       </template>
     </a-table>

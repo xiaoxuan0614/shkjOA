@@ -9,7 +9,7 @@
       :data-source="rows"
       row-key="id"
       :loading="loading"
-      :pagination="{ current: page, pageSize: 10, total, showSizeChanger: false }"
+      :pagination="withPagination({ current: page, pageSize: 10, total, showSizeChanger: false })"
       @change="
         (p) => {
           page = p.current || 1;
@@ -28,6 +28,7 @@
   </a-drawer>
 </template>
 <script setup lang="ts">
+  import { withPagination } from '/@/components/Pagination/config';
   import { ref, watch, onBeforeUnmount } from 'vue';
   import { instanceRounds } from '../Workflow.api';
   import type { WorkflowInstance } from '../workflow.types';

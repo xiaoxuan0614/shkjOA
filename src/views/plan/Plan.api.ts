@@ -102,10 +102,11 @@ export const quotationPeriodGroupPage = (params: Recordable = {}) =>
     params: { pageNo: params.pageNo || 1, pageSize: params.pageSize || 10, ...quotationFilters(params) },
   });
 export const getAllMaterialCandidates = (periodId: string) => fetchAllPages(getMaterialCandidateList, { periodId });
-export const getAllMaterialCandidateItems = async (candidateId: string, onServiceFees?: (rows: Recordable[]) => void) => {
+export const getAllMaterialCandidateItems = async (candidateId: string, onServiceFees?: (rows: Recordable[]) => void, firstPage?: Recordable) => {
   let serviceFees: Recordable[] | undefined;
   const records = await fetchAllPages(async (params) => {
-    const result = await getMaterialCandidateItemList(params);
+    const result = params.pageNo === 1 && firstPage && String(firstPage.candidate?.id) === String(candidateId)
+      ? firstPage : await getMaterialCandidateItemList(params);
     if (params.pageNo === 1 && onServiceFees) {
       if (!Array.isArray(result?.serviceFees)) throw new Error('报价服务费数据缺失，请确认后端已更新后刷新，避免覆盖原数据');
       serviceFees = result.serviceFees;
@@ -150,11 +151,18 @@ export const getQuotationGrants = (periodId: string) => defHttp.get({ url: `${ca
 export const saveQuotationGrant = (params: Recordable) =>
   defHttp.post({ url: `${candidateBase}/grant`, params: { ...params, version: quotationVersion(params.version) } }, quietCandidate);
 export const getQuotationHistory = (params: Recordable) => defHttp.get({ url: `${candidateBase}/history`, params }, quietCandidate);
-export async function getCandidateRecord(periodId: string, candidateId: string) {
-  const records = await getAllMaterialCandidates(periodId);
-  const record = records.find((item: any) => String(item.id) === String(candidateId));
-  if (!record) throw new Error('未找到报价单，请返回列表刷新');
+export async function getCandidateRecord(periodId: string, candidateId: string, onFirstPage?: (page: Recordable) => void) {
+  const page = await getMaterialCandidateItemList({ candidateId, pageNo: 1, pageSize: 1000 });
+  const record = page?.candidate;
+  if (!record || String(record.id) !== String(candidateId) || String(record.periodId) !== String(periodId)) {
+    throw new Error('报价主单信息缺失或不匹配，请确认后端已更新后刷新');
+  }
   quotationVersion(record.version);
+  if (!['-1', '0', '1', '2', '4'].includes(String(record.status))
+    || !['0', '1'].includes(String(record.adopted)) || !['0', '1'].includes(String(record.priced))) {
+    throw new Error('报价状态信息不完整，请刷新后重试');
+  }
+  onFirstPage?.(page);
   return record;
 }
 export function candidateAction(action: 'submit' | 'approve' | 'withdraw' | 'void' | 'price', record: Recordable, fields: Recordable = {}) {

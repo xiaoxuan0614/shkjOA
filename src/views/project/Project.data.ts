@@ -248,6 +248,12 @@ export const columns: BasicColumn[] = [
     dataIndex: 'status',
     customRender: ({ text }) => text || '—',
   },
+    {
+    title: '报价状态',
+    dataIndex: 'priced',
+    align: 'center',
+    width: 100,
+  },
   {
     title: '到货状态',
     align: 'center',
@@ -362,8 +368,6 @@ export const projectFormSchema: FormSchema[] = [
     field: 'periodName',
     component: 'Input',
     componentProps: { placeholder: '请输入分期名称（如：一期工程）' },
-    // 项目创建完成后(id 存在)不可修改分期名称
-    dynamicDisabled: ({ model }) => !!model.id,
     dynamicRules: () => [{ required: true, message: '请输入分期名称!' }],
   },
   {

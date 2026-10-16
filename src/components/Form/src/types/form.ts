@@ -49,6 +49,8 @@ export type RegisterFn = (formInstance: FormActionType) => void;
 export type UseFormReturnType = [RegisterFn, FormActionType];
 
 export interface FormProps {
+  /** 禁止回填、字段变化和规则变化自动校验；仍支持显式 validate。 */
+  validateOnSubmitOnly?: boolean;
   layout?: 'vertical' | 'inline' | 'horizontal';
   // Form value
   model?: Recordable;

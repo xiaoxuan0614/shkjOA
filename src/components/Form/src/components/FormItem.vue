@@ -343,7 +343,7 @@
             props.setFormModel(field, value);
             // 代码逻辑说明: 【TV360X-1511】blur不生效
             const findItem = getRules().find((item) => item?.trigger === 'blur');
-            if (!findItem) {
+            if (!findItem && !props.formProps.validateOnSubmitOnly) {
               // 代码逻辑说明: 【TV360X-341】有值之后必填校验不消失
               props.validateFields([field]).catch((_) => {});
             }
@@ -474,6 +474,7 @@
               colon={colon}
               class={{ 'suffix-item': showSuffix, 'suffix-compact': showSuffix && suffixCompact }}
               {...(getItemProps as Recordable)}
+              {...(props.formProps.validateOnSubmitOnly ? { validateTrigger: [] } : {})}
               label={renderLabelHelpMessage()}
               rules={handleRules()}
               // 代码逻辑说明: 【issues/1244】标识了必填，但是必填标识没显示

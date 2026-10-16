@@ -3,7 +3,7 @@
     <a-table :columns="columns" :scroll="{ x: 'max-content' }" :data-source="materials" :pagination="false" size="middle" bordered>
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'purchaseStatus'">
-          {{ purchaseStatusMap[String(record.purchaseStatus)] || record.purchaseStatus || '—' }}
+          <DictValue :value="record.purchaseStatus" :options="purchaseStatusOptions" />
         </template>
       </template>
     </a-table>
@@ -13,6 +13,7 @@
 <script lang="ts" setup>
   import { unifyMaterialColumns } from '/@/views/material/materialTableColumns';
   import { ref, watch } from 'vue';
+  import DictValue from '/@/components/DictValue.vue';
   import { getMaterials } from '../ProjectDetail.api';
   import { loadDictOptions } from '../../Project.data';
   import { enrichMaterialInfo, loadMaterialMap } from '/@/views/material/material.util';
@@ -22,7 +23,7 @@
   }>();
 
   const materials = ref<any[]>([]);
-  const purchaseStatusMap = ref<Record<string, string>>({});
+  const purchaseStatusOptions = ref<any[]>([]);
   const purchaseStatusFallback = [
     { value: '0', label: '关闭' },
     { value: '1', label: '待采购' },
@@ -53,7 +54,7 @@
     ]);
     const list = res?.records || res || [];
     materials.value = enrichMaterialInfo(list || [], materialMap);
-    purchaseStatusMap.value = Object.fromEntries(options.map((item: any) => [String(item.value), item.label]));
+    purchaseStatusOptions.value = options;
   }
 
   watch(

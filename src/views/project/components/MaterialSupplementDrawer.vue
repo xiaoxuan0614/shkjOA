@@ -152,6 +152,9 @@
   import { enrichMaterialInfo, getCurrentUser, loadDictMap, loadMaterialMap } from '/@/views/material/material.util';
   import MaterialPlanTable from '/@/views/plan/components/MaterialPlanTable.vue';
   import DetailMaterial from '../detail/components/DetailMaterial.vue';
+  import { readProjectMembership } from '../projectMembership';
+  import { canApplySupplement } from '../detail/periodOperations';
+  import { projectDetail } from '../Project.api';
   import {
     addProjectMaterialApplies,
     approveProjectMaterialApply,
@@ -185,6 +188,19 @@
   const projectName = ref('');
   const periodName = ref('');
   const allowCreate = ref(false);
+  let createAccessSequence = 0;
+  async function checkCreateAccess() {
+    const sequence = ++createAccessSequence;
+    const id = periodId.value, userId = currentUserId.value;
+    allowCreate.value = false;
+    if (!id || !userId) return false;
+    try {
+      const [project, membership] = await Promise.all([projectDetail({ periodId: id }, true), readProjectMembership(id, userId)]);
+      if (sequence !== createAccessSequence || id !== periodId.value || userId !== currentUserId.value) return false;
+      allowCreate.value = String(project?.periodId) === id && canApplySupplement(project.status, membership.manager);
+    } catch { if (sequence === createAccessSequence) createMessage.warning('补料申请资格读取失败，请重新打开重试'); }
+    return sequence === createAccessSequence && id === periodId.value && userId === currentUserId.value && allowCreate.value;
+  }
   const creating = ref(false);
   const activeTab = ref<SupplementTab>('mine');
   const planRecords = ref<Recordable[]>([]);
@@ -270,10 +286,10 @@
     periodName.value = data?.periodName || record.periodName || '';
     targetBizId.value = String(data?.targetBizId || record.bizId || '');
     targetOnly.value = Boolean(data?.targetOnly && targetBizId.value);
-    allowCreate.value = data?.allowCreate ?? ['IMPLEMENTING', 'DEBUGGING', 'DEBUG_COMPLETED'].includes(String(record.status || ''));
+    allowCreate.value = false;
     const requestedTab = String(data?.initialTab || (targetBizId.value ? 'pending' : 'mine')) as SupplementTab;
     activeTab.value = canApprove.value && ['pending', 'history'].includes(requestedTab) ? requestedTab : 'mine';
-    creating.value = Boolean(data?.initialCreate && allowCreate.value);
+    creating.value = false;
     supplementReason.value = '';
     previewPeriodId.value = '';
     planRecords.value = [];
@@ -286,6 +302,9 @@
       createMessage.error('缺少项目分期 ID，无法加载补料管理');
       return;
     }
+    // 入口参数只能收紧权限，不能授予申请资格；待办只读/审批入口不额外探测。
+    if (data?.allowCreate !== false && !targetOnly.value) await checkCreateAccess();
+    creating.value = Boolean(data?.initialCreate && allowCreate.value);
     await Promise.all([loadOrders(), loadBrandMap(), allowCreate.value ? loadPlanRecords() : Promise.resolve()]);
     if (targetBizId.value && (canApprove.value || targetOnly.value)) await locateTargetOrder();
   });
@@ -406,7 +425,8 @@
     selectedOrderKeys.value = [];
   }
 
-  function startCreate() {
+  async function startCreate() {
+    if (!(await checkCreateAccess())) { createMessage.warning('仅当前分期已接受的项目经理可在实施阶段申请补料'); return; }
     creating.value = true;
     supplementReason.value = '';
     supplementRef.value?.reset?.();
@@ -428,6 +448,7 @@
   }
 
   async function handleSubmit() {
+    if (submitting.value) return;
     let records: Recordable[] = [];
     try {
       records = supplementRef.value?.getData?.() || [];
@@ -447,6 +468,7 @@
     const planIdMap = new Map(planRecords.value.map((item: Recordable) => [String(item.materialId), item.id]));
     submitting.value = true;
     try {
+      if (!(await checkCreateAccess())) { createMessage.warning('当前项目状态或经理资格已变化，不能提交补料申请'); return; }
       await addProjectMaterialApplies({
         apply: { periodId: periodId.value, applyReason: reason },
         items: records.map((item: Recordable) => ({

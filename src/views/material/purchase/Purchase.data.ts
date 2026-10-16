@@ -11,6 +11,7 @@ import { isProjectPurchase } from './purchaseType';
 /** 采购订单列表列 */
 export const purchaseColumns: BasicColumn[] = [
   { title: '采购单号', align: 'center', dataIndex: 'orderNo', width: 160 },
+  { title: '采购类型', align: 'center', dataIndex: 'purchaseType', width: 120 },
   { title: '供应商', align: 'center', dataIndex: 'supplierName', width: 160 },
   { title: '项目名称', align: 'center', dataIndex: 'projectName', width: 240, customRender: ({ record }) => projectDisplayName(record) },
   { title: '下单日期', align: 'center', dataIndex: 'orderDate', width: 110 },
@@ -22,10 +23,16 @@ export const purchaseColumns: BasicColumn[] = [
 
 /**
  * 采购订单列表搜索表单
- * orderNo 采购单号 / supplierName 供应商 / keyword 项目名称模糊查询 / status 状态
+ * orderNo 采购单号 / purchaseType 采购类型 / supplierName 供应商 / keyword 项目名称模糊查询 / status 状态
  * 供应商下拉选项由页面注入；项目名称直接由列表接口分页前筛选。
  */
 export const searchFormSchema: FormSchema[] = [
+  {
+    label: '采购类型',
+    field: 'purchaseType',
+    component: 'JDictSelectTag',
+    componentProps: { dictCode: 'purchase_order_type', type: 'list', placeholder: '请选择采购类型', allowClear: true },
+  },
   {
     label: '采购单号',
     field: 'orderNo',

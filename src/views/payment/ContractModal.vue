@@ -37,7 +37,7 @@
               />
             </template>
             <template v-else-if="column.key === 'amount'">
-              <a-input-number v-model:value="record.amount" :min="0" placeholder="计划回款金额" style="width: 100%" />
+              <a-input-number :precision="2" v-model:value="record.amount" :min="0" placeholder="计划回款金额" style="width: 100%" />
             </template>
             <template v-else-if="column.key === 'planDate'">
               <a-date-picker v-model:value="record.planDate" valueFormat="YYYY-MM-DD" placeholder="计划回款日期" style="width: 100%" />
@@ -90,7 +90,7 @@
         label: '合同金额',
         field: 'contractAmount',
         component: 'InputNumber',
-        componentProps: { placeholder: '请输入合同金额', min: 0, style: { width: '100%' } },
+        componentProps: { precision: 2, placeholder: '请输入合同金额', min: 0, style: { width: '100%' } },
         dynamicRules: () => [{ required: true, message: '请输入合同金额!' }],
       },
       {

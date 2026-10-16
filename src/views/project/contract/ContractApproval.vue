@@ -16,7 +16,7 @@
         <a-card title="合同信息">
           <a-descriptions bordered size="middle" :column="{ xs: 1, sm: 1, md: 2 }">
             <a-descriptions-item label="审批状态"><a-tag>{{ statusLabels[instance.status] || instance.status }}</a-tag></a-descriptions-item>
-            <a-descriptions-item v-for="key in contractFields.filter(hasField)" :key="key" :label="labels[key]">{{ displayField(key) }}</a-descriptions-item>
+            <a-descriptions-item v-for="key in contractFields.filter(hasField)" :key="key" :label="labels[key]"><DictValue v-if="key === 'contractType'" code="contract_type" :value="snapshot[key]" /><template v-else>{{ displayField(key) }}</template></a-descriptions-item>
             <a-descriptions-item v-for="key in attachments.filter(hasField)" :key="key" :label="labels[key]" :span="2">
               <a-space v-if="files(key).length" direction="vertical">
                 <a-space v-for="file in files(key)" :key="file.id" wrap>
@@ -25,7 +25,7 @@
                 </a-space>
               </a-space><span v-else>—</span>
             </a-descriptions-item>
-            <a-descriptions-item v-if="hasField('quotation')" label="关联报价单" :span="2"><a-button v-if="snapshot.quotation" @click="quotationOpen = true">{{ snapshot.quotation.candidateName || '查看报价详情' }}</a-button><span v-else>未关联报价单</span></a-descriptions-item>
+            <a-descriptions-item v-if="hasField('quotation')" label="合同清单" :span="2"><a-button v-if="snapshot.quotation" @click="quotationOpen = true">{{ snapshot.quotation.candidateName || '查看合同清单' }}</a-button><span v-else>暂无合同清单</span></a-descriptions-item>
             <a-descriptions-item v-if="hasField('remark')" label="备注" :span="2">{{ snapshot.remark || '—' }}</a-descriptions-item>
           </a-descriptions>
           <template v-if="hasField('paymentPlan')">
@@ -54,11 +54,12 @@
     <a-drawer :open="recordsOpen" title="审批记录" width="min(640px, 96vw)" @close="recordsOpen = false">
       <template v-if="instance"><a-descriptions :column="1" bordered size="small"><a-descriptions-item label="审批流程">{{ instance.processName || '未命名流程' }}</a-descriptions-item><a-descriptions-item label="流程版本">V{{ instance.version }}</a-descriptions-item></a-descriptions><ApprovalProgress :instance="instance" /></template>
     </a-drawer>
-    <a-drawer :open="quotationOpen" title="关联报价单预览（本轮送审快照）" width="min(1400px, 96vw)" @close="quotationOpen = false"><QuotationSnapshotPreview v-if="quotationOpen" :quotation="snapshot.quotation" /></a-drawer>
+    <a-drawer :open="quotationOpen" title="合同清单预览（本轮送审快照）" width="min(1400px, 96vw)" @close="quotationOpen = false"><QuotationSnapshotPreview v-if="quotationOpen" :quotation="snapshot.quotation" hide-amounts /></a-drawer>
   </div>
 </template>
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, h, onBeforeUnmount, ref, watch } from 'vue';
+import DictValue from '/@/components/DictValue.vue';
 import { instanceDetail, instanceActions, handleInstance } from '/@/views/workflow/Workflow.api';
 import type { WorkflowInstance, InstanceActions } from '/@/views/workflow/workflow.types';
 import { newId, newUUID, statusLabels } from '/@/views/workflow/workflow';
@@ -107,7 +108,7 @@ async function withdraw() {
 let generation = 0;
 const recordsOpen = ref(false), quotationOpen = ref(false);
 const attachments = ['contractAttachments'];
-const labels: Record<string,string> = { contractNo:'合同编号',contractName:'合同名称',contractType:'合同类型',periodId:'分期编号',contractSignedDate:'签订日期',plannedDeliveryDate:'计划交付日期',remark:'备注',salesUserId:'销售负责人编号',salesUserName:'销售负责人',contractAmount:'项目金额',warrantyPeriod:'质保期',projectContext:'项目基本信息（送审时）',quotation:'关联报价单（送审时）',paymentPlan:'回款计划',contractAttachments:'合同附件',materialAttachments:'物料附件' };
+const labels: Record<string,string> = { contractNo:'合同编号',contractName:'合同名称',contractType:'合同类型',periodId:'分期编号',contractSignedDate:'签订日期',plannedDeliveryDate:'计划交付日期',remark:'备注',salesUserId:'销售负责人编号',salesUserName:'销售负责人',contractAmount:'项目金额',warrantyPeriod:'质保期',projectContext:'项目基本信息（送审时）',quotation:'合同清单（送审时）',paymentPlan:'回款计划',contractAttachments:'合同附件',materialAttachments:'物料附件' };
 const snapshot = computed(() => contractSubmittedSnapshot(business.value, instance.value?.snapshot));
 const contractFields = ['contractType', 'contractNo', 'contractName', 'contractSignedDate', 'plannedDeliveryDate', 'contractAmount', 'warrantyPeriod', 'salesUserName'];
 const hasField = (key: string) => Object.prototype.hasOwnProperty.call(snapshot.value, key);
@@ -124,7 +125,7 @@ function dictText(code: string, value: unknown) {
 }
 const paymentColumns = [
   { title: '序号', key: 'index', width: 70, customRender: ({ index }) => index + 1 },
-  { title: '回款项', dataIndex: 'paymentNode', customRender: ({ text }) => dictText('payback_node', text) },
+  { title: '回款项', dataIndex: 'paymentNode', customRender: ({ text }) => h(DictValue, { code: 'payback_node', value: text }) },
   { title: '比例(%)', dataIndex: 'ratio' },
   { title: '回款周期', dataIndex: 'rollbackTime', customRender: ({ text }) => text == null ? '—' : `${text} 天` },
   { title: '回款金额', dataIndex: 'plannedAmount', customRender: ({ text }) => text == null ? '—' : `${text} 元` },

@@ -2,7 +2,7 @@
   <div class="project-plan-material">
     <div v-if="editable" class="project-plan-material__toolbar">
       <a-button preIcon="ant-design:import-outlined" @click="openImportModal">导入清单</a-button>
-      <span>首次自动带入合同已采用报价，合同物料不可删除、数量只能在合同量上增加；可追加物料；保存本页后生效。</span>
+      <span>首次自动带入合同清单及数量，合同物料不可删除、数量不得低于合同量；可追加物料；保存本页后生效。</span>
     </div>
     <a-alert
       v-if="hasContractDraft"
@@ -51,7 +51,8 @@
   import { useMessage } from '/@/hooks/web/useMessage';
   import { loadMaterialMap } from '/@/views/material/material.util';
   import MaterialPlanTable from '/@/views/plan/components/MaterialPlanTable.vue';
-  import { getAllMaterialCandidates, getAllMaterialCandidateItems, isQuotationAdopted } from '/@/views/plan/Plan.api';
+  import { contractDetailByPeriodId } from '/@/views/payment/Payment.api';
+  import { contractMaterialBaseline } from './contractMaterialBaseline';
   import { parseMaterialPlanExcel } from '/@/views/plan/materialExcel';
 
   const props = defineProps<{
@@ -67,7 +68,7 @@
   const importModalOpen = ref(false);
   const uploadFile = ref<File>();
   const uploadFileList = ref<any[]>([]);
-  const importing = ref(false);
+  const importing = ref(!!props.editable);
   let initializationAttempted = false;
   const initializationFailed = ref(false);
 
@@ -75,30 +76,34 @@
     hasContractDraft.value = count > 0;
     if (!importing.value) emit('persisted-change', count > 0);
     await nextTick();
-    if (!initializationAttempted && props.editable && props.periodId) void initializeFromAdoptedQuotation();
+    if (!initializationAttempted && props.editable && props.periodId) void initializeFromContract();
   }
 
-  async function initializeFromAdoptedQuotation() {
+  async function initializeFromContract() {
     initializationAttempted = true;
     importing.value = true;
     initializationFailed.value = false;
     const periodId = props.periodId!;
     try {
-      const candidates = await getAllMaterialCandidates(periodId);
+      const contract = await contractDetailByPeriodId(periodId);
       if (periodId !== props.periodId) return;
-      const adopted = candidates.filter((item) => isQuotationAdopted(item));
-      if (adopted.length > 1) throw new Error('当前分期存在多张已采用报价，无法自动带入');
-      if (!adopted.length) return;
-      const items = await getAllMaterialCandidateItems(String(adopted[0].id));
-      if (periodId !== props.periodId) return;
-      if (!items.length) throw new Error('已采用报价没有物料明细，请核对报价');
+      const items = contractMaterialBaseline(contract?.materialSnapshot);
       contractItems.value = items;
+      await nextTick();
+      if (periodId !== props.periodId) return;
+      const raised = tableRef.value?.applyContractMinimums?.() || false;
+      if (raised) emit('persisted-change', false);
       // 已有计划也必须识别合同来源；缺失的合同物料重新补入，不覆盖已有数量。
       const existingIds = tableRef.value?.getMaterialIds?.() || [];
       const missingItems = items.filter((item) => !existingIds.includes(String(item.materialId)));
-      if (!missingItems.length) return;
+      if (!missingItems.length) {
+        emit('persisted-change', !raised && existingIds.length > 0);
+        return;
+      }
       await tableRef.value?.importRows(
         missingItems.map((item) => ({
+          ...item,
+          id: undefined,
           materialId: item.materialId,
           unitId: item.unitId,
           unit: item.unit,
@@ -108,10 +113,11 @@
       );
       emit('persisted-change', false);
     } catch (error: any) {
+      if (periodId !== props.periodId) return;
       initializationFailed.value = true;
-      createMessage.error(error?.message || '报价物料自动带入失败，请刷新重试');
+      createMessage.error(error?.message || '合同清单自动带入失败，请刷新重试');
     } finally {
-      importing.value = false;
+      if (periodId === props.periodId) importing.value = false;
     }
   }
 
@@ -174,11 +180,21 @@
   }
 
   watch(
+    () => props.editable,
+    (editable) => {
+      if (editable && !initializationAttempted && props.periodId && tableRef.value?.getSubmissionState?.().loaded) {
+        void initializeFromContract();
+      }
+    }
+  );
+
+  watch(
     () => props.periodId,
     () => {
       contractItems.value = [];
       initializationAttempted = false;
       initializationFailed.value = false;
+      importing.value = !!props.editable;
     }
   );
 
@@ -201,7 +217,7 @@
 
   defineExpose({
     getData: () => {
-      if (importing.value || initializationFailed.value) throw new Error('报价物料尚未成功带入，请刷新重试');
+      if (importing.value || initializationFailed.value) throw new Error('合同清单尚未成功带入，请刷新重试');
       return tableRef.value?.getData?.() || [];
     },
     reload: () => tableRef.value?.reload?.(),

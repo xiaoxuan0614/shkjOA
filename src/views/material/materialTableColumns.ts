@@ -5,7 +5,7 @@ import MaterialIdentityCell from './components/MaterialIdentityCell.vue';
 export function unifyMaterialColumns<T extends Record<string, any>>(
   columns: T[], options: { source?: 'master' | 'detail'; nameField?: string; secondaryField?: 'materialCode' | 'model' } = {},
 ): T[] {
-  const identityKeys = new Set(['material', 'materialIdentity', 'materialName', 'materialCode', 'brand', options.nameField || 'materialName']);
+  const identityKeys = new Set(['material', 'materialIdentity', 'materialName', 'materialCode', 'brand', 'model', 'materialCategory', options.nameField || 'materialName']);
   const remaining = columns.filter((column) => !identityKeys.has(String(column.key || column.dataIndex || '')));
   const identity = {
     title: '物料', key: 'unifiedMaterial', width: 220, fixed: 'left', align: 'left',

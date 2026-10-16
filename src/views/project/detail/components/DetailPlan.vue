@@ -14,7 +14,7 @@
           <span v-else>—</span>
         </template>
         <template v-else-if="column.key === 'planType'">
-          {{ planTypeMap[String(record.planType)] || record.planType || '—' }}
+          <DictValue :value="record.planType" :options="planTypeOptions" />
         </template>
       </template>
     </a-table>
@@ -23,6 +23,7 @@
 
 <script lang="ts" setup>
   import { ref, watch } from 'vue';
+  import DictValue from '/@/components/DictValue.vue';
   import { getPlan } from '../ProjectDetail.api';
   import { previewFileInModal } from '/@/utils/filePreview';
   import { loadDictOptions } from '../../Project.data';
@@ -32,7 +33,7 @@
   }>();
 
   const plans = ref<any[]>([]);
-  const planTypeMap = ref<Record<string, string>>({});
+  const planTypeOptions = ref<any[]>([]);
 
   // 后端 project_plan 字段: planName/planType/planFileId/planStartTime/planEndTime/plannedTotalHours/status/remark
   const columns = [
@@ -49,7 +50,7 @@
     const [res, options]: any[] = await Promise.all([getPlan({ periodId: props.projectId, pageNo: 1, pageSize: 100 }), loadDictOptions('plan_type')]);
     const list = res?.records || res || [];
     plans.value = list || [];
-    planTypeMap.value = Object.fromEntries(options.map((item: any) => [String(item.value), item.label]));
+    planTypeOptions.value = options;
   }
 
   watch(

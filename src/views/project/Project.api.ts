@@ -2,7 +2,6 @@ import { uploadDocument, uploadProjectDocument } from '/@/utils/documentUpload';
 import { defHttp } from '/@/utils/http/axios';
 import { ContentTypeEnum } from '/@/enums/httpEnum';
 import { normalizeProjectListParams } from './projectListFilters';
-import { useUserStoreWithOut } from '/@/store/modules/user';
 
 /** 列表按钮身份：一次读取当前账号已接受的分期参与记录，不逐行查询成员。 */
 export const getCurrentParticipatedProjects = () => defHttp.get({ url: '/project/member/participatedProjects' });
@@ -47,9 +46,9 @@ enum Api {
  * @param params 搜索条件 + 分页
  */
 export const projectList = async (params) => {
-  const username = String(useUserStoreWithOut().getUserInfo?.username ?? '').trim();
-  if (!username) throw new Error('登录用户名缺失，请重新登录后查询项目');
-  return defHttp.get({ url: Api.list, params: { ...normalizeProjectListParams(params), username } });
+  const query = normalizeProjectListParams(params);
+  delete query.username;
+  return defHttp.get({ url: Api.list, params: query });
 };
 
 /**

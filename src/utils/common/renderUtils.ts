@@ -55,7 +55,7 @@ const render = {
       color = obj[0].color;
     }
     //【jeecgboot-vue3/issues/903】render.renderDict使用tag渲染报警告问题 #903
-    return isEmpty(text) || !renderTag ? h('span', text) : h(Tag,{ color }, () => text);
+    return isEmpty(text) || (!renderTag && !color) ? h('span', text) : h(Tag,{ color }, () => text);
   },
   /**
    * 渲染图片
@@ -131,7 +131,7 @@ const render = {
       text = obj[0].label;
       color = obj[0].color;
     }
-    return isEmpty(text) || !renderTag ? h('span', text) : h(Tag, { color }, () => text);
+    return isEmpty(text) || (!renderTag && !color) ? h('span', text) : h(Tag, { color }, () => text);
   },
   /**
    * 渲染富文本

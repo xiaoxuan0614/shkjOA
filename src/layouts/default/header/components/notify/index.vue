@@ -4,7 +4,7 @@
       v-if="notificationsEnabled"
       class="notification-bell"
       type="button"
-      :aria-label="countError ? '通知未读数加载失败，点击重试' : '站内通知，未读 ' + messageCount + ' 条'"
+      :aria-label="countError ? '通知未读数加载失败' : '站内通知，未读 ' + messageCount + ' 条'"
       @click="showNotifications"
     >
       <Badge class="notification-badge" size="small" :count="messageCount" :overflow-count="99" :offset="[3, -2]"><BellOutlined /></Badge>
@@ -16,8 +16,7 @@
       ref="center"
       :unread="messageCount"
       @updated="loadCount"
-      @count="setCount"
-      @read="onRead"
+      @read="loadCount"
     />
     <ChangePasswordModal @register="changePwdModal" />
   </div>
@@ -38,7 +37,7 @@
   import { defHttp } from '/@/utils/http/axios';
   import ChangePasswordModal from './ChangePasswordModal.vue';
   import NotificationCenter from './NotificationCenter.vue';
-  import { notificationPage } from './notification.api';
+  import { notificationUnreadCount } from './notification.api';
   import { isSessionExiting, onSessionEnd } from '/@/utils/http/axios/sessionRequests';
 
   const { prefixCls } = useDesign('header-notify');
@@ -51,18 +50,7 @@
   const [changePwdModal, { openModal: openPwdModal }] = useModal();
   let countVersion = 0;
   let refreshTimer: ReturnType<typeof setTimeout> | undefined;
-  function setCount(count: number) {
-    countVersion++;
-    messageCount.value = Math.max(0, count);
-    countError.value = false;
-  }
-  function onRead() {
-    countVersion++;
-    messageCount.value = Math.max(0, messageCount.value - 1);
-  }
   function showNotifications() {
-    clearTimeout(refreshTimer);
-    countVersion++;
     center.value?.show();
   }
   const stopSessionListener = onSessionEnd(() => {
@@ -74,9 +62,9 @@
     if (isSessionExiting() || !notificationsEnabled || !getToken() || !userStore.getUserInfo.id) return;
     const version = ++countVersion;
     try {
-      const data = await notificationPage({ pageNo: 1, pageSize: 1, readFlag: 0 });
+      const data = await notificationUnreadCount();
       if (version !== countVersion) return;
-      messageCount.value = Number(data.total) || 0;
+      messageCount.value = Math.max(0, Number(data.count) || 0);
       countError.value = false;
     } catch {
       if (version === countVersion) countError.value = true;
@@ -87,27 +75,27 @@
     clearTimeout(refreshTimer);
     refreshTimer = setTimeout(() => {
       if (isSessionExiting() || !getToken()) return;
-      if (!center.value?.refreshList()) void loadCount();
+      center.value?.refreshList();
+      void loadCount();
     }, 300);
   }
   function onMessage(data: any) {
     if (data.cmd === 'topic' || data.cmd === 'user') refresh();
   }
-  function onVisibility() {
-    if (document.visibilityState === 'visible') refresh();
-  }
   function connectNotifications() {
-    useMyWebSocket()?.close();
     const token = getToken();
     const userId = userStore.getUserInfo.id;
     if (!isSessionExiting() && token && userId && glob.domainUrl) {
       connectWebSocket(notificationWebSocketUrl(glob.domainUrl, userId), refresh);
+    } else {
+      useMyWebSocket()?.close();
     }
   }
   watch(
     () => [userStore.getUserInfo.id, userStore.getToken],
     () => {
       countVersion++;
+      clearTimeout(refreshTimer);
       messageCount.value = 0;
       countError.value = false;
       connectNotifications();
@@ -119,8 +107,6 @@
       void loadCount();
       onWebSocket(onMessage);
       connectNotifications();
-      window.addEventListener('focus', refresh);
-      document.addEventListener('visibilitychange', onVisibility);
     }
     // Preserve the existing forced default-password change prompt.
     defHttp
@@ -140,8 +126,6 @@
     clearTimeout(refreshTimer);
     offWebSocket(onMessage);
     useMyWebSocket()?.close();
-    window.removeEventListener('focus', refresh);
-    document.removeEventListener('visibilitychange', onVisibility);
   });
 </script>
 <style scoped lang="less">

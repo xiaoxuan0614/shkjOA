@@ -43,7 +43,7 @@
             <a-table
               :columns="memberColumns"
               :data-source="participantRecords"
-              :pagination="{ pageSize: 10, hideOnSinglePage: true }"
+              :pagination="withPagination({ pageSize: 10, hideOnSinglePage: true })"
               :locale="{ emptyText: '本条日志没有其他参与人员' }"
               :row-key="(record, index) => record.id || record.userId || index"
               size="small"
@@ -53,7 +53,7 @@
             <a-table
               :columns="outsourceColumns"
               :data-source="outsourceRecords"
-              :pagination="{ pageSize: 10, hideOnSinglePage: true }"
+              :pagination="withPagination({ pageSize: 10, hideOnSinglePage: true })"
               :row-key="(_, index) => index"
               :locale="{ emptyText: '本条日志没有外协参与记录' }"
               size="small"
@@ -123,6 +123,7 @@
 </template>
 
 <script lang="ts" setup>
+  import { withPagination } from '/@/components/Pagination/config';
   import { unifyMaterialColumns } from '/@/views/material/materialTableColumns';
   import { computed, onMounted, onBeforeUnmount, ref } from 'vue';
   import { getFileAccessHttpUrl } from '/@/utils/common/compUtils';

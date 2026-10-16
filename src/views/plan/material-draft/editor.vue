@@ -7,15 +7,18 @@
           ><div class="material-draft-editor__title">{{ title }}</div
           ><div class="material-draft-editor__subtitle">{{ project.projectName || '—' }} / {{ project.periodName || '—' }}</div></div
         >
-        <a-tag v-if="record.status != null">{{ statusMeta[String(record.status)]?.text || '—' }}</a-tag>
-        <a-tag v-if="record.id">{{ Number(record.adopted) === 1 ? '已采用' : '未采用' }}</a-tag>
-        <a-tag v-if="record.id">{{ Number(record.priced) === 1 ? '已定价' : '未定价' }}</a-tag>
+        <div class="material-draft-editor__statuses">
+          <a-tag v-if="record.status != null" :color="statusMeta[String(record.status)]?.color">{{ statusMeta[String(record.status)]?.text || '—' }}</a-tag>
+          <a-tag v-if="record.id" :color="Number(record.adopted) === 1 ? 'blue' : 'orange'">{{ Number(record.adopted) === 1 ? '已采用' : '未采用' }}</a-tag>
+          <a-tag v-if="record.id" :color="Number(record.priced) === 1 ? 'cyan' : 'gold'">{{ Number(record.priced) === 1 ? '已定价' : '未定价' }}</a-tag>
+        </div>
       </div>
       <div class="material-draft-editor__actions">
         <a-button :disabled="saving" @click="reload">刷新</a-button>
+        <a-button v-if="record.id" :disabled="!loaded || !materialsReady || !feesReady || saving" @click="openDocumentPreview">报价单预览</a-button>
         <a-button v-if="canUnlock" :disabled="saving" @click="unlockEditing">修改</a-button>
-        <a-button v-if="canModify" :loading="saving" @click="save">{{ record.id ? '保存修改' : '保存草稿' }}</a-button>
-        <a-popconfirm v-if="canSubmitSaved" title="确认提交已保存的报价内容审核？" @confirm="submit">
+        <a-button v-if="canModify" :loading="saving" @click="save">{{ record.id ? '保存草稿' : '保存草稿' }}</a-button>
+        <a-popconfirm v-if="canSubmitSaved" :title="editing && autoEditDraft ? '确认保存当前修改并提交审批？' : '确认提交已保存的报价内容审核？'" @confirm="submit">
           <a-button type="primary" :loading="saving">提交审批</a-button>
         </a-popconfirm>
         <a-popconfirm v-if="loaded && caps.withdraw" title="撤回后恢复草稿并关闭审批待办，确认撤回？" @confirm="withdraw">
@@ -53,6 +56,7 @@
         :key="tableEpoch"
         ref="tableRef"
         :candidate-id="tableCandidateId"
+        :initial-candidate-page="initialCandidatePage"
         mode="quotation"
         quote-pricing
         :direct-quotation="directEntry"
@@ -111,19 +115,24 @@ ref="serviceFeePickerRef" picker-only :model-value="serviceFees" :ready="feesRea
           ><a-textarea v-model:value="rejectReason" :maxlength="500" :rows="3" /></a-form-item
       ></a-form>
     </a-modal>
-    <QuotationGrantModal v-if="canGrant" v-model:open="grantOpen" :period-id="periodId" @success="reloadAccess" />
+    <QuotationGrantModal v-if="canGrant" v-model:open="grantOpen" :period-id="periodId" :period-name="[project.projectName, project.periodName].filter(Boolean).join(' / ')" @success="reloadAccess" />
     <QuotationHistoryModal v-model:open="historyOpen" :period-id="periodId" :candidate-id="candidateId" />
+    <a-drawer v-model:open="documentPreviewOpen" title="报价单预览" width="min(1400px, 96vw)" destroy-on-close>
+      <a-alert v-if="editing || canEditPricing" type="info" show-icon message="当前页面内容预览，未保存的修改不会写入正式导出文件。" style="margin-bottom: 16px" />
+      <QuotationSnapshotPreview :quotation="documentPreviewData" live />
+    </a-drawer>
   </div>
 </template>
 
 <script setup lang="ts">
-  import { computed, onMounted, ref, nextTick } from 'vue';
+  import { computed, onMounted, onDeactivated, ref, nextTick } from 'vue';
+  import QuotationSnapshotPreview from '/@/views/project/contract/QuotationSnapshotPreview.vue';
+  import { buildQuotationPreview } from '../quotationPreview';
   import { useSessionDraft } from '/@/hooks/web/useSessionDraft';
   import { useRoute, useRouter } from 'vue-router';
   import { useUserStore } from '/@/store/modules/user';
   import { usePermission } from '/@/hooks/web/usePermission';
   import { useMessage } from '/@/hooks/web/useMessage';
-  import { projectDetail } from '/@/views/project/Project.api';
   import MaterialPlanTable from '../components/MaterialPlanTable.vue';
   import ServiceFeeTable from '../components/ServiceFeeTable.vue';
   import QuotationServiceFeeCell from '../components/QuotationServiceFeeCell.vue';
@@ -138,9 +147,8 @@ ref="serviceFeePickerRef" picker-only :model-value="serviceFees" :ready="feesRea
     getCandidateRecord,
     getQuotationAccess,
     getQuotationHistory,
-    getQuotationDepartments,
   } from '../Plan.api';
-  import { noQuotationAccess, quotationDetailCapabilities, quotationDetailFields, quotationVersion, assertQuotationVersion } from '../quotationGovernance';
+  import { noQuotationAccess, quotationDetailCapabilities, quotationDetailFields, quotationVersion, assertQuotationVersion, canEditDraftQuotation } from '../quotationGovernance';
   import { quotationPricePayload, validateDirectQuotation } from '../quotationPricing';
   import { findQuotationRejection } from '../quotationRejection';
   import { previewQuotationRoute } from '../quotationRoute';
@@ -153,18 +161,32 @@ ref="serviceFeePickerRef" picker-only :model-value="serviceFees" :ready="feesRea
   const periodId = String(route.query.periodId || route.params.id || '');
   const candidateId = ref(String(route.query.candidateId || ''));
   const tableCandidateId = ref(candidateId.value);
+  const initialCandidatePage = ref<Recordable>();
   const record = ref<Recordable>({});
   const creationRoute = ref('');
   const marketQuotation = computed(() => (record.value.id ? record.value.approvalRoute : creationRoute.value) === 'MARKET');
   // 录入字段按人员职责开放，不修改历史单的服务端审批线路。
   const directEntry = computed(() => marketQuotation.value || (creationRoute.value === 'MARKET'
     && ['-1', '0', '2'].includes(String(record.value.status ?? '-1'))));
-  const project = ref<Recordable>({});
+  const project = computed(() => ({
+    projectName: record.value.projectName ?? route.query.projectName,
+    periodName: record.value.periodName ?? route.query.periodName,
+  }));
   const access = ref({ ...noQuotationAccess });
   const loaded = ref(false);
   const saving = ref(false);
   const error = ref('');
   const tableRef = ref();
+  const documentPreviewOpen = ref(false);
+  const documentPreviewData = ref<Recordable | null>(null);
+  function openDocumentPreview() {
+    if (!loaded.value || !materialsReady.value || !feesReady.value || saving.value) return;
+    const rows = tableRef.value?.getRows();
+    if (!Array.isArray(rows)) return;
+    documentPreviewData.value = buildQuotationPreview(candidateName.value, rows, serviceFees.value, showMarketPricing.value);
+    documentPreviewOpen.value = true;
+  }
+  onDeactivated(() => { documentPreviewOpen.value = false; documentPreviewData.value = null; });
   const tableEpoch = ref(0);
   const serviceFees = ref<Recordable[]>([]);
   const serviceFeePickerRef = ref<InstanceType<typeof ServiceFeeTable>>();
@@ -297,12 +319,13 @@ ref="serviceFeePickerRef" picker-only :model-value="serviceFees" :ready="feesRea
   const simpleLoad = computed(() => detailOnly.value || editFromList.value);
   const viewOnly = computed(() => !editing.value || reviewMode.value || pricingMode.value);
   const caps = computed(() => quotationDetailCapabilities(record.value, access.value, userStore.getUserInfo, hasPermission));
+  const autoEditDraft = computed(() => !reviewMode.value && !pricingMode.value && canEditDraftQuotation(record.value, caps.value.edit));
   const canModify = computed(
     () => loaded.value && !viewOnly.value
       && (record.value.id ? caps.value.edit : !!creationRoute.value && hasPermission('plan:quotation:add'))
   );
   const canUnlock = computed(() => loaded.value && !canPrice.value && !editing.value && !reviewMode.value && !pricingMode.value && !!record.value.id && caps.value.edit);
-  const canSubmitSaved = computed(() => loaded.value && !editing.value && !reviewMode.value && !pricingMode.value && !!record.value.id && caps.value.submit);
+  const canSubmitSaved = computed(() => loaded.value && (!editing.value || autoEditDraft.value) && !reviewMode.value && !pricingMode.value && !!record.value.id && caps.value.submit);
   function unlockEditing() {
     if (!canUnlock.value || saving.value) return;
     editing.value = true;
@@ -366,18 +389,19 @@ ref="serviceFeePickerRef" picker-only :model-value="serviceFees" :ready="feesRea
     try {
       if (!periodId) throw new Error('缺少项目分期 ID，请从报价管理进入');
       if (route.query.mode !== 'create' && !candidateId.value) throw new Error('缺少候选清单 ID');
-      creationRoute.value = previewQuotationRoute(userStore.getIdentity.departmentIds, await getQuotationDepartments());
+      creationRoute.value = previewQuotationRoute(userStore.getIdentity.departmentIds, userStore.getLoginInfo.departs || []);
+      initialCandidatePage.value = undefined;
       if (simpleLoad.value) {
-        const candidate = await getCandidateRecord(periodId, candidateId.value);
+        const candidate = await getCandidateRecord(periodId, candidateId.value, page => { initialCandidatePage.value = page; });
         if (editFromList.value && !['0', '1'].includes(String(candidate.adopted))) throw new Error('缺少报价采用状态，请返回列表重新进入');
-        project.value = (await projectDetail({ periodId })) || {};
         record.value = candidate;
         await reloadAccess();
         void loadRejection();
         candidateName.value = candidate.candidateName || '';
-        editing.value = false;
+        editing.value = autoEditDraft.value;
+        if (editing.value) quotationDraft.enable();
         if (needsRecovery.value) await router.replace({ path: route.path, query: {
-          mode: 'view', periodId, candidateId: candidateId.value, version: candidate.version,
+          mode: 'view', from: route.query.from, periodId, candidateId: candidateId.value, version: candidate.version,
           candidateName: candidate.candidateName, status: candidate.status,
           adopted: candidate.adopted, priced: candidate.priced, createBy: candidate.createBy,
         } });
@@ -387,14 +411,13 @@ ref="serviceFeePickerRef" picker-only :model-value="serviceFees" :ready="feesRea
         loaded.value = true;
         return;
       }
-      const [p, permissions, candidate] = await Promise.all([
-        projectDetail({ periodId }),
+      const [permissions, candidate] = await Promise.all([
         getQuotationAccess(periodId, candidateId.value),
-        candidateId.value ? getCandidateRecord(periodId, candidateId.value) : Promise.resolve({}),
+        candidateId.value ? getCandidateRecord(periodId, candidateId.value, page => { initialCandidatePage.value = page; }) : Promise.resolve({}),
       ]);
-      project.value = p || {};
       access.value = permissions;
       record.value = candidate;
+      if (candidate.id) { editing.value = autoEditDraft.value; if (editing.value) quotationDraft.enable(); }
       if (!candidateId.value) {
         if (!creationRoute.value) throw new Error('无法确认报价所属部门，请确认市场部或技术部归属后重试');
       }
@@ -470,7 +493,7 @@ ref="serviceFeePickerRef" picker-only :model-value="serviceFees" :ready="feesRea
     pricingUnlocked.value = false;
     loaded.value = false;
     needsRecovery.value = true;
-    record.value = await getCandidateRecord(periodId, candidateId.value);
+    record.value = await getCandidateRecord(periodId, candidateId.value, page => { initialCandidatePage.value = page; });
     feesReady.value = false;
     materialsReady.value = false;
     void loadRejection();
@@ -479,13 +502,14 @@ ref="serviceFeePickerRef" picker-only :model-value="serviceFees" :ready="feesRea
     if (tableCandidateId.value !== candidateId.value) {
       tableCandidateId.value = candidateId.value;
       tableEpoch.value++;
-    } else await tableRef.value?.reload();
+    } else { await nextTick(); await tableRef.value?.reload(); }
     if (!reviewMode.value && !pricingMode.value) await router.replace({ path: route.path, query: {
-      mode: 'view', periodId, candidateId: candidateId.value, version: record.value.version,
+      mode: 'view', from: route.query.from, periodId, candidateId: candidateId.value, version: record.value.version,
       candidateName: record.value.candidateName, status: record.value.status,
       adopted: record.value.adopted, priced: record.value.priced, createBy: record.value.createBy,
     } });
-    editing.value = false;
+    editing.value = autoEditDraft.value;
+    if (editing.value) quotationDraft.enable();
     needsRecovery.value = false;
     loaded.value = true;
   }
@@ -511,11 +535,44 @@ ref="serviceFeePickerRef" picker-only :model-value="serviceFees" :ready="feesRea
           catch (error: any) { throw new Error(`${row.materialName}：${error.message}`); }
         });
       }
-      await verifyCurrent();
-      await candidateAction('submit', record.value);
-      await refreshAfterWrite();
+      if (editing.value && autoEditDraft.value) {
+        await persist();
+        record.value = await getCandidateRecord(periodId, candidateId.value);
+        await reloadAccess();
+        if (!caps.value.submit) throw new Error('保存后报价状态或权限已变化，请刷新后重试');
+      } else await verifyCurrent();
+      const submitted = await candidateAction('submit', record.value);
+      await refreshAfterSubmit(submitted);
+      needsRecovery.value = false;
+      loaded.value = true;
       createMessage.success('已提交报价审批');
     });
+  }
+  /** 提交只改变主单状态；保留已加载明细，不改 fullPath 触发整页重建。 */
+  async function refreshAfterSubmit(submitted: Recordable) {
+    try {
+      if (!submitted || String(submitted.id) !== candidateId.value || String(submitted.status) !== '2'
+        || quotationVersion(submitted.version) <= quotationVersion(record.value.version)) {
+        throw new Error('提交响应缺少有效的最新报价状态');
+      }
+      record.value = submitted;
+      candidateName.value = submitted.candidateName || candidateName.value;
+      editing.value = false;
+      pricingUnlocked.value = false;
+      quotationDraft.clear();
+      // 原驳回原因不再属于当前待审批状态，同时失效在途历史请求。
+      rejectionSequence++;
+      rejectionReason.value = '';
+      rejectionLoadError.value = '';
+      rejectionLoading.value = false;
+      access.value = { ...noQuotationAccess };
+      await reloadAccess();
+      needsRecovery.value = false;
+    } catch {
+      loaded.value = false;
+      needsRecovery.value = true;
+      throw new Error('提交请求已成功，但最新状态或权限读取异常，请点击刷新确认，勿重复提交');
+    }
   }
   async function withdraw() {
     await run(async () => {
@@ -608,6 +665,12 @@ ref="serviceFeePickerRef" picker-only :model-value="serviceFees" :ready="feesRea
       line-height: 26px;
     }
 
+    &__statuses {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      :deep(.ant-tag) { margin: 0; padding: 2px 8px; border-radius: 4px; font-weight: 500; }
+    }
     &__subtitle {
       color: #595959;
       font-size: 13px;

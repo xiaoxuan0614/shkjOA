@@ -31,7 +31,7 @@
         暂无接口数据
       </div>
       <div v-if="total > 0" style="margin-top: 16px; text-align: right">
-        <a-pagination
+        <BasicPagination
           :current="pageNo"
           :page-size="pageSize"
           :page-size-options="['10', '20', '30']"

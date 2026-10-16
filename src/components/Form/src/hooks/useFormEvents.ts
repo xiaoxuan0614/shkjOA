@@ -110,7 +110,7 @@ export function useFormEvents({
         validKeys.push(key);
       }
     });
-    validateFields(validKeys).catch((_) => {});
+    if (!unref(getProps).validateOnSubmitOnly) validateFields(validKeys).catch((_) => {});
   }
 
   /**

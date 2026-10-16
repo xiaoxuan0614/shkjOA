@@ -42,7 +42,7 @@ export function extendCounterpartyForm(schemas: FormSchema[], kind: '客户' | '
       field: 'taxRate',
       component: 'InputNumber',
       componentProps: {
-        placeholder: '例如：13 表示 13%',
+        precision: 2, placeholder: '例如：13 表示 13%',
         style: { width: '100%' },
       },
     },

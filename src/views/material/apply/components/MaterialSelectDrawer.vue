@@ -52,7 +52,7 @@
           :row-key="(record) => record.id"
           :row-class-name="getRowClassName"
           :loading="loading"
-          :scroll="{ x: quotationLayout ? 900 : isProjectMode ? 1160 : 1110, ...(quotationLayout ? { y: 'clamp(220px, 50vh, 520px)' } : {}) }"
+          :scroll="{ x: isProjectMode ? 750 : 700, ...(quotationLayout ? { y: 'clamp(220px, 50vh, 520px)' } : {}) }"
           size="small"
           @change="handleTableChange"
         >
@@ -93,7 +93,7 @@
           </template>
         </a-table>
         <div class="material-select__pagination">
-          <a-pagination
+          <BasicPagination
             v-bind="pagination"
             size="small"
             show-less-items
@@ -114,7 +114,7 @@
       </div>
     </div>
     <!-- 新增物料弹窗 -->
-    <MaterialAddModal @register="registerAddModal" @success="handleAddMaterialSuccess" />
+    <GoodsModal @register="registerAddModal" @success="handleAddMaterialSuccess" />
   </BasicDrawer>
 </template>
 
@@ -122,9 +122,9 @@
   import { computed, ref, reactive, unref } from 'vue';
   import { BasicDrawer, useDrawerInner } from '/@/components/Drawer';
   import { useModal } from '/@/components/Modal';
-  import MaterialAddModal from '/@/views/material/components/MaterialAddModal.vue';
+  import GoodsModal from '/@/views/material/goods/components/GoodsModal.vue';
   import MaterialIdentityCell from '../../components/MaterialIdentityCell.vue';
-  import { selectMaterialList, selectProjectMaterialAccountPage, addMaterial } from '../MaterialApply.api';
+  import { selectMaterialList, selectProjectMaterialAccountPage } from '../MaterialApply.api';
   import { initDictOptions } from '/@/utils/dict/index';
   import { invalidateMaterialMap, loadDictMap } from '../../material.util';
   import { useMessage } from '/@/hooks/web/useMessage';
@@ -202,10 +202,6 @@
   // 项目领料读取物料总账，普通选料保持库存主数据列。
   const columns = computed(() => [
     { title: '物料', key: 'material', width: 220, fixed: 'left' as const },
-    ...(props.quotationLayout ? [] : [
-      { title: '类别', dataIndex: 'materialCategory', key: 'materialCategory', width: 110 },
-    ]),
-    { title: '型号', dataIndex: 'model', key: 'model', width: 140 },
     { title: '参数', dataIndex: 'specificationParams', key: 'specificationParams', width: 180,
       customRender: ({ text }) => renderMaterialSpecification(text) },
     ...(isProjectMode.value
@@ -490,12 +486,11 @@
 
   // 新增物料: 打开弹窗
   function handleAddMaterial() {
-    openAddModal(true, { isUpdate: false });
+    openAddModal(true, { isUpdate: false, showFooter: true });
   }
 
-  // 新增物料成功: 调用接口写入物料列表, 刷新列表
-  async function handleAddMaterialSuccess(values: any) {
-    await addMaterial(values);
+  // 共用维护弹窗已完成保存；这里只刷新，不重复新增。
+  async function handleAddMaterialSuccess() {
     invalidateMaterialMap();
     // 刷新树和列表
     if (drawerVisible.value) await Promise.all([loadTree(), loadData()]);
@@ -587,40 +582,7 @@
       gap: 12px;
       flex-wrap: wrap;
       margin-top: 16px;
-      :deep(.ant-pagination) {
-        display: flex !important;
-        flex-wrap: wrap;
-        align-items: center;
-        justify-content: flex-end;
-        gap: 8px 4px;
-        max-width: 100%;
-        margin: 0;
-      }
-      :deep(.ant-pagination > li) {
-        flex-shrink: 0;
-        white-space: nowrap;
-      }
-      :deep(.ant-pagination-options) {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: 8px;
-        margin-left: 8px;
-        max-width: 100%;
-      }
-      :deep(.ant-pagination-options-size-changer.ant-select) {
-        width: 100px;
-        margin: 0;
-      }
-      :deep(.ant-pagination-options-quick-jumper) {
-        display: inline-flex;
-        align-items: center;
-        white-space: nowrap;
-      }
-      :deep(.ant-pagination-options-quick-jumper input) {
-        width: 48px;
-        flex: 0 0 48px;
-      }
+      // Pagination appearance is shared globally.
     }
 
     &__selected {

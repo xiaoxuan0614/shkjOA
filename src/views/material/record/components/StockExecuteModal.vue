@@ -129,10 +129,6 @@
                   </div>
                   <div class="stock-exec__material" role="cell">
                     <MaterialIdentityCell :record="record" />
-                    <div class="stock-exec__material-meta">
-                      <span v-if="record.materialCategory">{{ record.materialCategory }}</span>
-                      <span v-if="record.model">{{ record.model }}</span>
-                    </div>
                   </div>
                   <div class="stock-exec__outbound-stat" role="cell">
                     <span class="stock-exec__mobile-label">申请量</span>
@@ -167,9 +163,9 @@
                         <a-input-number
                           v-model:value="record.execQty"
                           :data-exec-item="record.itemId"
-                          :min="0.0001"
+                          :min="0.01"
                           :max="maxExecutableQty(record)"
-                          :precision="4"
+                          :precision="2"
                           :disabled="submitting || record.remain <= 0 || !record.checked"
                           :status="record.qtyError ? 'error' : ''"
                           placeholder="输入出库数量"
@@ -197,7 +193,7 @@
           </div>
         </div>
 
-        <a-pagination
+        <BasicPagination
           v-if="filteredRows.length"
           v-bind="tablePagination"
           class="stock-exec__outbound-pagination"
@@ -213,7 +209,7 @@
         :data-source="filteredRows"
         :row-key="(record) => record.itemId"
         :row-class-name="rowClassName"
-        :pagination="tablePagination"
+        :pagination="withPagination(tablePagination)"
         :scroll="tableScroll"
         size="small"
         bordered
@@ -244,10 +240,6 @@
           <template v-else-if="column.key === 'material'">
             <div class="stock-exec__material">
               <MaterialIdentityCell :record="record" />
-              <div class="stock-exec__material-meta">
-                <span v-if="record.materialCategory">{{ record.materialCategory }}</span>
-                <span v-if="record.model">{{ record.model }}</span>
-              </div>
             </div>
           </template>
           <template v-else-if="column.key === 'quantity'">
@@ -270,9 +262,9 @@
               <a-input-number
                 v-model:value="record.execQty"
                 :data-exec-item="record.itemId"
-                :min="0.0001"
+                :min="0.01"
                 :max="maxExecutableQty(record)"
-                :precision="4"
+                :precision="2"
                 :disabled="submitting || record.remain <= 0 || !record.checked"
                 :status="record.qtyError ? 'error' : ''"
                 style="width: 100%"
@@ -316,6 +308,7 @@
 </template>
 
 <script lang="ts" setup>
+  import { withPagination } from '/@/components/Pagination/config';
   import MaterialIdentityCell from '/@/views/material/components/MaterialIdentityCell.vue';
   import { computed, nextTick, reactive, ref, watch } from 'vue';
   import { BasicModal, useModalInner } from '/@/components/Modal';

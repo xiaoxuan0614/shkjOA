@@ -18,7 +18,7 @@
   >
     <template v-for="item in dictOptions" :key="`${item.value}`">
       <a-radio-button :value="item.value">
-        {{ item.label }}
+        <span :class="[useDicColor && item.color ? 'colorText' : '']" :style="{ backgroundColor: useDicColor ? item.color : undefined }">{{ item.label }}</span>
       </a-radio-button>
     </template>
   </a-radio-group>
@@ -43,11 +43,7 @@
       <a-select-option v-if="showChooseOption" :value="null">请选择…</a-select-option>
       <template v-for="item in dictOptions" :key="`${item.value}`">
         <a-select-option :value="item.value">
-          <span
-            :class="[useDicColor && item.color ? 'colorText' : '']"
-            :style="{ backgroundColor: `${useDicColor && item.color}` }"
-            :title="item.label"
-          >
+          <span :title="item.label">
             {{ item.label }}
           </span>
         </a-select-option>
@@ -75,7 +71,7 @@
       type: propTypes.string,
       placeholder: propTypes.string,
       stringToNumber: propTypes.bool,
-      useDicColor: propTypes.bool.def(false),
+      useDicColor: propTypes.bool.def(true),
       getPopupContainer: {
         type: Function,
         default: (node) => node?.parentNode,

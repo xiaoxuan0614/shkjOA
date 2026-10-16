@@ -56,7 +56,7 @@
         label: '申请数量',
         field: 'applyQty',
         component: 'InputNumber',
-        componentProps: { placeholder: '请输入申请数量', min: 1, style: { width: '100%' } },
+        componentProps: { precision: 2, placeholder: '请输入申请数量', min: 1, style: { width: '100%' } },
         dynamicRules: () => [{ required: true, message: '请输入申请数量!' }],
       },
       {

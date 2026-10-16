@@ -39,6 +39,7 @@ export const contractDetail = async (params, quiet = false) => {
     ...result.contract,
     contractFile: result.contractFile,
     materialFile: result.materialFile,
+    materialSnapshot: result.materialSnapshot,
     records: result.records || [],
     workflowInstanceId: result.workflowInstanceId,
     workflowStatus: result.workflowStatus,

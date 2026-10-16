@@ -13,7 +13,7 @@
     <a-table
       :columns="[...columns, { title: '操作', key: 'action', width: 80 }]"
       :data-source="tableData"
-      :pagination="pagination"
+      :pagination="withPagination(pagination)"
       :row-key="rowKey"
       :loading="loading"
       size="middle"
@@ -30,6 +30,7 @@
 </template>
 
 <script lang="ts" setup>
+  import { withPagination } from '/@/components/Pagination/config';
   import { ref, reactive, watch, onBeforeUnmount } from 'vue';
 
   const props = defineProps<{

@@ -89,7 +89,7 @@
   import SelectedUserItem from './SelectedUserItem.vue';
   import DepartUserList from './UserListAndDepart.vue';
   import RoleUserList from './UserListAndRole.vue';
-  import { Pagination } from 'ant-design-vue';
+  import { BasicPagination as Pagination } from '/@/components/Pagination';
   const APagination = Pagination;
   import { defHttp } from '/@/utils/http/axios';
 

@@ -4,7 +4,6 @@
   <ProjectBasicDrawer @register="registerProjectDrawer" @invitation-processed="handleProcessed" />
   <ApproveModal @register="registerStockApproveModal" @success="handleProcessed" />
   <StockExecuteModal @register="registerStockExecuteModal" @success="handleProcessed" />
-  <PlanAuditModal @register="registerPlanAuditModal" @success="handleProcessed" />
   <DelayApprovalModal @register="registerDelayApprovalModal" @success="handleProcessed" />
   <AcceptanceModal @register="registerAcceptanceModal" @success="handleProcessed" />
   <a-modal v-model:open="failureOpen" title="验收驳回提醒" :footer="null">
@@ -44,7 +43,6 @@
   import { useMessage } from '/@/hooks/web/useMessage';
   import MaterialSupplementDrawer from '/@/views/project/components/MaterialSupplementDrawer.vue';
   import ProjectBasicDrawer from '/@/views/project/components/ProjectBasicDrawer.vue';
-  import PlanAuditModal from '/@/views/project/components/PlanAuditModal.vue';
   import DelayApprovalModal from '/@/views/project/components/DelayApprovalModal.vue';
   import { parseTodoActionParams, SystemTodo } from '../useTodoCenter';
 
@@ -83,7 +81,6 @@
   }
   const [registerSupplementDrawer, { openDrawer: openSupplementDrawer }] = useDrawer();
   const [registerProjectDrawer, { openDrawer: openProjectDrawer }] = useDrawer();
-  const [registerPlanAuditModal, { openModal: openPlanAuditModal }] = useModal();
   const [registerDelayApprovalModal, { openModal: openDelayApprovalModal }] = useModal();
 
   function resolvePeriodId(todo: SystemTodo, params: Recordable) {
@@ -99,7 +96,7 @@
       createMessage.error('计划审批待办缺少项目分期 ID，无法打开');
       return;
     }
-    openPlanAuditModal(true, { periodId, approvalId });
+    router.push({ path: `/project/detail/${periodId}`, query: { tab: 'plan', ...(approvalId ? { approvalId } : {}) } });
   }
 
   async function openTodo(todo: SystemTodo) {
@@ -226,7 +223,7 @@
     }
     if (/CONTRACT/i.test(actionIdentity) || matchesTodo(todo, /合同审批/i)) {
       if (!periodId) return createMessage.error('合同审批待办缺少项目分期 ID，无法查看详情');
-      router.push({ path: '/project/contract', query: { mode: 'view', periodId, projectId: params.projectId } });
+      router.push({ path: `/project/detail/${periodId}`, query: { tab: 'contract' } });
       return;
     }
     if (/PLAN.*APPROVAL/i.test(actionIdentity) || matchesTodo(todo, /计划审批/i)) {

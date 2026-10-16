@@ -36,7 +36,7 @@
       :columns="columns"
       :data-source="materials"
       :loading="loading"
-      :pagination="pagination"
+      :pagination="withPagination(pagination)"
       :row-key="(record) => record.materialId"
       :scroll="{ x: 1080 }"
       size="middle"
@@ -53,12 +53,6 @@
             <div class="material-account__material-meta">
               <span>{{ record.baseUnitName ? `单位：${record.baseUnitName}` : '单位未配置' }}</span>
             </div>
-          </div>
-        </template>
-        <template v-else-if="column.key === 'spec'">
-          <div class="material-account__spec">
-            <span>{{ record.materialCategory || '—' }}</span>
-            <span>{{ record.model || '—' }}</span>
           </div>
         </template>
         <template v-else-if="quantityKeys.has(String(column.key))">
@@ -94,6 +88,7 @@
 </template>
 
 <script lang="ts" setup>
+  import { withPagination } from '/@/components/Pagination/config';
   import MaterialIdentityCell from '/@/views/material/components/MaterialIdentityCell.vue';
   import { reactive, ref, watch } from 'vue';
   import { getMaterialAccounts } from '../ProjectDetail.api';
@@ -112,7 +107,6 @@
   const quantityKeys = new Set(['plannedQty', 'outboundQty', 'consumedQty', 'remainingReturnQty']);
   const columns = [
     { title: '物料', key: 'material', width: 250, fixed: 'left' },
-    { title: '类别 / 型号', key: 'spec', width: 190 },
     { title: '计划数量', dataIndex: 'plannedQty', key: 'plannedQty', width: 105, align: 'right' },
     { title: '实际出库', dataIndex: 'outboundQty', key: 'outboundQty', width: 105, align: 'right' },
     { title: '施工消耗', dataIndex: 'consumedQty', key: 'consumedQty', width: 105, align: 'right' },

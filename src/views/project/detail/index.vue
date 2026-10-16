@@ -14,22 +14,24 @@
               <span
                 >当前状态：<a-tag :color="statusColor">{{ statusText }}</a-tag></span
               >
-              <!-- 状态推进按钮(项目详情不提供实施完成入口) -->
-              <template v-for="action in flowActions" :key="action.act || action.status || action.label">
-                <a-popconfirm v-if="action.pop" :title="`确认执行「${action.label}」？`" @confirm="handleAdvance(action)">
-                  <a-button v-auth="action.auth" type="primary" size="small" :loading="advancing">{{ action.label }}</a-button>
-                </a-popconfirm>
-                <a-button v-else v-auth="action.auth" type="primary" size="small" :loading="advancing" @click="handleAdvance(action)">
-                  {{ action.label }}
-                </a-button>
-              </template>
-              <span>项目类型：{{ projectTypeText }}</span>
+              <span>项目类型：<DictValue code="project_type" :value="project.projectType" :fallback="projectTypeText" /></span>
               <span>甲方名称：{{ project.customerName || '—' }}</span>
               <span>项目对接人：{{ project.projectLiaisonUserName || '—' }}</span>
             </div>
           </div>
         </div>
       </a-card>
+
+      <PeriodOperations v-if="detailReady" :key="projectId" :project="project" :manager="manager" :type-names="projectTypeMeta" :acceptance-visible="visibleTabs.includes('acceptance')" :has-primary="!!(businessActions.length || membershipError || canCreateQuotation || quotationApprovalVisible || quotationPricingVisible || quotationGrantVisible)" @changed="handleBusinessChanged" @acceptance="activeKey = 'acceptance'">
+        <a-space wrap>
+          <a-button v-if="canCreateQuotation" type="primary" preIcon="ant-design:plus-outlined" @click="quotationCreate?.open()">新增报价</a-button>
+          <a-button v-if="quotationApprovalVisible" :type="quotationApprovalError ? 'default' : 'primary'" :danger="!!quotationApprovalError" preIcon="ant-design:audit-outlined" :loading="quotationApprovalLoading || quotationApprovalNavigating" @click="openQuotationApproval">{{ quotationApprovalError ? '报价审批加载失败，重试' : '报价审批' }}</a-button>
+          <a-button v-if="quotationPricingVisible" :type="quotationPricingError ? 'default' : 'primary'" :danger="!!quotationPricingError" preIcon="ant-design:account-book-outlined" :loading="quotationPricingLoading || quotationPricingNavigating" @click="openQuotationPricing">{{ quotationPricingError ? '报价定价加载失败，重试' : '报价定价' }}</a-button>
+          <a-button v-if="quotationGrantVisible" :danger="!!quotationGrantError" preIcon="ant-design:safety-certificate-outlined" :loading="quotationGrantLoading" @click="openQuotationGrant">{{ quotationGrantError ? '报价授权加载失败，重试' : '报价授权' }}</a-button>
+          <a-button v-for="action in businessActions" :key="action.key" :type="action.mode === 'view' && action.key !== 'contractAudit' ? 'default' : 'primary'" @click="handleBusinessAction(action)">{{ action.label }}</a-button>
+          <a-button v-if="membershipError" danger @click="loadMembership">项目身份加载失败，点击重试</a-button>
+        </a-space>
+      </PeriodOperations>
 
       <!-- 项目详情 tab -->
       <a-card class="project-detail__body">
@@ -38,6 +40,9 @@
         </a-alert>
         <a-spin v-else-if="!detailReady" tip="正在加载项目信息…" />
         <template v-else>
+          <a-alert v-if="historyTabsError" type="warning" show-icon message="部分历史资料未能确认，当前仅展示已确认的入口。">
+            <template #action><a-button @click="load">重新加载</a-button></template>
+          </a-alert>
           <a-tabs :key="projectId" v-model:activeKey="activeKey">
             <a-tab-pane key="basic" tab="基本信息">
               <DetailBasic
@@ -50,10 +55,13 @@
               />
             </a-tab-pane>
             <a-tab-pane v-if="canViewQuotation" key="quotation" tab="报价信息">
-              <DetailQuotation :key="projectId" :period-id="projectId" />
+              <DetailQuotation ref="quotationListRef" :key="projectId" :period-id="projectId" :can-create="canCreateQuotation" @create="quotationCreate?.open()" />
             </a-tab-pane>
             <a-tab-pane v-if="visibleTabs.includes('contract')" key="contract" tab="合同信息">
-              <DetailContract :project-id="projectId" :project="project" />
+              <DetailContract :project-id="projectId" :project="project" allow-withdraw @changed="handleBusinessChanged" @edit="handleContractEdit" />
+            </a-tab-pane>
+            <a-tab-pane v-if="visibleTabs.includes('plan')" key="plan" tab="计划审批记录">
+              <DetailPlanHistory v-if="activeKey === 'plan'" :key="projectId" :period-id="projectId" />
             </a-tab-pane>
             <a-tab-pane v-if="visibleTabs.includes('member')" key="member" tab="项目成员">
               <DetailMember :project-id="projectId" />
@@ -73,11 +81,31 @@
             <a-tab-pane v-if="visibleTabs.includes('material')" key="material" tab="用料统计">
               <DetailMaterialAccount :project-id="projectId" />
             </a-tab-pane>
+            <a-tab-pane v-if="visibleTabs.includes('payment')" key="payment" tab="回款信息">
+              <FinanceDetail v-if="canViewPayment && activeKey === 'payment'" :key="projectId" :period-id="projectId" :context="project" embedded />
+            </a-tab-pane>
           </a-tabs>
         </template>
       </a-card>
     </div>
 
+    <ProjectQuotationCreate ref="quotationCreate" :period-id="projectId" :project-name="projectDisplayName" :default-name="`${String(project.projectName ?? '').trim()}${String(project.periodName ?? '').trim()}报价单`" :allowed="canCreateQuotation" @created="quotationListRef?.reload()" />
+    <a-modal v-model:open="quotationApprovalOpen" title="选择待审批报价" :footer="null" :width="720">
+      <a-table :data-source="quotationApprovalRecords" row-key="id" :pagination="false" :scroll="{ y: 360 }" :columns="[{ title: '报价名称', dataIndex: 'candidateName' }, { title: '审批线路', key: 'route', width: 120 }, { title: '操作', key: 'action', width: 100 }]">
+        <template #bodyCell="{ column, record }">
+          <template v-if="column.key === 'route'">{{ record.approvalRoute === 'MARKET' ? '市场审批' : '技术审批' }}</template>
+          <a-button v-else-if="column.key === 'action'" type="link" :disabled="quotationApprovalNavigating" @click="enterQuotationApproval(record)">审批</a-button>
+        </template>
+      </a-table>
+    </a-modal>
+    <a-modal v-model:open="quotationPricingOpen" title="选择待定价报价" :footer="null" :width="720">
+      <a-table :data-source="quotationPricingRecords" row-key="id" :pagination="false" :scroll="{ y: 360 }" :columns="[{ title: '报价名称', dataIndex: 'candidateName' }, { title: '操作', key: 'action', width: 100 }]">
+        <template #bodyCell="{ column, record }">
+          <a-button v-if="column.key === 'action'" type="link" :disabled="quotationPricingNavigating" @click="enterQuotationPricing(record)">定价</a-button>
+        </template>
+      </a-table>
+    </a-modal>
+    <QuotationGrantModal v-model:open="quotationGrantOpen" :period-id="projectId" :period-name="projectDisplayName" />
     <!-- 右侧项目动态 -->
     <a-card class="project-detail__activity">
       <div class="project-detail__activity-title">项目动态</div>
@@ -98,18 +126,33 @@
 </template>
 
 <script lang="ts" name="project-detail" setup>
-  import { ref, computed, onMounted, watch, onBeforeUnmount } from 'vue';
+  import { ref, computed, onMounted, watch, onBeforeUnmount, onActivated, onDeactivated } from 'vue';
+  import { resolvePeriodDetailActions, type PeriodDetailAction } from '../periodDetailActions';
+  import { usePermission } from '/@/hooks/web/usePermission';
+  import { contractProjectContext } from '../contract/projectContext';
+  import { isApprovalPending } from '/@/utils/approvalStatus';
+  import DetailPlanHistory from './components/DetailPlanHistory.vue';
   import { DETAIL_TAB_KEYS, resolveDetailTabs, type DetailTabKey } from './detailTabs';
+  import { readClosedPeriodTabs } from './closedPeriodTabs';
   import { useQuotationDepartment } from './useQuotationDepartment';
   import { useRoute, useRouter } from 'vue-router';
   import { getProjectBasic, getActivities } from './ProjectDetail.api';
-  import { statusFlow, projectStatusMap, statusColorMap, loadProjectStatusMap, loadProjectTypeMap, loadDictOptions } from '../Project.data';
-  import { changePeriodStatus } from '../Project.api';
-  import { useMessage } from '/@/hooks/web/useMessage';
+  import { projectStatusMap, statusColorMap, loadProjectStatusMap, loadProjectTypeMap, loadDictOptions } from '../Project.data';
+  import DictValue from '/@/components/DictValue.vue';
+  import { readProjectMembership } from '../projectMembership';
+  import PeriodOperations from './components/PeriodOperations.vue';
+  import QuotationGrantModal from '/@/views/plan/material-draft/QuotationGrantModal.vue';
+  import { useQuotationGrant } from './useQuotationGrant';
+  import FinanceDetail from '/@/views/payment/FinanceDetail.vue';
+  import { usePermissionStore } from '/@/store/modules/permission';
+  import { canViewPaymentTab } from './paymentAccess';
   import { useUserStore } from '/@/store/modules/user';
   import DetailBasic from './components/DetailBasic.vue';
   import DetailContract from './components/DetailContract.vue';
   import DetailQuotation from './components/DetailQuotation.vue';
+  import ProjectQuotationCreate from './components/ProjectQuotationCreate.vue';
+  import { canCreateProjectQuotation } from './quotationCreate';
+  import { useQuotationApproval } from './useQuotationApproval';
   import DetailMember from './components/DetailMember.vue';
   import DetailPosition from './components/DetailPosition.vue';
   import DetailImplement from './components/DetailImplement.vue';
@@ -119,21 +162,44 @@
 
   const route = useRoute();
   const router = useRouter();
-  const { createMessage } = useMessage();
   const userStore = useUserStore();
+  const { hasPermission } = usePermission();
+  const manager = ref(false);
+  const membershipError = ref(false);
+  let membershipSequence = 0;
   const canViewQuotation = useQuotationDepartment();
   const projectId = computed(() => String(route.params.id || '')); // 分期ID periodId
   const activeKey = ref<DetailTabKey>('basic');
   const initialReworkId = computed(() => String(route.query.reworkId || ''));
   const detailReady = ref(false);
+  const project = ref<any>({});
+  const { visible: quotationGrantVisible, loading: quotationGrantLoading, error: quotationGrantError,
+    open: quotationGrantOpen, handleOpen: openQuotationGrant } = useQuotationGrant(projectId, detailReady, computed(() => project.value.contractStatus));
   const loadError = ref('');
-  const openedTabs = ref<DetailTabKey[]>([]);
+  const historyTabs = ref<DetailTabKey[]>([]);
+  const historyTabsError = ref(false);
   let loadSequence = 0;
+  const paymentPermissions = usePermissionStore();
+  const canViewPayment = computed(() => canViewPaymentTab(
+    String(userStore.getIdentity.userId || ''), userStore.getIdentity.roleCodes, paymentPermissions.getBackMenuList,
+  ));
   const visibleTabs = computed(() =>
     DETAIL_TAB_KEYS.filter((key) => (key !== 'quotation' || canViewQuotation.value) &&
-      (resolveDetailTabs(project.value).includes(key) || openedTabs.value.includes(key)))
+      (key !== 'contract' || hasPermission('project:contract:view') ||
+        (isApprovalPending(project.value.contractStatus) && hasPermission('project:contract:approve'))) &&
+      (key !== 'plan' || project.value.status !== 'NOT_STARTED') &&
+      (key !== 'payment' || canViewPayment.value) &&
+      resolveDetailTabs(project.value, historyTabs.value).includes(key))
   );
-  const project = ref<any>({});
+  const { records: quotationApprovalRecords, loading: quotationApprovalLoading, error: quotationApprovalError,
+    open: quotationApprovalOpen, navigating: quotationApprovalNavigating, visible: quotationApprovalVisible,
+    handleOpen: openQuotationApproval, enter: enterQuotationApproval } = useQuotationApproval(projectId, project, detailReady);
+  const { records: quotationPricingRecords, loading: quotationPricingLoading, error: quotationPricingError,
+    open: quotationPricingOpen, navigating: quotationPricingNavigating, visible: quotationPricingVisible,
+    handleOpen: openQuotationPricing, enter: enterQuotationPricing } = useQuotationApproval(projectId, project, detailReady, 'price');
+  const quotationCreate = ref<InstanceType<typeof ProjectQuotationCreate>>();
+  const quotationListRef = ref<InstanceType<typeof DetailQuotation>>();
+  const canCreateQuotation = computed(() => detailReady.value && !!currentUserId.value && canCreateProjectQuotation(project.value.status, canViewQuotation.value, hasPermission, project.value.priced));
   const projectDisplayName = computed(
     () =>
       [project.value.projectName, project.value.periodName]
@@ -142,7 +208,6 @@
         .join('-') || '—'
   );
   const activities = ref<any[]>([]);
-  const advancing = ref(false);
   // 状态字典映射(数据源 project_period_status, 加载失败回退 projectStatusMap)
   const statusMeta = ref<Recordable>({});
   const projectTypeMeta = ref<Record<string, string>>({});
@@ -160,6 +225,44 @@
     const user: any = userStore.getUserInfo;
     return String(user?.id ?? user?.userId ?? '');
   });
+  const businessActions = computed(() => !detailReady.value ? [] : resolvePeriodDetailActions(project.value, {
+    userId: currentUserId.value,
+    admin: !!userStore.getIdentity.roleCodes?.includes('admin'),
+    manager: manager.value,
+    hasPermission,
+  }));
+  async function loadMembership() {
+    const sequence = ++membershipSequence;
+    const id = projectId.value;
+    const userId = currentUserId.value;
+    manager.value = false;
+    membershipError.value = false;
+    if (!id || !userId) return;
+    try {
+      const membership = await readProjectMembership(id, userId);
+      if (sequence !== membershipSequence || id !== projectId.value || userId !== currentUserId.value) return;
+      manager.value = membership.manager;
+    } catch { if (sequence === membershipSequence) membershipError.value = true; }
+  }
+  function handleContractEdit() {
+    if (!detailReady.value || !projectId.value || !hasPermission('project:contract:view')) return;
+    router.push({ path: '/project/contract', query: { periodId: projectId.value, projectId: project.value.projectId, mode: 'edit', from: 'periodDetail' },
+      state: { contractProjectContext: contractProjectContext(project.value, currentUserId.value) } });
+  }
+  function handleBusinessAction(action: PeriodDetailAction) {
+    const current = businessActions.value.find(item => item.key === action.key);
+    if (!current) return;
+    const periodId = projectId.value;
+    if (current.tab === 'contract') {
+      router.push({ path: '/project/contract', query: { periodId, projectId: project.value.projectId, mode: current.mode, from: 'periodDetail' },
+        state: { contractProjectContext: contractProjectContext(project.value, currentUserId.value) } });
+    } else {
+      router.push({ path: '/project/plan', query: { periodId, from: 'periodDetail',
+        ...(current.mode === 'edit' ? {} : { mode: 'view' }),
+        ...(current.mode === 'audit' ? { audit: '1', ...(route.query.approvalId ? { approvalId: String(route.query.approvalId) } : {}) } : {}) } });
+    }
+  }
+  watch([projectId, currentUserId], loadMembership, { immediate: true, flush: 'sync' });
   // 项目创建后，只有指定的项目对接人可从详情页进入编辑。
   const canEditProject = computed(() => !!currentUserId.value && String(project.value.projectLiaisonUserId ?? '') === currentUserId.value);
   const canManageFiles = computed(() => {
@@ -180,33 +283,25 @@
       .join('、');
   }
 
-  /**
-   * 状态流转按钮：合同签订/审批和实施完成不在项目详情页办理。
-   * 验收、返工和质保均由专用业务接口校验并推进，详情页不再手工改状态。
-   */
-  const flowActions = computed(() => {
-    const flow = statusFlow[project.value.status];
-    const actions: any[] = [];
-    if (flow && flow.actions) {
-      flow.actions.forEach((action) => {
-        if (['contractSign', 'processComplete'].includes(action.act)) return;
-        actions.push({ ...action, pop: true });
-      });
-    }
-    return actions;
-  });
-
   async function load() {
     const sequence = ++loadSequence;
     const id = projectId.value;
+    detailReady.value = false;
     loadError.value = '';
     try {
       if (!id) throw new Error('缺少项目分期 ID');
       const data = await getProjectBasic({ periodId: id });
       if (sequence !== loadSequence) return;
-      if (!data?.periodId) throw new Error('未找到项目详情');
+      if (String(data?.periodId || '') !== id) throw new Error('项目分期信息不匹配，请重新加载');
       project.value = data;
-      openedTabs.value = [...new Set([...openedTabs.value, ...resolveDetailTabs(data)])];
+      historyTabs.value = [];
+      historyTabsError.value = false;
+      if (data.status === 'CLOSED') {
+        const history = await readClosedPeriodTabs(id);
+        if (sequence !== loadSequence) return;
+        historyTabs.value = history.tabs;
+        historyTabsError.value = history.failed;
+      }
       const firstLoad = !detailReady.value;
       detailReady.value = true;
       if (firstLoad) applyRequestedTab();
@@ -240,40 +335,34 @@
       project.value = {};
       activities.value = [];
       detailReady.value = false;
-      openedTabs.value = [];
+      historyTabs.value = [];
+      historyTabsError.value = false;
       activeKey.value = 'basic';
       void load();
     },
     { immediate: true }
   );
   watch(() => route.query.tab, applyRequestedTab);
+  watch(visibleTabs, (tabs) => {
+    if (detailReady.value && !tabs.includes(activeKey.value)) activeKey.value = 'basic';
+  });
+  watch(activeKey, (tab) => {
+    if (detailReady.value && route.query.tab !== tab) router.replace({ query: { ...route.query, tab } });
+  });
+  let needsRefresh = false;
+  onDeactivated(() => { needsRefresh = true; loadSequence += 1; membershipSequence += 1; detailReady.value = false; manager.value = false; });
+  onActivated(() => { if (needsRefresh) { needsRefresh = false; void load(); void loadMembership(); } });
   watch(canViewQuotation, () => {
     if (!canViewQuotation.value && activeKey.value === 'quotation') activeKey.value = 'basic';
     else if (canViewQuotation.value && route.query.tab === 'quotation') applyRequestedTab();
   });
   onBeforeUnmount(() => {
+    membershipSequence += 1;
     loadSequence++;
   });
 
-  /**
-   * 状态推进: 前端传 periodId + status 给统一状态变更接口
-   */
-  async function handleAdvance(action: any) {
-    if (advancing.value) return;
-    advancing.value = true;
-    try {
-      await changePeriodStatus({ periodId: projectId.value, status: action.status });
-      createMessage.success(`操作成功：${action.label}`);
-      await load();
-    } catch (error: any) {
-      createMessage.error(error?.message || `${action.label || '操作'}失败，请重试`);
-    } finally {
-      advancing.value = false;
-    }
-  }
-
   async function handleBusinessChanged() {
-    await load();
+    await Promise.all([load(), loadMembership()]);
   }
 
   function goBack() {
@@ -303,6 +392,7 @@
 </script>
 
 <style lang="less" scoped>
+  .project-detail__actions { margin-bottom: 16px; }
   .project-detail {
     display: flex;
     gap: 16px;
@@ -368,7 +458,8 @@
       &-scroll {
         max-height: calc(100vh - 150px);
         overflow-y: auto;
-        padding: 2px 8px 2px 0;
+        // Ant Timeline 内容默认 top: -7px，预留顶部空间避免被滚动容器裁切。
+        padding: 8px 8px 8px 0;
         scrollbar-gutter: stable;
 
         &:focus-visible {
@@ -407,6 +498,10 @@
   @media (max-width: 1200px) {
     .project-detail {
       flex-direction: column;
+
+      &__main {
+        width: 100%;
+      }
 
       &__activity {
         width: 100%;

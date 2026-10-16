@@ -6,7 +6,7 @@
     <a-table
       :columns="columns"
       :data-source="records"
-      :pagination="pagination"
+      :pagination="withPagination(pagination)"
       :loading="loading"
       row-key="id"
       size="middle"
@@ -24,6 +24,7 @@
 </template>
 
 <script lang="ts" setup>
+  import { withPagination } from '/@/components/Pagination/config';
   import { ref, reactive, watch, onBeforeUnmount } from 'vue';
   import { useModal } from '/@/components/Modal';
   import { getImplementRecords } from '../ProjectDetail.api';

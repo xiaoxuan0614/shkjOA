@@ -13,6 +13,7 @@ import { useI18n } from '/@/hooks/web/useI18n';
 import { useMessage } from '/@/hooks/web/useMessage';
 import { router } from '/@/router';
 import { useMultipleTabStore } from '/@/store/modules/multipleTab';
+import { usePermissionStore } from '/@/store/modules/permission';
 import { isArray } from '/@/utils/is';
 import { useGlobSetting } from '/@/hooks/setting';
 import { JDragConfigEnum } from '/@/enums/jeecgEnum';
@@ -21,6 +22,7 @@ import { clearProjectCreateDrafts } from '/@/utils/projectCreateDraft';
 import { clearSessionDrafts } from '/@/utils/sessionDraftStorage';
 import { invalidateSessionRequests } from '/@/utils/http/axios/sessionRequests';
 import { useMyWebSocket } from '/@/hooks/web/useWebSocket';
+import { navigateAfterLogout } from '/@/utils/auth/logoutNavigation';
 let logoutTask: Promise<void> | undefined;
 interface dictType {
   [key: string]: any;
@@ -68,7 +70,7 @@ export const useUserStore = defineStore('app-user', {
       return this.loginInfo || getAuthCache<LoginInfo>(LOGIN_INFO_KEY) || {};
     },
     getToken(): string {
-      return this.token || getAuthCache<string>(TOKEN_KEY);
+      return this.token === undefined ? getAuthCache<string>(TOKEN_KEY) : this.token;
     },
     getAllDictItems(): [] {
       return this.dictItems || getAuthCache(DB_DICT_DATA_KEY);
@@ -250,16 +252,18 @@ export const useUserStore = defineStore('app-user', {
      */
     async logout(goLogin = false) {
       if (logoutTask) return logoutTask;
-      invalidateSessionRequests(true);
-      useMyWebSocket()?.close();
+      const token = this.getToken;
       logoutTask = Promise.resolve().then(async () => {
-        if (this.getToken) {
+        if (token) {
           try {
-            await doLogout();
-          } catch {
-            console.error('服务端注销未确认，继续清理本地登录状态');
+            await doLogout(token);
+          } catch (error) {
+            useMessage().createMessage.error(error instanceof Error ? error.message : '退出登录失败，请重试');
+            throw error;
           }
         }
+        invalidateSessionRequests(true);
+        try { useMyWebSocket()?.close(); } catch { console.warn('连接关闭失败，继续退出'); }
         this.setToken('');
         setAuthCache(TOKEN_KEY, null);
         this.setSessionTimeout(false);
@@ -268,12 +272,11 @@ export const useUserStore = defineStore('app-user', {
         this.setLoginInfo(null);
         // 同步清理；延迟清理可能误清新登录会话的字典。
         this.setAllDictItems(null);
+        usePermissionStore().$reset();
+        useMultipleTabStore().resetState();
         localStorage.removeItem(JDragConfigEnum.DRAG_BASE_URL);
-        if (goLogin && router.currentRoute.value.path !== PageEnum.BASE_LOGIN) {
-          await router.push({
-            path: PageEnum.BASE_LOGIN,
-            query: { redirect: router.currentRoute.value.fullPath },
-          });
+        if (goLogin) {
+          await navigateAfterLogout(router, PageEnum.BASE_LOGIN);
         }
       }).finally(() => { logoutTask = undefined; });
       return logoutTask;

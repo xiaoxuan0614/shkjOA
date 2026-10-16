@@ -28,7 +28,7 @@
         :data-source="designRows"
         :loading="loading"
         row-key="process_key"
-        :pagination="{ current: page, pageSize: 10, total, showSizeChanger: false }"
+        :pagination="withPagination({ current: page, pageSize: 10, total, showSizeChanger: false })"
         @change="
           (p) => {
             page = p.current || 1;
@@ -46,7 +46,7 @@
         :loading="loading"
         row-key="process_key"
         :scroll="{ x: 1100 }"
-        :pagination="{ current: page, pageSize: 10, total, showSizeChanger: false, showTotal: (n) => `共 ${n} 个流程` }"
+        :pagination="withPagination({ current: page, pageSize: 10, total, showSizeChanger: false, showTotal: (n) => `共 ${n} 个流程` })"
         @change="
           (p) => {
             page = p.current || 1;
@@ -111,6 +111,7 @@
   </div>
 </template>
 <script setup lang="ts" name="WorkflowModelList">
+  import { withPagination } from '/@/components/Pagination/config';
   defineOptions({ name: 'WorkflowModelList' });
   import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
   import { Modal, message } from 'ant-design-vue';

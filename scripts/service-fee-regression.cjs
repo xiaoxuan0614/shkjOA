@@ -102,8 +102,8 @@ assert.deepEqual(cellEvents.pop()[2], { guidePrice: 99 }, '人工定价不被公
 assert.deepEqual(fees.serviceFeeApprovalItems([{ id: 'detail', serviceFeeId: 'library', approvalOpinion: '同意', costPrice: 100 }]), [{ itemId: 'detail', approvalOpinion: '同意' }]);
 assert.deepEqual(fees.serviceFeeApprovalItems([{ id: 'detail', approvalOpinion: null }]), [{ itemId: 'detail', approvalOpinion: '' }]);
 assert.deepEqual(fees.serviceFeeApprovalItems([{ id: 'detail', approvalOpinion: '' }]), [{ itemId: 'detail', approvalOpinion: '' }]);
-for (const rows of [[{ serviceFeeId: 'library' }], [{ id: 'd' }, { id: 'd' }], [{ id: 'd', approvalOpinion: '字'.repeat(501) }], [{ id: 'd', approvalOpinion: 1 }]]) assert.throws(() => fees.serviceFeeApprovalItems(rows));
-assert.equal(fees.serviceFeeApprovalItems([{ id: 'd', approvalOpinion: '字'.repeat(500) }])[0].approvalOpinion.length, 500);
+for (const rows of [[{ serviceFeeId: 'library' }], [{ id: 'd' }, { id: 'd' }], [{ id: 'd', approvalOpinion: '字'.repeat(101) }], [{ id: 'd', approvalOpinion: 1 }]]) assert.throws(() => fees.serviceFeeApprovalItems(rows));
+assert.equal(fees.serviceFeeApprovalItems([{ id: 'd', approvalOpinion: '字'.repeat(100) }])[0].approvalOpinion.length, 100);
 assert.equal(fees.serviceFeePrice(100, 6), '106.00');
 assert.equal(fees.serviceFeePrice('1.01', 50), '1.52');
 assert.equal(fees.serviceFeePrice(0, 6), '0.00');
@@ -224,6 +224,7 @@ assert.deepEqual(cellEvents.pop()[2], { costPrice: 500 }, '市场改成本不覆
 updateCell({ ...cellProps, directQuotation: true, priceVisible: true, priceEditable: true, record: directFee }, cellEmit, fees.serviceFeePrice, 'guidePrice', 12.34);
 assert.deepEqual(cellEvents.pop()[2], { guidePrice: 12.34 });
 const feeAst = ts.createSourceFile('fees.ts', sfc.parse(feeTableSource).descriptor.scriptSetup.content, ts.ScriptTarget.Latest, true);
+assert(feeTableSource.includes('width="min(1200px, calc(100vw - 32px))"'), '选择弹窗加宽并保留窄屏边距');
 const columnNodes = feeAst.statements.filter(node => ts.isVariableStatement(node) && node.declarationList.declarations.some(d => ['columns', 'pickerColumns'].includes(d.name.getText(feeAst))));
 const columnsFor = new Function('props', 'computed', ts.transpileModule(columnNodes.map(node => node.getText(feeAst)).join('\n'), { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText + '\nreturn [columns.value, pickerColumns.value];');
 for (const visible of [false, true]) {
@@ -231,6 +232,9 @@ for (const visible of [false, true]) {
   assert.equal(main.some(c => c.key === 'markupRate'), visible);
   assert.equal(main.some(c => c.key === 'guidePrice'), visible);
   assert.equal(picker.some(c => c.key === 'guideMarkupRate'), visible);
+  assert(picker.some(c => c.key === 'taxRate'));
+  assert.equal(picker.at(-1).key, 'action');
+  assert.equal(picker.at(-1).fixed, 'right');
 }
 // Exercise the actual editor computed expressions across the template-ref lifecycle.
 const { ref } = require('vue');
@@ -272,28 +276,34 @@ recalc({ priceEditable: true, busy: false }, fees.serviceFeePrice, protectedRow)
 assert.equal(protectedRow.guidePrice, '212.00');
 // Run actual picker handlers: multi-select, reopening, snapshot preservation and cancellation.
 const pickerDeclarations = feeAst.statements.filter(node =>
-  ts.isFunctionDeclaration(node) && ['openPicker', 'confirmSelection'].includes(node.name?.text))
+  ts.isFunctionDeclaration(node) && ['openPicker', 'confirmSelection', 'toggleSelection', 'togglePageSelection'].includes(node.name?.text))
   .map(node => ts.transpile(node.getText(feeAst), { target: ts.ScriptTarget.ES2020 })).join('\n');
 const savedFee = { id: 'detail-1', serviceFeeId: 'source-1', quantity: 7, costPrice: 99 };
 const legacyFee = { id: 'legacy', quantity: 2 };
 const pickerProps = { modelValue: [savedFee, legacyFee], structureEditable: true, busy: false, ready: true };
-const pickerState = { selectedKeys: ref([]), selectedOptions: new Map(), keyword: ref(''), pickerOpen: ref(false), loading: ref(false), error: ref('') };
+const pickerState = { selectedKeys: ref([]), selectedOptions: new Map(), keyword: ref(''), pickerOpen: ref(false), loading: ref(false), error: ref(''), options: ref([]) };
 const picker = new Function('props', ...Object.keys(pickerState), 'search', 'serviceFeeCopy', 'emit', 'createMessage',
-  'let seed = 0;\n' + pickerDeclarations + '\nreturn { openPicker, confirmSelection };')(
+  'let seed = 0;\n' + pickerDeclarations + '\nreturn { openPicker, confirmSelection, toggleSelection, togglePageSelection };')(
   pickerProps, ...Object.values(pickerState), () => {}, fees.serviceFeeCopy,
   (_, rows) => { pickerProps.modelValue = rows; }, { error(message) { throw Error(message); } });
 picker.openPicker();
 assert.deepEqual(pickerState.selectedKeys.value, ['source-1']);
 for (const id of ['source-2', 'source-3']) {
-  pickerState.selectedKeys.value.push(id);
-  pickerState.selectedOptions.set(id, { id, name: id, unit: '项', quantity: 1, costPrice: 10, markupRate: 0 });
+  picker.toggleSelection({ id, name: id, unit: '项', quantity: 1, costPrice: 10, markupRate: 0 });
 }
+picker.toggleSelection({ id: 'source-2' });
+assert.deepEqual(pickerState.selectedKeys.value, ['source-1', 'source-3']);
+picker.toggleSelection({ id: 'source-2', name: 'source-2', unit: '项', quantity: 1, costPrice: 10, markupRate: 0 });
+pickerProps.busy = true;
+picker.toggleSelection({ id: 'source-1' });
+assert(pickerState.selectedKeys.value.includes('source-1'));
+pickerProps.busy = false;
 picker.confirmSelection();
 assert.equal(pickerProps.modelValue.length, 4);
 assert.equal(pickerProps.modelValue[0], savedFee);
 assert.equal(pickerProps.modelValue[1], legacyFee);
 picker.openPicker();
-assert.deepEqual(pickerState.selectedKeys.value, ['source-1', 'source-2', 'source-3']);
+assert.deepEqual(pickerState.selectedKeys.value, ['source-1', 'source-3', 'source-2']);
 pickerState.selectedKeys.value = []; // Cancel by closing, without confirm.
 pickerState.pickerOpen.value = false;
 assert.equal(pickerProps.modelValue.length, 4);
@@ -304,6 +314,27 @@ picker.openPicker();
 pickerState.selectedKeys.value = ['source-3'];
 picker.confirmSelection();
 assert.deepEqual(pickerProps.modelValue.map(row => row.id || row.serviceFeeId), ['legacy', 'source-3']);
+pickerState.options.value = [{ id: 'page-1' }, { id: 'page-2' }, { name: 'invalid' }];
+picker.togglePageSelection(true);
+assert.deepEqual(pickerState.selectedKeys.value, ['source-3', 'page-1', 'page-2']);
+picker.togglePageSelection(true);
+assert.equal(pickerState.selectedKeys.value.length, 3, '全选不重复添加');
+picker.togglePageSelection(false);
+assert.deepEqual(pickerState.selectedKeys.value, ['source-3'], '取消全选保留其他页');
+pickerProps.busy = true;
+picker.togglePageSelection(true);
+assert.deepEqual(pickerState.selectedKeys.value, ['source-3']);
+pickerProps.busy = false;
+const pageNode = feeAst.statements.find(node => ts.isVariableStatement(node) && node.declarationList.declarations.some(d => d.name.getText(feeAst) === 'pageSelection'));
+const pageState = new Function('computed', 'options', 'selectedKeys', ts.transpile(pageNode.getText(feeAst), { target: ts.ScriptTarget.ES2020 }) + '\nreturn pageSelection;')(computed, pickerState.options, pickerState.selectedKeys);
+assert.equal(pageState.value.all, false);
+picker.toggleSelection({ id: 'page-1' });
+assert.equal(pageState.value.partial, true);
+picker.togglePageSelection(true);
+assert.equal(pageState.value.all, true);
+assert.equal(pageState.value.partial, false);
+pickerState.options.value = [];
+assert.equal(pageState.value.all, false);
 assert(editorSource.indexOf('物料费合计') > editorSource.indexOf('</MaterialPlanTable>'));
 for (const label of ['已选物料数量', '物料费合计', '服务费合计', '总计']) assert(editorSource.includes(label));
 assert(!feeTableSource.includes('service-fees__total'));

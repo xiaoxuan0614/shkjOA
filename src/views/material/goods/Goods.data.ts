@@ -147,6 +147,7 @@ export const formSchema: FormSchema[] = [
     field: 'brand',
     component: 'JDictSelectTag',
     componentProps: { dictCode: 'material_brand', placeholder: '请选择或搜索品牌', showSearch: true, onlySearchByLabel: true },
+    dynamicRules: () => [{ required: true, message: '请选择品牌!' }],
   },
   {
     label: '型号(规格)',
@@ -159,7 +160,7 @@ export const formSchema: FormSchema[] = [
     label: '安全库存',
     field: 'safetyStock',
     component: 'InputNumber',
-    componentProps: { placeholder: '请输入安全库存', min: 0, style: { width: '100%' } },
+    componentProps: { precision: 2, placeholder: '请输入安全库存', min: 0, style: { width: '100%' } },
   },
   {
     label: '规格参数',

@@ -14,7 +14,7 @@
           <ServiceFeeUnitSelect :value="record.unit" :disabled="!structureEditable || busy" :label="`${record.name}单位`" @change="record.unit = $event" />
         </template>
         <template v-else-if="column.key === 'quantity'">
-          <a-input-number v-model:value="record.quantity" :disabled="!structureEditable || busy" :min="0.0001" :max="9999999999" :precision="4" :aria-label="`${record.name}数量`" aria-required="true" />
+          <a-input-number v-model:value="record.quantity" :disabled="!structureEditable || busy" :min="0.01" :max="9999999999" :precision="2" :aria-label="`${record.name}数量`" aria-required="true" />
         </template>
         <template v-else-if="column.key === 'costPrice'">
           <a-input-number v-model:value="record.costPrice" :disabled="!costEditable || busy" :min="0" :max="9999999999" :precision="2" :aria-label="`${record.name}成本价`" aria-required="true" @change="recalculate(record)" />
@@ -29,53 +29,87 @@
         <template v-else-if="column.key === 'action'"><a-popconfirm title="从本报价移除该服务费？" @confirm="remove(record)"><a-button type="link" danger :disabled="busy || !structureEditable">删除</a-button></a-popconfirm></template>
       </template>
     </a-table>
-    <a-modal v-model:open="pickerOpen" title="选择服务费" :width="720" :ok-button-props="{ disabled: busy || loading || !!error || !structureEditable || !ready }" @ok="confirmSelection">
-      <a-input-search v-model:value="keyword" placeholder="搜索费用名称" aria-label="搜索费用名称" allow-clear :loading="loading" @search="search" />
+    <a-modal v-model:open="pickerOpen" title="选择服务费" width="min(1200px, calc(100vw - 32px))" :ok-button-props="{ disabled: busy || loading || !!error || !structureEditable || !ready }" @ok="confirmSelection">
+      <div class="service-fees__toolbar">
+        <a-input-search v-model:value="keyword" placeholder="搜索费用名称" aria-label="搜索费用名称" allow-clear :loading="loading" @search="search" />
+        <a-button v-if="hasPermission('mtl:serviceFee:add')" type="primary" preIcon="ant-design:plus-outlined" :disabled="busy || !ready || !structureEditable" @click="maintenance?.openForm()">新增</a-button>
+      </div>
       <a-alert v-if="error" type="error" :message="error" show-icon><template #action><a-button size="small" @click="loadOptions">重试</a-button></template></a-alert>
-      <div class="service-fees__hint">已选 {{ selectedKeys.length }} 项，可跨页多选；点击确定后应用。</div>
-      <a-table :columns="pickerColumns" :data-source="options" :row-key="row => String(row.id)" :row-selection="rowSelection" :loading="loading" :pagination="{ current: page, pageSize: 10, total: optionTotal, showSizeChanger: false }" :scroll="{ x: 600 }" @change="changePage">
+      <a-table :columns="pickerColumns" :data-source="options" :row-key="row => String(row.id)" :loading="loading" :pagination="withPagination({ current: page, pageSize: 10, total: optionTotal, showSizeChanger: false })" :scroll="{ x: 800 }" @change="changePage">
+        <template #headerCell="{ column }">
+          <a-space v-if="column.key === 'action'" :size="8">
+            <span>操作</span>
+            <a-checkbox :checked="pageSelection.all" :indeterminate="pageSelection.partial" :disabled="busy || loading || !structureEditable || !ready || !pageSelection.count" aria-label="全选当前页服务费" @change="togglePageSelection($event.target.checked)" />
+          </a-space>
+          <template v-else>{{ column.title }}</template>
+        </template>
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'guideMarkupRate'">{{ record.guideMarkupRate ?? 0 }}%</template>
           <template v-else-if="column.key === 'unit'">{{ record.unit || '—' }}</template>
+          <template v-else-if="column.key === 'taxRate'">{{ serviceFeeTaxText(record.taxRate ?? record.markupRate) }}</template>
+          <template v-else-if="column.key === 'action'">
+            <a-checkbox :checked="selectedKeys.includes(String(record.id))" :aria-label="`选择服务费：${record.name}`" :disabled="busy || loading || !structureEditable || !ready || record.id == null" @change="toggleSelection(record)" />
+          </template>
         </template>
       </a-table>
+      <div class="service-fees__hint">已选 {{ selectedKeys.length }} 项，可跨页多选；表头全选当前页，点击确定后应用。</div>
     </a-modal>
+    <ServiceFeeMaintenance ref="maintenance" form-only @saved="refreshAfterCreate" />
   </section>
 </template>
 <script setup lang="ts">
+  import { withPagination } from '/@/components/Pagination/config';
   import { computed, onBeforeUnmount, ref } from 'vue';
   import { serviceFeeList } from '../service-fee/ServiceFee.api';
-  import { serviceFeeCopy, serviceFeePrice } from '../serviceFee';
+  import { serviceFeeCopy, serviceFeePrice, serviceFeeTaxText } from '../serviceFee';
+  import ServiceFeeMaintenance from '../service-fee/index.vue';
+  import { usePermission } from '/@/hooks/web/usePermission';
   import ServiceFeeUnitSelect from './ServiceFeeUnitSelect.vue';
   import { useMessage } from '/@/hooks/web/useMessage';
-  const props = defineProps<{ modelValue: Recordable[]; ready: boolean; editable: boolean; structureEditable: boolean; costEditable: boolean; priceVisible: boolean; priceEditable: boolean; busy: boolean; pickerOnly?: boolean; directQuotation?: boolean }>();
+  const props = defineProps<{ modelValue: Recordable[]; ready: boolean; editable: boolean; structureEditable: boolean; costEditable: boolean; costVisible?: boolean; priceVisible: boolean; priceEditable: boolean; busy: boolean; pickerOnly?: boolean; directQuotation?: boolean }>();
   const emit = defineEmits(['update:modelValue']);
   const { createMessage } = useMessage();
+  const { hasPermission } = usePermission();
+  const maintenance = ref<InstanceType<typeof ServiceFeeMaintenance>>();
   const columns = computed(() => [
-    { title: '费用名称', key: 'name', width: 180 },
+    { title: '费用名称', key: 'name', width: 100 },
     { title: '单位', key: 'unit', width: 90 }, { title: '数量', key: 'quantity', width: 110 },
     { title: '成本价（元）', key: 'costPrice', width: 120 },
     ...(props.priceVisible ? [{ title: '指导比例', key: 'markupRate', width: 130 }, { title: '指导价（元）', key: 'guidePrice', width: 120 }] : []),
     { title: '备注', key: 'remark', width: 220 }, ...(props.structureEditable ? [{ title: '操作', key: 'action', width: 80 }] : []),
   ]);
   const pickerColumns = computed(() => [{ title: '费用名称', dataIndex: 'name' }, { title: '单位', key: 'unit', dataIndex: 'unit', width: 90, ellipsis: true },
+    { title: '税率', key: 'taxRate', width: 90 },
     ...(props.priceVisible ? [{ title: '指导比例', key: 'guideMarkupRate', width: 100 }] : []),
-    { title: '成本价', dataIndex: 'costPrice', width: 110 }, { title: '描述', dataIndex: 'description', ellipsis: true }]);
+    ...(props.costVisible !== false ? [{ title: '成本价', dataIndex: 'costPrice', width: 110 }] : []), { title: '描述', dataIndex: 'description', ellipsis: true },
+    { title: '操作', key: 'action', width: 110, fixed: 'right' as const }]);
   const pickerOpen = ref(false), keyword = ref(''), page = ref(1), optionTotal = ref(0), loading = ref(false), error = ref('');
   const options = ref<Recordable[]>([]);
   const selectedKeys = ref<string[]>([]);
   const selectedOptions = new Map<string, Recordable>();
-  const rowSelection = computed(() => ({
-    type: 'checkbox' as const,
-    selectedRowKeys: selectedKeys.value,
-    preserveSelectedRowKeys: true,
-    getCheckboxProps: () => ({ disabled: props.busy || loading.value || !props.structureEditable || !props.ready }),
-    onChange: (keys: (string | number)[], rows: Recordable[]) => {
-      if (props.busy || loading.value || !props.structureEditable || !props.ready) return;
-      selectedKeys.value = keys.map(String);
-      for (const row of rows) if (row?.id != null) selectedOptions.set(String(row.id), row);
-    },
-  }));
+  const pageSelection = computed(() => {
+    const ids = options.value.filter(row => row.id != null).map(row => String(row.id));
+    const selected = ids.filter(id => selectedKeys.value.includes(id)).length;
+    return { count: ids.length, all: ids.length > 0 && selected === ids.length, partial: selected > 0 && selected < ids.length };
+  });
+  function togglePageSelection(checked: boolean) {
+    if (props.busy || loading.value || !props.structureEditable || !props.ready) return;
+    const keys = new Set(selectedKeys.value);
+    for (const row of options.value) {
+      if (row.id == null) continue;
+      const id = String(row.id);
+      if (checked) { keys.add(id); selectedOptions.set(id, row); }
+      else keys.delete(id);
+    }
+    selectedKeys.value = [...keys];
+  }
+  function toggleSelection(row: Recordable) {
+    if (props.busy || loading.value || !props.structureEditable || !props.ready || row.id == null) return;
+    const id = String(row.id);
+    if (selectedKeys.value.includes(id)) selectedKeys.value = selectedKeys.value.filter(key => key !== id);
+    else { selectedKeys.value.push(id); selectedOptions.set(id, row); }
+  }
+  function refreshAfterCreate() { keyword.value = ''; search(); }
   let sequence = 0, seed = 0;
   onBeforeUnmount(() => { sequence++; });
   async function loadOptions() {

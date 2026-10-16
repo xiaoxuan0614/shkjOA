@@ -94,7 +94,7 @@
                 </div>
                 <!-- 分页 -->
                 <div v-if="!currentDepartTree.length && currentDeptTotal > currentDeptPageSize" class="dept-user-pagination">
-                  <a-pagination
+                  <BasicPagination
                     v-model:current="currentDeptPageNo"
                     :total="currentDeptTotal"
                     :pageSize="currentDeptPageSize"

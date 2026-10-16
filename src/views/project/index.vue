@@ -17,6 +17,12 @@
             <span class="project-customer-name" :tabindex="record.customerName ? 0 : undefined">{{ record.customerName || '—' }}</span>
           </a-tooltip>
         </template>
+        <template v-else-if="column.dataIndex === 'priced'">
+          <a-tag v-if="quotationYesNoMeta[String(record.priced)]" :color="quotationYesNoMeta[String(record.priced)].color || 'default'">
+            {{ quotationYesNoMeta[String(record.priced)].label }}
+          </a-tag>
+          <span v-else>—</span>
+        </template>
         <template v-else-if="column.dataIndex === 'status'">
           <a-tag :color="statusMeta[record.status]?.color || statusColorMap[record.status] || 'default'">
             {{ statusMeta[record.status]?.text || projectStatusMap[record.status] || record.status || '—' }}
@@ -83,12 +89,6 @@
         </a-form-item>
       </div>
     </a-modal>
-    <!-- 计划审批 -->
-    <PlanAuditModal @register="registerPlanAuditModal" @success="handleAuditSuccess" />
-    <ArrivalConfirmModal @register="registerArrivalConfirmModal" @success="reload" />
-    <AcceptanceModal @register="registerAcceptanceModal" @success="reload" />
-    <MaterialSupplementDrawer @register="registerMaterialSupplementDrawer" @success="handleSupplementSuccess" />
-    <ProcessCompletionDrawer @register="registerProcessCompletionDrawer" @success="reload" />
   </div>
 </template>
 
@@ -96,47 +96,26 @@
   import { reactive, ref, onMounted, onBeforeUnmount, watch } from 'vue';
   import { useRouter } from 'vue-router';
   import { BasicTable, TableAction } from '/@/components/Table';
-  import { useModal } from '/@/components/Modal';
-  import { useDrawer } from '/@/components/Drawer';
   import { useListPage } from '/@/hooks/system/useListPage';
-  import { columns, searchFormSchema, statusFlow, projectStatusMap, statusColorMap, loadProjectStatusMap, loadProjectTypeMap } from './Project.data';
-  import { projectList, searchPeriod, deleteProject, changePeriodStatus, getCurrentParticipatedProjects } from './Project.api';
+  import { columns, searchFormSchema, projectStatusMap, statusColorMap, loadProjectStatusMap, loadProjectTypeMap, loadDictOptions } from './Project.data';
+  import { projectList, searchPeriod, deleteProject } from './Project.api';
   import { useMainProjectSearch } from './mainProjectSearch';
   import { projectActionLayout } from './projectActionLayout';
   import { useMessage } from '/@/hooks/web/useMessage';
-  import { getApprovalStatusMeta, isApprovalApproved, isApprovalPending } from '/@/utils/approvalStatus';
+  import { getApprovalStatusMeta } from '/@/utils/approvalStatus';
   import { loadUserOptions } from '/@/views/resource/userOptions';
-  import PlanAuditModal from './components/PlanAuditModal.vue';
-  import ArrivalConfirmModal from './components/ArrivalConfirmModal.vue';
-  import AcceptanceModal from './components/AcceptanceModal.vue';
   import { usePermission } from '/@/hooks/web/usePermission';
-  import MaterialSupplementDrawer from './components/MaterialSupplementDrawer.vue';
-  import ProcessCompletionDrawer from './components/ProcessCompletionDrawer.vue';
-  import { refreshTodos } from '/@/views/todo/useTodoCenter';
-  import { isArrivalStage, isPhysicalProject, isSoftwareProject } from './arrivalPayment';
-  import { useUserStore } from '/@/store/modules/user';
-  import { contractProjectContext } from './contract/projectContext';
+  import { isSoftwareProject } from './arrivalPayment';
 
-  import { useAcceptanceAccess } from './useAcceptanceAccess';
 
-  const { canViewAcceptanceEntry } = useAcceptanceAccess();
   const router = useRouter();
   const { createMessage } = useMessage();
   const { hasPermission } = usePermission();
-  const userStore = useUserStore();
-  const PROJECT_CLOSE_PERMISSION = 'project:close';
-  const closingPeriodIds = new Set<string>();
-
-  const [registerPlanAuditModal, { openModal: openPlanAuditModal }] = useModal();
-  const [registerArrivalConfirmModal, { openModal: openArrivalConfirmModal }] = useModal();
-  const [registerAcceptanceModal, { openModal: openAcceptanceModal }] = useModal();
-  const [registerMaterialSupplementDrawer, { openDrawer: openMaterialSupplementDrawer }] = useDrawer();
-  const [registerProcessCompletionDrawer, { openDrawer: openProcessCompletionDrawer }] = useDrawer();
-
   // 状态字典映射(数据源 project_period_status, 加载失败回退 projectStatusMap)
   const statusMeta = ref<Recordable>({});
   // 项目类型字典映射(数据源 project_type)
   const projectTypeMeta = ref<Recordable>({});
+  const quotationYesNoMeta = ref<Recordable>({});
   // 项目对接人姓名映射；接口姓名快照为空时按用户 ID 补齐。
   const liaisonNameMap = ref<Recordable>({});
   let liaisonOptionsPromise: Promise<{ label: string; value: string }[]> | null = null;
@@ -175,7 +154,8 @@
   }
 
   onMounted(async () => {
-    const [loadedStatusMeta, loadedProjectTypeMeta] = await Promise.all([loadProjectStatusMap(), loadProjectTypeMap(), loadLiaisonOptions()]);
+    const [loadedStatusMeta, loadedProjectTypeMeta, yesNoOptions] = await Promise.all([loadProjectStatusMap(), loadProjectTypeMap(), loadDictOptions('yes_no_status'), loadLiaisonOptions()]);
+    quotationYesNoMeta.value = Object.fromEntries(yesNoOptions.map(item => [String(item.value), { label: item.label, color: item.color }]));
     statusMeta.value = loadedStatusMeta;
     projectTypeMeta.value = loadedProjectTypeMeta;
   });
@@ -194,37 +174,13 @@
         fieldMapToTime: [],
       },
       actionColumn: {
-        width: 400,
+        width: 160,
         fixed: 'right',
       },
       beforeFetch: (params) => {
         return Object.assign(params, queryParam);
       },
-      afterFetch: async (rows: Recordable[]) => {
-        const managerUserId = String(userStore.getUserInfo?.id || '');
-        projectTypeMeta.value = await loadProjectTypeMap();
-        const result = rows.map((row) => ({ ...row, _isArrivalManager: false, _managerUserId: managerUserId }));
-        const pending = result.filter(
-          (row) =>
-            ((isArrivalStage(row) && isPhysicalProject(row, projectTypeMeta.value)) || ['PENDING_ACCEPT', 'NOT_STARTED', 'PREPARING'].includes(row.status)) && (row.periodId || row.id)
-        );
-        if (pending.length && managerUserId) {
-          try {
-            const memberships = await getCurrentParticipatedProjects();
-            if (!Array.isArray(memberships)) throw new Error('参与项目数据格式异常');
-            const managedPeriods = new Set(memberships.filter(member =>
-              String(member.userId || '') === managerUserId &&
-              String(member.memberRole || '').split(',').map(role => role.trim()).includes('2')
-            ).map(member => String(member.periodId || '')));
-            if (managerUserId === String(userStore.getUserInfo?.id || '')) {
-              pending.forEach(row => { row._isArrivalManager = managedPeriods.has(String(row.periodId || row.id)); });
-            }
-          } catch {
-            // 身份读取失败不开放经理专属操作，也不阻塞列表展示。
-          }
-        }
-        return result;
-      },
+
     },
   });
 
@@ -266,131 +222,17 @@
     });
   }
 
-  /** 统一计划入口：未开始/筹备中可编辑，待审批只读查看。 */
-  function handlePlan(record: Recordable) {
-    router.push({
-      path: '/project/plan',
-      query: { periodId: record.periodId || record.id, ...(canEditPlan(record) ? {} : { mode: 'view' }) },
-    });
-  }
 
-  function handleMaterialSupplement(record: Recordable) {
-    openMaterialSupplementDrawer(true, { record, allowCreate: canApplyMaterialSupplement(record) });
-  }
-
-  function canApplyMaterialSupplement(record: Recordable) {
-    return ['IMPLEMENTING', 'DEBUGGING', 'DEBUG_COMPLETED'].includes(String(record.status || ''));
-  }
-
-  /** 到货与回款独立，仅本分期项目经理可操作硬件类项目。 */
-  function canConfirmArrival(record: Recordable) {
-    return record._isArrivalManager === true && isArrivalStage(record) && isPhysicalProject(record, projectTypeMeta.value);
-  }
-
-  function handleConfirmArrival(record: Recordable) {
-    if (!canConfirmArrival(record) || !hasPermission('project:arrival:confirm')) return;
-    openArrivalConfirmModal(true, { record, periodId: record.periodId || record.id });
-  }
-
-  /** 未开始可编辑；筹备中修改受控计划会由后端作废原审批，要求重提。 */
-  function canEditPlan(record: Recordable) {
-    return ['NOT_STARTED', 'PREPARING'].includes(String(record.status || '')) &&
-      !!userStore.getUserInfo?.id &&
-      (userStore.getIdentity.roleCodes?.includes('admin') ||
-        (record._isArrivalManager === true && record._managerUserId === String(userStore.getUserInfo.id)));
-  }
-
-  /** 已提交合同统一进入合同信息页查看和处理，不再使用独立审批弹窗。 */
-  function handleContractInfo(record: Recordable) {
-    if (!hasPermission('project:contract:view') && !(isApprovalPending(record.contractStatus) && hasPermission('project:contract:approve'))) {
-      createMessage.warning('无合同信息查看权限');
-      return;
-    }
-    router.push({
-      path: '/project/contract',
-      query: { mode: 'view', periodId: record.periodId || record.id, projectId: record.projectId, ...(record.contractId ? { contractId: record.contractId } : {}) },
-      state: { contractProjectContext: contractProjectContext(record, String(userStore.getUserInfo?.id || '')) },
-    });
-  }
-
-  function isContractSubmitted(record: Recordable) {
-    return !!record.contractId || ['-1', '0', '1', '2', '3'].includes(String(record.contractStatus ?? ''));
-  }
-
-  /**
-   * 详情: 跳转项目详情页(8-tab), id 为分期ID
-   */
   function handleDetail(record: Recordable) {
-    router.push({ path: `/project/detail/${record.periodId || record.id}` });
+    const periodId = record.periodId || record.id;
+    if (!periodId) { createMessage.error('缺少项目分期 ID'); return; }
+    router.push(`/project/detail/${periodId}`);
   }
 
-  /**
-   * 删除(后端仅允许删分期)
-   */
+  /** 删除(后端仅允许删分期) */
   async function handleDelete(record: Recordable) {
     await deleteProject({ periodId: record.periodId || record.id });
     createMessage.success(`删除分期「${record.periodName || record.projectName}」成功`);
-    reload();
-  }
-
-  /** 关闭是例外终态；权限节点控制入口，提交前再次校验，避免仅依赖按钮显隐。 */
-  async function handleCloseProject(record: Recordable) {
-    if (!hasPermission(PROJECT_CLOSE_PERMISSION)) {
-      createMessage.warning('暂无关闭项目权限，请联系管理员授权');
-      return;
-    }
-    const periodId = String(record.periodId || record.id || '');
-    if (!periodId) {
-      createMessage.error('当前项目缺少分期 ID，无法关闭');
-      return;
-    }
-    if (['CLOSED', 'COMPLETED'].includes(String(record.status || '')) || closingPeriodIds.has(periodId)) return;
-    closingPeriodIds.add(periodId);
-    try {
-      await changePeriodStatus({ periodId, status: 'CLOSED' });
-      createMessage.success(`项目「${record.periodName || record.projectName || '未命名项目'}」已关闭`);
-      await reload();
-      refreshTodos(true).catch(() => undefined);
-    } finally {
-      closingPeriodIds.delete(periodId);
-    }
-  }
-
-  /**
-   * 计划审批成功回调
-   */
-  function handleAuditSuccess() {
-    reload();
-  }
-
-  function handleSupplementSuccess() {
-    reload();
-    refreshTodos(true).catch(() => undefined);
-  }
-
-  /**
-   * 状态推进: 前端传 periodId + status 给统一状态变更接口
-   * act='contractSign': 跳转「合同信息」页面(合同提交后项目→筹备中)
-   * act='planAudit': 打开「计划审批」弹窗(待审批→通过/驳回)
-   */
-  async function handleAdvance(record: Recordable, action: any) {
-    if (action.act === 'contractSign') {
-      router.push({
-        path: '/project/contract',
-        query: { mode: 'create', periodId: record.periodId || record.id, projectId: record.projectId },
-      });
-      return;
-    }
-    if (action.act === 'planAudit') {
-      openPlanAuditModal(true, { ...record, periodId: record.periodId || record.id, approvalId: record.currentApprovalId || '', record });
-      return;
-    }
-    if (action.act === 'processComplete') {
-      openProcessCompletionDrawer(true, { record, periodId: record.periodId || record.id });
-      return;
-    }
-    await changePeriodStatus({ periodId: record.periodId || record.id, status: action.status });
-    createMessage.success(`操作成功：${action.label}`);
     reload();
   }
 
@@ -402,79 +244,12 @@
   }
 
   function getTableAction(record: Recordable) {
-    const flow = statusFlow[record.status];
-    const actions = [];
-    if (
-      ['PENDING_ACCEPT', 'ACCEPTING', 'REACCEPTING', 'FAILED', 'REWORKING', 'COMPLETED', 'CLOSED'].includes(String(record.status || '')) &&
-      canViewAcceptanceEntry()
-    ) {
-      actions.push({
-        label: '验收',
-        tooltip: '查看验收、返工申请及审批记录',
-        onClick: () => {
-          if (canViewAcceptanceEntry()) openAcceptanceModal(true, { periodId: record.periodId || record.id, project: record });
-        },
-      });
-    }
-    if (flow && flow.actions) {
-      flow.actions.forEach((action) => {
-        // 明确返回合同 ID 或状态 0/1/2/3 时，均表示已有合同记录，不再显示「合同签订」。
-        if (action.act === 'contractSign' && isContractSubmitted(record)) return;
-        const item: Recordable = {
-          label: action.label,
-          auth: action.act === 'planAudit' && userStore.getIdentity.roleCodes?.includes('admin') ? undefined : action.auth,
-        };
-        if (['contractSign', 'processComplete', 'planAudit'].includes(action.act)) {
-          // 合同签订和工序完成先打开各自办理界面，不在列表按钮上直接确认。
-          item.onClick = handleAdvance.bind(null, record, action);
-        } else {
-          item.popConfirm = {
-            title: `确认执行「${action.label}」？`,
-            confirm: handleAdvance.bind(null, record, action),
-            placement: 'topLeft',
-          };
-        }
-        actions.push(item);
-      });
-    }
-    // 合同通过前，列表统一显示合同信息入口；通过后仅从项目详情查看。
-    if (isApprovalPending(record.contractStatus) && hasPermission('project:contract:approve')) {
-      actions.push({
-        label: '合同审批',
-        auth: 'project:contract:approve',
-        onClick: handleContractInfo.bind(null, record),
-      });
-    } else if (hasPermission('project:contract:view') && isContractSubmitted(record) && !isApprovalApproved(record.contractStatus)) {
-      actions.push({
-        label: '合同信息',
-        auth: 'project:contract:view',
-        onClick: handleContractInfo.bind(null, record),
-      });
-    }
-    // 计划入口沿用原优先顺序，最终由可见操作数量决定是否折叠。
-    if (canEditPlan(record) || String(record.status || '') === 'PENDING_APPROVAL') {
-      actions.push({
-        label: canEditPlan(record) ? '编辑计划方案' : '查看计划方案',
-        onClick: handlePlan.bind(null, record),
-      });
-    }
-    if (canConfirmArrival(record)) {
-      actions.push({
-        label: '确认到货',
-        auth: 'project:arrival:confirm',
-        onClick: handleConfirmArrival.bind(null, record),
-      });
-    }
-    return actions;
+    return [{ label: '详情', onClick: handleDetail.bind(null, record) }];
   }
 
   /** 下拉操作栏：详情、业务辅助操作、关闭与删除。 */
   function getDropDownAction(record: Recordable) {
     const actions: Recordable[] = [
-      {
-        label: '详情',
-        onClick: handleDetail.bind(null, record),
-      },
       {
         label: '删除',
         popConfirm: {
@@ -484,24 +259,6 @@
         },
       },
     ];
-    if (canApplyMaterialSupplement(record)) {
-      actions.splice(1, 0, {
-        label: '补料管理',
-        onClick: handleMaterialSupplement.bind(null, record),
-      });
-    }
-    if (!['CLOSED', 'COMPLETED'].includes(String(record.status || ''))) {
-      actions.splice(actions.length - 1, 0, {
-        label: '关闭项目',
-        auth: PROJECT_CLOSE_PERMISSION,
-        color: 'error',
-        popConfirm: {
-          title: `确认关闭项目「${record.periodName || record.projectName || '未命名项目'}」？关闭后未完成的项目领料会同步终止，当前系统暂不支持重新开启。`,
-          confirm: handleCloseProject.bind(null, record),
-          placement: 'topLeft',
-        },
-      });
-    }
     return actions;
   }
 </script>

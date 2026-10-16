@@ -20,7 +20,7 @@
           <a-descriptions-item label="项目编号">{{ detail.projectNo || '—' }}</a-descriptions-item>
           <a-descriptions-item label="主项目名称">{{ detail.projectName || '—' }}</a-descriptions-item>
           <a-descriptions-item label="甲方名称">{{ detail.customerName || '—' }}</a-descriptions-item>
-          <a-descriptions-item label="项目类型">{{ projectTypeText || '—' }}</a-descriptions-item>
+          <a-descriptions-item label="项目类型"><DictValue code="project_type" :value="detail.projectType" :fallback="projectTypeText || '—'" /></a-descriptions-item>
           <a-descriptions-item label="甲方信息" :span="2">{{ detail.customerInfo || '—' }}</a-descriptions-item>
         </a-descriptions>
       </section>
@@ -46,8 +46,8 @@
           <a-descriptions-item label="项目对接人">{{ detail.projectLiaisonUserName || '—' }}</a-descriptions-item>
           <a-descriptions-item label="甲方联系人">{{ detail.contactPerson || '—' }}</a-descriptions-item>
           <a-descriptions-item label="联系电话">{{ detail.contactPhone || '—' }}</a-descriptions-item>
-          <a-descriptions-item label="业务属性">{{ businessAttributeText || '—' }}</a-descriptions-item>
-          <a-descriptions-item label="涉及产品" :span="2">{{ involvedProductsText || '—' }}</a-descriptions-item>
+          <a-descriptions-item label="业务属性"><DictValue code="project_business_attr" :value="detail.businessAttribute" :fallback="businessAttributeText || '—'" /></a-descriptions-item>
+          <a-descriptions-item label="涉及产品" :span="2"><DictValue code="project_products" :value="detail.involvedProducts" :fallback="involvedProductsText || '—'" /></a-descriptions-item>
         </a-descriptions>
       </section>
 
@@ -78,6 +78,7 @@
   import { getApprovalStatusMeta } from '/@/utils/approvalStatus';
   import { projectDetail } from '../Project.api';
   import { loadDictOptions, loadProjectStatusMap, loadProjectTypeMap, projectStatusMap } from '../Project.data';
+  import DictValue from '/@/components/DictValue.vue';
   import { getPlanMembers } from '../plan/Plan.api';
   import { ProjectInvitation, useProjectInvitations } from '../plan/useProjectInvitations';
 

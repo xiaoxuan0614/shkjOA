@@ -17,7 +17,7 @@
       :data-source="rows"
       :loading="loading"
       :row-key="(r) => r.id || r.process_key"
-      :pagination="{ current: page, pageSize: 10, total, showSizeChanger: false }"
+      :pagination="withPagination({ current: page, pageSize: 10, total, showSizeChanger: false })"
       :scroll="{ x: 700 }"
       @change="
         (p) => {
@@ -87,6 +87,7 @@
   </div>
 </template>
 <script setup lang="ts" name="WorkflowApplications">
+  import { withPagination } from '/@/components/Pagination/config';
   defineOptions({ name: 'WorkflowApplications' });
   import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
   import { Modal } from 'ant-design-vue';
