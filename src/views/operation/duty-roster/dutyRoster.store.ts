@@ -1,47 +1,37 @@
-export type DutyShift = 'day' | 'night';
-
-export interface DutyRosterUserSnapshot {
-  value: string;
-  label: string;
-  username?: string;
-  phone?: string;
+/** Apifox 8679942 /operation/dutyRoster：人员均为前端提交的快照。 */
+export interface DutyPerson {
+  userId: string | null;
+  name: string | null;
+  phone: string | null;
 }
 
-export interface DutyRosterRow {
+export interface DutyRosterDay {
   date: string;
-  weekday: string;
-  dayUserIds: string[];
-  nightUserIds: string[];
-  contactUserId?: string;
+  weekday?: string;
+  dayUsers: (DutyPerson | null)[];
+  nightUser: DutyPerson | null;
+  nightUsers?: DutyPerson[];
+  /** 兼容旧初稿，展示与导出必须按当月参与人员重新计算。 */
+  restUser: DutyPerson | null;
+  restUsers?: DutyPerson[];
 }
 
-export interface DutyRosterDraft {
-  version: 1;
+export interface DutyRosterPayload {
   month: string;
-  enabledShifts: DutyShift[];
-  dayStaffCount: number;
-  nightStaffCount: number;
-  selectedUserIds: string[];
-  userSnapshots: DutyRosterUserSnapshot[];
-  rows: DutyRosterRow[];
-  savedAt: string;
+  version: number;
+  rotationUsers: (DutyPerson | null)[];
+  days: DutyRosterDay[];
 }
 
-const STORAGE_PREFIX = 'shkj:duty-roster:';
-
-export function loadDutyRosterDraft(month: string): DutyRosterDraft | null {
-  try {
-    const raw = window.localStorage.getItem(`${STORAGE_PREFIX}${month}`);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as DutyRosterDraft;
-    if (parsed?.version !== 1 || parsed.month !== month || !Array.isArray(parsed.rows)) return null;
-    return parsed;
-  } catch (error) {
-    console.warn('读取本地值班表失败', error);
-    return null;
-  }
+export interface DutyRosterResult extends DutyRosterPayload {
+  id: string | null;
+  saved: boolean;
+  canManage: boolean;
 }
 
-export function saveDutyRosterDraft(draft: DutyRosterDraft) {
-  window.localStorage.setItem(`${STORAGE_PREFIX}${draft.month}`, JSON.stringify(draft));
+export interface DutyPersonOptions {
+  canManage: boolean;
+  persons: DutyPerson[];
 }
+
+export type GenerationRule = 'text' | 'rotation' | 'manual';
