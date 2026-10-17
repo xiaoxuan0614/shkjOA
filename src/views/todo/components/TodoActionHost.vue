@@ -96,7 +96,7 @@
       createMessage.error('计划审批待办缺少项目分期 ID，无法打开');
       return;
     }
-    router.push({ path: `/project/detail/${periodId}`, query: { tab: 'plan', ...(approvalId ? { approvalId } : {}) } });
+    router.push({ path: '/project/plan', query: { periodId, mode: 'view', audit: '1', ...(approvalId ? { approvalId } : {}) } });
   }
 
   async function openTodo(todo: SystemTodo) {
@@ -227,7 +227,7 @@
       return;
     }
     if (/PLAN.*APPROVAL/i.test(actionIdentity) || matchesTodo(todo, /计划审批/i)) {
-      openPlanApproval(periodId);
+      openPlanApproval(periodId, String(params.approvalId || ''));
       return;
     }
     const targetPath = params.path || params.routePath || params.url;

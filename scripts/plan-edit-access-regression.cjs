@@ -7,11 +7,14 @@ const page = fs.readFileSync('src/views/project/plan/ProjectPlan.vue', 'utf8');
 // 入口已迁移到详情，权限矩阵在共享解析器专项测试中覆盖。
 require('./period-detail-actions-regression.cjs');
 const userStore = { getUserInfo: { id: 'u' }, getIdentity: { roleCodes: ['admin'] } };
-const editCtx = { props: { embeddedPeriodId: '' }, canEditPeriodPlan: p => ['NOT_STARTED', 'PREPARING'].includes(p.status), userStore, route: { query: {} }, permissionLoaded: { value: true }, contextReady: { value: true },
-  periodStatus: { value: 'PREPARING' }, currentUserId: { value: 'u' }, isProjectManager: { value: false }, computed: f => f };
+const editCtx = { projectRecord: {value:{}}, approvalSummary: {value:{}}, isHistoryView: {value:false}, props: { embeddedPeriodId: '' }, canEditPeriodPlan: p => p.status === 'PREPARING', userStore, route: { query: {} }, permissionLoaded: { value: true }, contextReady: { value: true },
+  periodStatus: { value: 'NOT_STARTED' }, currentUserId: { value: 'u' }, isProjectManager: { value: false }, computed: f => f };
 vm.createContext(editCtx);
 vm.runInContext(page.slice(page.indexOf('  const editable ='), page.indexOf('  const isAuditView')) + '\nthis.canEdit = editable;', editCtx);
-assert.equal(editCtx.canEdit(), true);
+assert.equal(editCtx.canEdit(), false);
+editCtx.periodStatus.value = 'PREPARING'; assert.equal(editCtx.canEdit(), true);
+editCtx.periodStatus.value = 'NOT_STARTED'; editCtx.projectRecord.value.planStatus = '1'; assert.equal(editCtx.canEdit(), false);
+editCtx.periodStatus.value = 'PREPARING'; assert.equal(editCtx.canEdit(), true);
 editCtx.props.embeddedPeriodId = 'p'; assert.equal(editCtx.canEdit(), false, 'embedded plan is read-only even for admin');
 editCtx.props.embeddedPeriodId = '';
 userStore.getIdentity.roleCodes = []; assert.equal(editCtx.canEdit(), false);

@@ -7,7 +7,8 @@ function moduleFrom(path, dependencies = {}) {
 }
 const arrival = moduleFrom('src/views/project/arrivalPayment.ts');
 const { resolvePeriodOperations: resolve, canApplySupplement } = moduleFrom('src/views/project/detail/periodOperations.ts', { '../arrivalPayment': arrival });
-const project = { periodId: 'p', status: 'IMPLEMENTING', arrivalStatus: 0, projectType: 'HARDWARE' };
+const project = { periodId: 'p', status: 'IMPLEMENTING', planStatus: '1', arrivalStatus: 0, projectType: 'HARDWARE' };
+for (const planStatus of ['-1','0','2','3',undefined]) assert.ok(resolve({ ...project, planStatus }, {manager:true, typeNames:{HARDWARE:'硬件'}, hasPermission:()=>true}).some(a => a.key === 'arrival'));
 const access = (manager = false, codes = []) => ({ manager, typeNames: { HARDWARE: '硬件', SOFTWARE: '软件' }, hasPermission: code => codes.includes(code) });
 const keys = (p, a) => resolve(p, a).map(x => x.key);
 assert.deepEqual(keys(project, access()), []);
@@ -36,13 +37,31 @@ assert.match(drawer, /submitting.value = true;[\s\S]*?await checkCreateAccess\(\
 assert.match(drawer, /readProjectMembership\(id, userId\)/);
 const detail = fs.readFileSync('src/views/project/detail/index.vue', 'utf8');
 assert.match(detail, /activeKey === 'payment'/);
-assert.match(detail, /canRequestFinance\(userStore.getIdentity.roleCodes\)/);
+assert.match(detail, /canViewPaymentTab\(/);
 assert.match(detail, /:period-id="projectId" :context="project" embedded/);
 const ops = fs.readFileSync('src/views/project/detail/components/PeriodOperations.vue', 'utf8');
+const opsScript = parse(ops).descriptor.scriptSetup.content;
+const opsAst = ts.createSourceFile('ops.ts', opsScript, ts.ScriptTarget.Latest, true);
+const placement = opsAst.statements.find(node => ts.isFunctionDeclaration(node) && node.name.text === 'isMoreAction').getText(opsAst);
+const props = { project: { status: 'IMPLEMENTING' }, manager: true };
+const isMoreAction = new Function('props', 'canApplySupplement', ts.transpile(`${placement}\nreturn isMoreAction;`))(props, canApplySupplement);
+assert.equal(isMoreAction({ key: 'supplement' }), false, '实施中经理可直接看到申请补料');
+props.manager = false;
+assert.equal(isMoreAction({ key: 'supplement' }), true, '审批记录保留在更多，不开放申请');
+props.manager = true; props.project.status = 'PREPARING';
+assert.equal(isMoreAction({ key: 'supplement' }), true);
+assert.equal(isMoreAction({ key: 'close', dangerous: true }), true);
+assert.equal(isMoreAction({ key: 'material' }), true);
+assert(ops.includes("action.key === 'supplement' ? '申请补料'"));
 assert.match(ops, /await projectDetail/);
 assert.match(ops, /key === 'close' \? 'CLOSED' : 'COMPLETED'/);
 const list = fs.readFileSync('src/views/project/index.vue', 'utf8');
-assert.ok(!list.includes('getCurrentParticipatedProjects'));
-assert.ok(!list.includes('ProcessCompletionDrawer'));
+assert.ok(list.includes('getCurrentParticipatedProjects'));
+assert.ok(list.includes('ProcessCompletionDrawer'));
+assert.ok(list.includes('resolvePeriodOperations'));
+assert.ok(!keys({ ...project, status: 'PREPARING' }, access(true, ['project:arrival:confirm'])).includes('arrival'));
+for (const status of ['NOT_STARTED', 'PENDING_APPROVAL', 'IMPLEMENT_COMPLETED', 'PENDING_ACCEPT', 'WARRANTY', 'CLOSED']) {
+  assert.ok(!keys({ ...project, status }, access(true, ['project:arrival:confirm'])).includes('arrival'));
+}
 assert.match(list, /function handleDetail\(record: Recordable\)/, 'list detail callback remains defined');
 console.log('PASS period operations role/stage matrix, supplement guards, lazy finance and SFCs');

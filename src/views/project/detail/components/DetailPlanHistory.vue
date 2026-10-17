@@ -2,7 +2,7 @@
   <section class="plan-history">
     <div class="plan-history__heading">
       <h3>计划审批记录</h3>
-      <a-space><span>当前计划</span><a-tag v-if="!loading && !error && state" :color="getApprovalStatusMeta(state.approvalStatus).color">{{ getApprovalStatusMeta(state.approvalStatus).text }}</a-tag><span v-else>—</span><a-button :loading="loading" preIcon="ant-design:reload-outlined" @click="load">刷新</a-button></a-space>
+      <a-space><span>项目状态</span><a-tag v-if="!loading && !error && state" :color="statusColorMap[state.status] || 'default'">{{ projectStatusMap[state.status] || '—' }}</a-tag><span v-else>—</span><a-button :loading="loading" preIcon="ant-design:reload-outlined" @click="load">刷新</a-button></a-space>
     </div>
     <a-alert v-if="error" type="error" show-icon :message="error" />
     <template v-else>
@@ -25,6 +25,7 @@
   import { useRouter } from 'vue-router';
   import { useUserStore } from '/@/store/modules/user';
   import { getApprovalStatusMeta } from '/@/utils/approvalStatus';
+  import { projectStatusMap, statusColorMap } from '../../Project.data';
   import { getPeriodApprovalHistory, getPeriodApprovalState } from '../../plan/PeriodApproval.api';
   import { type PeriodApprovalRecord } from '../../plan/periodApproval';
   const props = defineProps<{ periodId: string }>();

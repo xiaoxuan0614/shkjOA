@@ -29,7 +29,8 @@ export function resolveDetailTabs(project: { status?: unknown; contractStatus?: 
   if (isApprovalApproved(project.contractStatus)) visible.add('payment');
   // 合同状态不推导项目阶段；只有已有送审记录才开放早期合同入口。
   if (!isApprovalPendingSubmit(project.contractStatus) || stage >= 2) visible.add('contract');
-  if (stage >= 2) ['plan', 'member', 'position', 'file'].forEach((key) => visible.add(key as DetailTabKey));
+  if (stage >= 2 || history.includes('plan')) visible.add('plan');
+  if (stage >= 2) ['member', 'position', 'file'].forEach((key) => visible.add(key as DetailTabKey));
   if (stage >= 3) ['implement', 'material'].forEach((key) => visible.add(key as DetailTabKey));
   if (stage >= 4) visible.add('acceptance');
   // history 只来自当前分期的后端业务记录，不使用浏览器打开记录。

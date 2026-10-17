@@ -2,8 +2,10 @@ const fs = require('node:fs'), assert = require('node:assert/strict'), ts = requ
 const { parse, compileScript, compileTemplate } = require('@vue/compiler-sfc');
 const source = fs.readFileSync('src/views/project/periodDetailActions.ts', 'utf8');
 const mod = { exports: {} };
+const policy = { exports: {} };
+new Function('exports', ts.transpileModule(fs.readFileSync('src/views/project/plan/periodApproval.ts', 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText)(policy.exports);
 new Function('require', 'exports', ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText)(
-  () => ({ isApprovalPending: value => String(value) === '2' }), mod.exports);
+  name => name === './plan/periodApproval' ? policy.exports : ({ isApprovalPending: value => String(value) === '2' }), mod.exports);
 const resolve = mod.exports.resolvePeriodDetailActions;
 const tabModule = { exports: {} };
 new Function('require', 'exports', ts.transpileModule(fs.readFileSync('src/views/project/detail/detailTabs.ts', 'utf8'), {
@@ -19,29 +21,29 @@ for (const contractStatus of ['0', '1', '2', '3']) {
 assert.deepEqual(tabs({ status: 'PREPARING' }), ['basic', 'quotation', 'contract', 'plan', 'member', 'position', 'file']);
 assert.deepEqual(tabs({ status: 'PENDING_APPROVAL' }), tabs({ status: 'PREPARING' }));
 for (const status of ['IMPLEMENTING', 'DEBUGGING', 'DEBUG_COMPLETED']) {
-  assert.deepEqual(tabs({ status }), ['basic', 'quotation', 'contract', 'plan', 'member', 'position', 'implement', 'file', 'material']);
+  assert.deepEqual(tabs({ status, planStatus: '1' }), ['basic', 'quotation', 'contract', 'plan', 'member', 'position', 'implement', 'file', 'material']);
 }
 for (const status of ['IMPLEMENT_COMPLETED', 'PENDING_ACCEPT', 'ACCEPTING', 'REWORKING', 'REACCEPTING', 'FAILED', 'WARRANTY', 'COMPLETED']) {
-  assert.deepEqual(tabs({ status }), tabModule.exports.DETAIL_TAB_KEYS.filter(key => key !== 'payment'));
+  assert.deepEqual(tabs({ status, planStatus: '1' }), tabModule.exports.DETAIL_TAB_KEYS.filter(key => key !== 'payment'));
 }
 assert.deepEqual(tabs({ status: 'CLOSED' }), ['basic', 'quotation']);
 assert.deepEqual(tabs({ status: 'CLOSED', contractStatus: '1' }, ['plan', 'member']), ['basic', 'quotation', 'contract', 'plan', 'member', 'payment']);
-assert.deepEqual(tabs({ status: 'NOT_STARTED' }, ['plan', 'acceptance']), ['basic', 'quotation'], 'history cannot elevate normal stage');
+assert.deepEqual(tabs({ status: 'NOT_STARTED' }, ['plan', 'acceptance']), ['basic', 'quotation', 'plan'], 'plan history does not elevate acceptance stage');
 assert.deepEqual(tabs({ status: 'unknown' }), ['basic', 'quotation']);
 for (const contractStatus of [undefined, '0', '1', '2', '3']) {
   assert.ok(!tabModule.exports.resolveDetailTabs({ status: 'NOT_STARTED', contractStatus }).includes('plan'));
 }
 for (const status of ['PREPARING', 'PENDING_APPROVAL', 'IMPLEMENTING', 'COMPLETED']) {
-  assert.ok(tabModule.exports.resolveDetailTabs({ status }).includes('plan'));
+  assert.ok(tabModule.exports.resolveDetailTabs({ status, planStatus: '1' }).includes('plan'));
 }
 const access = (codes = [], extra = {}) => ({ userId: 'u', admin: false, manager: false, hasPermission: code => codes.includes(code), ...extra });
-const project = { periodId: 'p', status: 'NOT_STARTED' };
+const project = { periodId: 'p', status: 'NOT_STARTED', planStatus: '-1' };
 assert.deepEqual(resolve({}, access()), []);
 assert.deepEqual(resolve(project, access([], { userId: '' })), []);
 assert.ok(!resolve(project, access()).some(a => a.tab === 'plan'));
 assert.ok(!resolve({ ...project, contractStatus: '1' }, access(['project:contract:view'])).some(a => a.key === 'contractView'));
-assert.equal(resolve(project, access([], { manager: true })).find(a => a.tab === 'plan').mode, 'edit');
-assert.equal(resolve(project, access([], { admin: true })).find(a => a.tab === 'plan').mode, 'edit');
+assert.equal(resolve({ ...project, status: 'PREPARING' }, access([], { manager: true })).find(a => a.tab === 'plan').mode, 'edit');
+assert.equal(resolve({ ...project, status: 'PREPARING' }, access([], { admin: true })).find(a => a.tab === 'plan').mode, 'edit');
 assert.ok(resolve(project, access(['project:contract'])).some(a => a.key === 'contractSign'));
 for (const status of ['0', '1', '2', '3', '-1']) {
   assert.ok(!resolve({ ...project, contractStatus: status }, access(['project:contract'])).some(a => a.key === 'contractSign'));
@@ -49,12 +51,22 @@ for (const status of ['0', '1', '2', '3', '-1']) {
 assert.ok(resolve({ ...project, contractStatus: '2' }, access(['project:contract:approve'])).some(a => a.key === 'contractAudit'));
 assert.ok(!resolve({ ...project, contractStatus: '2' }, access(['project:contract:view'])).some(a => a.key === 'contractAudit'));
 assert.ok(!resolve({ ...project, contractStatus: '1' }, access(['project:contract:approve'])).some(a => a.key === 'contractAudit'));
-const pending = { ...project, status: 'PENDING_APPROVAL' };
+const pending = { ...project, status: 'PENDING_APPROVAL', planStatus: '2' };
 assert.equal(resolve(pending, access(['project:period:approve'])).find(a => a.tab === 'plan').mode, 'audit');
-assert.ok(!resolve(pending, access([], { manager: true })).some(a => a.tab === 'plan'));
+assert.equal(resolve(pending, access([], { manager: true })).find(a => a.tab === 'plan').mode, 'view');
 for (const status of ['IMPLEMENTING', 'CLOSED', 'COMPLETED']) {
   assert.ok(!resolve({ ...project, status }, access([], { admin: true })).some(a => a.tab === 'plan'));
+  assert.ok(!resolve({ ...project, status }, access([], { manager: true })).some(a => a.tab === 'plan'));
 }
+assert.ok(!resolve({ ...project, planStatus: '1' }, access([], { admin: true })).some(a => a.key === 'plan'));
+for (const planStatus of ['-1', '0', '1', '2', '3', undefined, null]) {
+  assert.ok(resolve({ ...project, status: 'PREPARING', planStatus, approvalStatus: '1' }, access([], { manager: true })).some(a => a.key === 'plan'));
+}
+for (const planStatus of ['1', '2', undefined, null, '', 'unknown']) {
+  assert.ok(!resolve({ ...project, planStatus, approvalStatus: '-1' }, access([], { admin: true })).some(a => a.key === 'plan'));
+}
+for (const planStatus of ['0', '1', '2', '3', 0, 1, 2, 3]) assert.ok(!tabs({ status: 'NOT_STARTED', planStatus }).includes('plan'));
+assert.equal(resolve({ ...pending, planStatus: undefined }, access(['project:period:approve'])).find(a => a.tab === 'plan').mode, 'audit');
 for (const file of ['src/views/project/detail/index.vue', 'src/views/project/index.vue', 'src/views/project/plan/ProjectPlan.vue', 'src/views/project/contract/index.vue', 'src/views/todo/components/TodoActionHost.vue']) {
   const { descriptor } = parse(fs.readFileSync(file, 'utf8'));
   const script = compileScript(descriptor, { id: 'regression' });
@@ -66,7 +78,7 @@ assert.ok(!list.includes('statusFlow'), 'list no longer owns business operations
 assert.ok(!list.includes('openPlanAuditModal'));
 const detail = fs.readFileSync('src/views/project/detail/index.vue', 'utf8');
 assert.ok(detail.includes(`v-if="visibleTabs.includes('plan')" key="plan"`));
-assert.ok(detail.includes("key !== 'plan' || project.value.status !== 'NOT_STARTED'"), 'cached tabs cannot restore hidden plan');
+assert.ok(!detail.includes("key !== 'plan' || project.value.status !== 'NOT_STARTED'"), 'project stage must not hide plan history');
 assert.ok(!detail.includes('changePeriodStatus'), 'detail never sends approvals to generic status API');
 assert.ok(detail.includes('sequence !== membershipSequence'));
 assert.ok(detail.includes('onActivated'));

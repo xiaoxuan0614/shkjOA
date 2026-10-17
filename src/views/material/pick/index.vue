@@ -164,6 +164,7 @@
   const isReworkMode = computed(() => Boolean(reworkId.value));
   const brandMap = ref<Record<string, { text: string; color: string }>>({});
   const projectMaterialPeriodStatus = [
+    'PREPARING',
     'IMPLEMENTING',
     'DEBUGGING',
     'DEBUG_COMPLETED',
@@ -172,6 +173,8 @@
     'INTERNAL_ACCEPTING',
     'ACCEPTING',
     'REWORKING',
+    'REACCEPTING',
+    'FAILED',
   ].join(',');
 
   // 明细表格列
@@ -198,6 +201,15 @@
   async function restorePickDraft() {
     if (!draft.isAlive()) return;
     const saved = draft.read();
+    const requestedPeriodId = String(route.query.periodId || '');
+    if (!editMode && !isReworkMode.value && requestedPeriodId && (String(saved?.periodId || '') !== requestedPeriodId || saved?.usageType !== MATERIAL_USAGE_TYPE.PROJECT)) {
+      const option = projectOptions.value.find(item => String(item.value) === requestedPeriodId);
+      if (!option) throw new Error('该项目不在当前可领料范围，请刷新项目详情后重试');
+      usageType.value = MATERIAL_USAGE_TYPE.PROJECT;
+      selectedPeriodId.value = requestedPeriodId;
+      await setFieldsValue({ usageType: MATERIAL_USAGE_TYPE.PROJECT, periodId: requestedPeriodId });
+      return;
+    }
     if (saved && Array.isArray(saved.rows)) {
       if (editMode && (!pickBaseline || saved.baseline !== pickBaseline)) {
         createMessage.warning('领料单已变化，未恢复旧草稿');

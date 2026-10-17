@@ -18,6 +18,7 @@ enum Api {
  * 查询当前登录用户已确认参与的项目分期；无需传 userId。
  */
 export const RETURN_PERIOD_STATUSES = [
+  'PREPARING',
   'IMPLEMENTING',
   'DEBUGGING',
   'DEBUG_COMPLETED',
@@ -25,6 +26,8 @@ export const RETURN_PERIOD_STATUSES = [
   'PENDING_ACCEPT',
   'INTERNAL_ACCEPTING',
   'ACCEPTING',
+  'REACCEPTING',
+  'FAILED',
   'REWORKING',
   'WARRANTY',
   'COMPLETED',

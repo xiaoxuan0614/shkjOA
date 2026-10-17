@@ -45,6 +45,18 @@ const { loadUserDrawerRecord } = load('src/views/system/user/userDrawerLoader.ts
   assert.equal(calls, 1);
   await assert.rejects(loadUserDrawerRecord(source, async () => { throw Error('failed'); }, getDepartments));
   const schema = fs.readFileSync('src/views/system/user/user.data.ts', 'utf8');
+  assert.match(schema, /field: 'selectedroles',\s+required: true,/, '新增和编辑用户必须选择角色');
+  // 执行公共表单实际使用的必填校验，覆盖首次未选及清空多选。
+  const formItem = fs.readFileSync('src/components/Form/src/components/FormItem.vue', 'utf8');
+  const validatorSource = formItem.match(/function validator\(rule: any, value: any\) \{[\s\S]*?\n        \}/)[0];
+  const validateRequired = new Function('isNull', 'defaultMsg', ts.transpile(`${validatorSource}\nreturn validator;`))(
+    value => value === null, '请选择角色'
+  );
+  for (const value of [undefined, null, '', [], ' ']) {
+    await assert.rejects(validateRequired({}, value), error => error === '请选择角色');
+  }
+  await validateRequired({}, ['role-1']);
+  await validateRequired({}, ['role-1', 'role-2']);
   assert(!schema.includes('getDepartPathNameByOrgCode'));
   assert.equal((schema.match(/isCustomRenderTag: false/g) || []).length, 3);
   const filename = 'src/views/system/user/UserDrawer.vue';
@@ -52,6 +64,7 @@ const { loadUserDrawerRecord } = load('src/views/system/user/userDrawerLoader.ts
   assert(!sourceVue.includes('options: departOptions }'), '表单配置不能持有部门Ref');
   assert(sourceVue.includes('options: departOptions.value.map(({ label, value }) => ({ label, value }))'));
   assert(sourceVue.includes('if (!ready.value || !showFooter.value) return;'));
+  assert(sourceVue.indexOf('await validate()') < sourceVue.indexOf('await saveOrUpdateUser('), '校验通过后才保存');
   assert(sourceVue.includes('advancedOpen.value &&'));
   assert(sourceVue.includes('api: loadRoleOptions'));
   assert(sourceVue.includes('rolesRequest = undefined;'));

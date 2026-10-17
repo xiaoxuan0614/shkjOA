@@ -8,14 +8,14 @@ function unwrap<T>(response: any): T {
   return response.result;
 }
 
-/** 合并项目详情 DTO 未定义审批字段，读取分期实体，不能用历史结果猜当前状态。 */
+/** 项目详情 status 控制办理阶段，审批历史用于匹配轮次及展示结果。 */
 export async function getPeriodApprovalState(periodId: string): Promise<Record<string, any>> {
-  const response = await defHttp.get({ url: '/project/period/list', params: { id: periodId, pageNo: 1, pageSize: 2 } }, options);
-  const page = unwrap<{ records: Record<string, any>[]; total: number }>(response);
-  if (!Array.isArray(page?.records) || page.records.length !== 1 || String(page.records[0].id) !== periodId || Number(page.total) !== 1) {
+  const response = await defHttp.get({ url: '/project/project/projectPeriodDetail', params: { periodId } }, options);
+  const detail = unwrap<Record<string, any>>(response);
+  if (String(detail?.periodId || '') !== periodId) {
     throw new Error('分期审批状态不匹配，请刷新后重试');
   }
-  return page.records[0];
+  return { ...detail, id: detail.periodId };
 }
 
 export async function getPeriodApprovalHistory(periodId: string): Promise<PeriodApprovalRecord[]> {

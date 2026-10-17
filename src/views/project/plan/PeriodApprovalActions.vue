@@ -14,9 +14,9 @@
     <a-modal
       v-model:open="confirmOpen" :title="actionTitle" :ok-text="actionTitle" cancel-text="取消"
       :confirm-loading="busy" :mask-closable="false" :closable="!busy" :cancel-button-props="{ disabled: busy }" @ok="execute">
-      <a-alert v-if="action === 'approve'" type="info" show-icon message="通过后项目进入筹备中，不会直接开始实施。" />
+      <a-alert v-if="action === 'approve'" type="info" show-icon message="通过后项目进入实施中，计划不可再编辑。" />
       <a-alert v-if="action === 'submit'" type="info" show-icon message="提交后计划资料锁定；需要修改时请先撤回。" />
-      <a-alert v-if="action === 'withdraw'" type="warning" show-icon message="撤回后回到未开始，修改完成后需重新提交审批。" />
+      <a-alert v-if="action === 'withdraw'" type="warning" show-icon message="撤回后需重新提交审批；返回筹备中后可修改计划。" />
       <a-form v-if="action !== 'submit'" layout="vertical" class="period-approval-actions__reason">
         <a-form-item :label="action === 'withdraw' ? '撤回原因' : action === 'reject' ? '驳回原因' : '审批说明'" :required="action === 'reject'">
           <a-textarea v-model:value="reason" :rows="4" :maxlength="2000" show-count :disabled="busy" />
@@ -29,7 +29,7 @@
         <template #action><a-button @click="refresh">重试</a-button></template>
       </a-alert>
       <template v-else>
-        <p>当前计划：{{ getApprovalStatusMeta(period.approvalStatus).text }}。历史结果不代表当前计划仍有效。</p>
+        <p>以下为历次提交结果，当前能否办理以项目阶段及当前审批轮次为准。</p>
         <a-empty v-if="!history.length" description="暂无审批记录" />
         <a-collapse v-else>
           <a-collapse-panel v-for="row in history" :key="row.id" :header="`第${row.roundNo}轮 · ${getApprovalStatusMeta(row.approvalStatus).text}`">
@@ -95,7 +95,7 @@
   let sequence = 0;
   const hint = computed(() => !ready.value || loading.value || error.value ? '' : stale.value
     ? '该审批轮次已变化，请从最新待办重新进入'
-    : state.value.legacy && !canSubmit.value ? '旧计划未建立审批轮次，请项目经理重新提交' : '');
+    : state.value.legacy ? '计划待审批但未找到审批轮次，请联系管理员核实' : '');
   watch(hint, (value) => emit('hint', value), { immediate: true });
   function snapshotText(raw?: string) {
     const snapshot = parseApprovalSnapshot(raw);
@@ -122,7 +122,7 @@
       history.value = rows;
       manager.value = membership.manager;
       ready.value = true;
-      emit('summary', { status: detail.approvalStatus, latest: [...rows].sort((a, b) => Number(b.roundNo) - Number(a.roundNo))[0] });
+      emit('summary', { latest: [...rows].sort((a, b) => Number(b.roundNo) - Number(a.roundNo))[0] });
       return true;
     } catch (err: any) {
       if (request === sequence) {
@@ -175,7 +175,7 @@
       }
       confirmOpen.value = false;
       succeeded = true;
-      createMessage.success({ submit: '已提交审批', approve: '审批通过，项目进入筹备中', reject: '已驳回，项目回到未开始', withdraw: '已撤回，可修改后重新提交' }[action.value]);
+      createMessage.success({ submit: '已提交审批', approve: '审批通过，项目进入实施中', reject: '已驳回，项目回到筹备中', withdraw: '已撤回，请以刷新后的项目状态为准' }[action.value]);
     } catch (err: any) {
       createMessage.error(err?.message || '操作失败，请刷新确认状态');
     } finally {
