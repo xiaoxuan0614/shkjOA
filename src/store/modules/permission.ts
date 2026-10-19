@@ -17,6 +17,8 @@ import { asyncRoutes } from '/@/router/routes';
 import { ERROR_LOG_ROUTE, PAGE_NOT_FOUND_ROUTE } from '/@/router/routes/basic';
 import { staticRoutesList, quotationDetailFallback, contractDetailFallback, workflowApplicationsFallback } from '../../router/routes/staticRouter';
 import { needsQuotationDetailRoute, needsContractDetailRoute, needsWorkflowApplicationsRoute } from '/@/router/helper/quotationDetailRoute';
+import { needsDutyRosterDetailRoute } from '/@/router/helper/dutyRosterRoute';
+import { dutyRosterDetailFallback } from '/@/router/routes/staticRouter';
 
 import { filter } from '/@/utils/helper/treeHelper';
 
@@ -276,6 +278,7 @@ export const usePermissionStore = defineStore('app-permission', {
           // 代码逻辑说明: 【TV360X-522】ai助手路由写死在前端
           routes = [PAGE_NOT_FOUND_ROUTE, ...routeList, ...staticRoutesList];
           if (needsQuotationDetailRoute(routeList)) routes.push(quotationDetailFallback);
+          if (needsDutyRosterDetailRoute(routeList)) routes.push(dutyRosterDetailFallback);
           if (needsContractDetailRoute(routeList)) routes.push(contractDetailFallback);
           if (needsWorkflowApplicationsRoute(routeList)) routes.push(workflowApplicationsFallback);
           break;

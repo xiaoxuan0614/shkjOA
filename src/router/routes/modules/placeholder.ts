@@ -55,6 +55,18 @@ const operation: AppRouteModule = {
       component: () => import('/@/views/operation/duty-roster/index.vue'),
       meta: { title: '运维值班表' },
     },
+    {
+      path: 'inspection-preview',
+      name: 'InspectionMockPreview',
+      component: () => import('/@/views/operation/inspection/index.vue'),
+      meta: { title: '巡检管理', ignoreKeepAlive: true },
+    },
+    {
+      path: 'detail',
+      name: 'OperationDutyRosterDetail',
+      component: () => import('/@/views/operation/duty-roster/detail.vue'),
+      meta: { title: '值班表详情', hideMenu: true, ignoreKeepAlive: true, currentActiveMenu: '/operation/list' },
+    },
   ],
 };
 

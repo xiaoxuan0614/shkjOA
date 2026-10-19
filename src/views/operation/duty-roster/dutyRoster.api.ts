@@ -19,7 +19,40 @@ const options = { isTransformResponse: false, errorMessageMode: 'none' as const 
 const base = '/operation/dutyRoster';
 
 export async function loadDutyRosterUsers(): Promise<DutyPersonOptions> {
-  return unwrap(await defHttp.get({ url: `${base}/personOptions` }, options));
+  interface Department {
+    id?: string;
+    departName?: string;
+    title?: string;
+    children?: Department[];
+  }
+  const response: Response<Department[] | null> = await defHttp.get({ url: '/sys/sysDepart/queryTreeList' }, options);
+  const departments = unwrap({ ...response, result: response.result ?? [] });
+  const matches = new Set<string>();
+  const visit = (nodes: Department[]) => {
+    for (const node of nodes) {
+      if ((node.departName || node.title)?.trim() === '运维部' && node.id) matches.add(node.id);
+      if (node.children) visit(node.children);
+    }
+  };
+  visit(departments);
+  if (matches.size !== 1) throw new Error(matches.size ? '存在多个运维部，请联系管理员确认部门配置' : '未找到运维部，请联系管理员配置部门');
+  const departId = [...matches][0];
+  const persons = new Map<string, DutyPerson>();
+  for (let pageNo = 1; ; pageNo++) {
+    const response: Response<{
+      records: { id: string; realname?: string; username?: string; phone?: string }[];
+      total: number;
+      size: number;
+      pages: number;
+    } | null> = await defHttp.get({ url: '/sys/user/list', params: { departId, pageNo, pageSize: 100 } }, options);
+    const page = unwrap({ ...response, result: response.result ?? { records: [], total: 0, size: 100, pages: 0 } });
+    for (const user of page.records) {
+      if (user.id) persons.set(user.id, { userId: user.id, name: user.realname || user.username || user.id, phone: user.phone || '' });
+    }
+    if (pageNo >= page.pages || pageNo * page.size >= page.total) break;
+    if (!page.records.length) throw new Error('运维部人员分页返回不完整，请重新加载');
+  }
+  return { persons: [...persons.values()] };
 }
 
 export async function queryDutyRoster(month: string): Promise<DutyRosterResult> {
@@ -32,11 +65,7 @@ export async function saveDutyRoster(payload: DutyRosterPayload): Promise<DutyRo
   const days = payload.days.map((row) => {
     const night = getNightUsers(row);
     const rest = getRestUsers(payload.rotationUsers, row);
-    if (night.length > 1 || rest.length > 1)
-      throw new Error(
-        `${row.date}有${night.length}名夜班、${rest.length}名休息人员；当前后端接口仅支持单人字段，无法完整保存，请后端扩展多人字段后再保存。当前修改已保留。`
-      );
-    return { date: row.date, dayUsers: row.dayUsers.map(ref), nightUser: ref(night[0] || null), restUser: ref(rest[0] || null) };
+    return { date: row.date, dayUsers: row.dayUsers.map(ref), nightUsers: night.map(ref), restUsers: rest.map(ref) };
   });
   const data = { month: payload.month, rotationUsers: payload.rotationUsers.map(ref), days };
   const result = unwrap<DutyRosterResult>(await defHttp.post({ url: `${base}/save`, data }, options));
@@ -58,8 +87,23 @@ export async function downloadDutyRoster(month: string): Promise<Blob> {
   return blob;
 }
 
-/** 按选中月份查询，不批量扫描全年。 */
-export async function listDutyRosters(month: string): Promise<DutyRosterResult[]> {
-  const row = await queryDutyRoster(month);
-  return row.saved ? [row] : [];
+export interface DutyRosterListItem {
+  id: string;
+  month: string;
+  updateTime: string;
+  createByName: string;
+  createBy: string;
+  updateByName: string;
+  updateBy: string;
+}
+export interface DutyRosterPage {
+  records: DutyRosterListItem[];
+  total: number;
+  current: number;
+  size: number;
+  pages: number;
+}
+
+export async function listDutyRosters(month?: string, pageNo = 1, pageSize = 10): Promise<DutyRosterPage> {
+  return unwrap(await defHttp.get({ url: `${base}/list`, params: { ...(month ? { month } : {}), pageNo, pageSize } }, options));
 }

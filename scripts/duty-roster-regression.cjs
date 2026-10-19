@@ -67,7 +67,7 @@ function result(month, extra = {}) {
     defHttp: {
       get: async (config) => {
         calls.push(config);
-        return config.responseType === 'blob' ? exportBlob : apiResponse;
+        return config.responseType === 'blob' ? exportBlob : typeof apiResponse === 'function' ? apiResponse(config) : apiResponse;
       },
       post: async (config) => {
         calls.push(config);
@@ -75,18 +75,32 @@ function result(month, extra = {}) {
       },
     },
   }));
-  assert.equal((await api.loadDutyRosterUsers()).persons.length, 3);
-  assert.equal(calls.at(-1).url, '/operation/dutyRoster/personOptions');
+  apiResponse = (config) => ({ success: true, result: config.url.includes('queryTreeList')
+    ? [{id:'company', children:[{id:'ops',departName:'运维部'}]}]
+    : {records: (config.params.pageNo === 1 ? users.slice(0,2) : users.slice(1)).map(p=>({id:p.userId,realname:p.name,phone:p.phone})),total:4,size:2,pages:2} });
+  assert.deepEqual((await api.loadDutyRosterUsers()).persons, users);
+  assert.equal(calls.at(-1).url, '/sys/user/list');
+  assert.deepEqual(calls.at(-1).params, {departId:'ops',pageNo:2,pageSize:100});
+  apiResponse = {success:true,result:[]};
+  await assert.rejects(api.loadDutyRosterUsers(), /未找到运维部/);
+  apiResponse = {success:true,result:[{id:'a',title:'运维部'},{id:'b',title:'运维部'}]};
+  await assert.rejects(api.loadDutyRosterUsers(), /多个运维部/);
+  apiResponse = (config) => ({success:true,result:config.url.includes('queryTreeList') ? [{id:'ops',title:'运维部'}] : null});
+  assert.deepEqual((await api.loadDutyRosterUsers()).persons, []);
+  apiResponse = {success:false,message:'无权读取部门'};
+  await assert.rejects(api.loadDutyRosterUsers(), /无权读取部门/);
   apiResponse = { success: false, code: 200, message: '版本过期，请刷新' };
   await assert.rejects(api.saveDutyRoster(payload), /版本过期/);
   assert.deepEqual(Object.keys(calls.at(-1).data).sort(), ['days', 'month', 'rotationUsers']);
   assert.deepEqual(calls.at(-1).data.rotationUsers[0], { userId: 'A' });
-  assert.deepEqual(calls.at(-1).data.days[0], { date: '2026-10-01', dayUsers: [{userId: 'A'}], nightUser: {userId:'C'}, restUser: {userId:'B'} });
-  const before = calls.length;
-  await assert.rejects(api.saveDutyRoster({...payload, days:[{...payload.days[0], nightUsers:[users[0],users[1]]}]}), /无法完整保存/);
-  await assert.rejects(api.saveDutyRoster({...payload, days:[{...payload.days[0], dayUsers:[users[0]], nightUsers:[users[0]]}]}), /无法完整保存/);
-  assert.equal(calls.length, before, '不发送会截断多人的请求');
+  assert.deepEqual(calls.at(-1).data.days[0], { date: '2026-10-01', dayUsers: [{userId: 'A'}], nightUsers: [{userId:'C'}], restUsers: [{userId:'B'}] });
   apiResponse = { success: true, result: result('2026-10') };
+  await api.saveDutyRoster({...payload, days:[{...payload.days[0], nightUsers:[users[0],users[1]]}]});
+  assert.deepEqual(calls.at(-1).data.days[0].nightUsers, [{userId:'A'},{userId:'B'}]);
+  await api.saveDutyRoster({...payload, days:[{...payload.days[0], dayUsers:[users[0]], nightUsers:[users[0]]}]});
+  assert.deepEqual(calls.at(-1).data.days[0].restUsers, [{userId:'B'},{userId:'C'}]);
+  await api.saveDutyRoster({...payload, days:[{...payload.days[0], dayUsers:[], nightUsers:[]}]});
+  assert.deepEqual(calls.at(-1).data.days[0], {date:'2026-10-01',dayUsers:[],nightUsers:[],restUsers:users.map(p=>({userId:p.userId}))});
   await api.queryDutyRoster('2026-10');
   assert.deepEqual(calls.at(-1).params, { month: '2026-10' });
   assert.ok((await api.downloadDutyRoster('2026-10')) instanceof Blob);

@@ -1,6 +1,19 @@
 import type { AppRouteRecordRaw } from '/@/router/types';
 import { LAYOUT } from '/@/router/constant';
 
+export const dutyRosterDetailFallback: AppRouteRecordRaw = {
+  path: '/operation-detail-layout',
+  name: 'DutyRosterDetailLayout',
+  component: LAYOUT,
+  meta: { title: '值班表详情', hideMenu: true },
+  children: [{
+    path: '/operation/detail',
+    name: 'OperationDutyRosterDetail',
+    component: () => import('/@/views/operation/duty-roster/detail.vue'),
+    meta: { title: '值班表详情', hideMenu: true, ignoreKeepAlive: true, currentActiveMenu: '/operation/list' },
+  }],
+};
+
 export const workflowApplicationsFallback: AppRouteRecordRaw = {
   path: '/workflow-applications-layout',
   name: 'WorkflowApplicationsFallbackLayout',

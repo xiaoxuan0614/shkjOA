@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-19T13:50:39+08:00",
+  "title": "Design System: OA 巡检 Mock 页面",
+  "extensions": {
+    "breakpoints": [
+      { "name": "compact-desktop", "value": "1000px" },
+      { "name": "narrow-browser", "value": "640px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "巡检单导航",
+      "kind": "nav",
+      "refersTo": "sheet-navigation-selected",
+      "description": "仅提取本页自定义导航；选中态与键盘焦点来自现有实现，未添加未实现的悬停动画。",
+      "html": "<nav class=\"ds-sheet-nav\" aria-label=\"巡检单列表\"><button class=\"ds-sheet selected\"><strong>位置 / 编号</strong><span>巡检点 · 待填写</span></button></nav>",
+      "css": ".ds-sheet-nav{display:flex;flex-direction:column;gap:8px}.ds-sheet{border:1px solid #e8e8e8;background:#fff;text-align:left;border-radius:4px;padding:12px;cursor:pointer;color:#262626}.ds-sheet.selected{background:#e6f4ff;border-color:#1677ff}.ds-sheet span{display:block;font-size:12px;margin-top:8px;color:#595959}.ds-sheet:focus-visible{outline:2px solid #1677ff;outline-offset:2px}"
+    },
+    {
+      "name": "已提交正文",
+      "kind": "custom",
+      "description": "位置、结论和已办结说明的可读静态内容，不模拟禁用控件。",
+      "html": "<p class=\"ds-readonly\">巡检结论示例</p>",
+      "css": ".ds-readonly{color:#262626;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.7;margin:0}"
+    },
+    {
+      "name": "巡检内容面",
+      "kind": "card",
+      "refersTo": "inspection-surface",
+      "description": "列表、配置和执行内容共用的白色区域。",
+      "html": "<section class=\"ds-inspection-surface\">巡检内容</section>",
+      "css": ".ds-inspection-surface{background:#fff;border-radius:8px;padding:20px;min-width:0;color:#262626}@media(max-width:640px){.ds-inspection-surface{padding:12px}}"
+    }
+  ],
+  "narrative": {
+    "overview": "本文件仅适用于 src/views/operation/inspection/index.vue，记录当前实现，不替代项目级设计规范。视觉依据为既有 OA 蓝白管理界面、Ant Design Vue 与公共 BasicTable；用户确认的墨刀四层结构映射为巡检对象、巡检点、巡检任务、巡检记录。",
+    "dos": [
+      "Do 沿用 OA、Ant Design Vue 与 BasicTable，保持局部样式作用域。",
+      "Do 用可读正文和语义标签展示已提交、已办结内容。",
+      "Do 明示本浏览器 Mock 边界，并将源码检查和浏览器验收分别报告。"
+    ],
+    "donts": [
+      "Don't 将本页局部规则提升为全站设计改造。",
+      "Don't 用禁用表单样式呈现需要阅读的已提交内容。",
+      "Don't 把本地演示表述为真实派单、审批、跨设备数据或移动端已交付能力。"
+    ]
+  }
+}

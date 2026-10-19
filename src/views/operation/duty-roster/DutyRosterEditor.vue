@@ -6,7 +6,6 @@
           <h1>运维值班表</h1>
           <a-tag :color="isLocked ? 'green' : dirty ? 'orange' : 'blue'">{{ statusText }}</a-tag>
         </div>
-        <p>按规则生成初稿，按实际情况调整，保存后锁定本月安排。</p>
       </div>
       <div class="heading-actions">
         <a-button :disabled="busy" @click="confirmDiscard(() => emit('back'))">返回列表</a-button>
@@ -28,7 +27,6 @@
     <section class="config-panel" aria-labelledby="config-title">
       <div class="section-heading">
         <h2 id="config-title">排班设置</h2>
-        <span class="section-note">{{ isLocked ? '已保存，可查看或导出；修改需先进入编辑' : '生成后仍可逐日修改人数和人员' }}</span>
       </div>
       <div class="config-grid">
         <div class="field month-field">
@@ -56,7 +54,7 @@
           />
         </div>
         <div class="field people-field">
-          <label for="duty-people">参与人员<span class="label-hint">按选择顺序轮值</span></label>
+          <label for="duty-people">参与人员</label>
           <a-select
             id="duty-people"
             :value="selectedUserIds"
@@ -71,6 +69,7 @@
             placeholder="选择参与排班的运维人员"
             @change="handleSelectedUsersChange"
           />
+          <a-button v-if="userError" type="link" :loading="userLoading" :disabled="saving" @click="loadUsers">重新加载人员</a-button>
         </div>
         <a-button
           class="generate-button"
@@ -80,18 +79,6 @@
         >
           <template #icon><Icon icon="ant-design:calendar-outlined" /></template>{{ rosterRows.length ? '重新生成排班表' : '生成排班表' }}
         </a-button>
-      </div>
-      <div class="rule-description">
-        <Icon icon="ant-design:info-circle-outlined" />
-        <span>{{
-          isLocked
-            ? '当前展示服务器已保存的实际安排，可导出或进入修改排班。'
-            : generationRule === 'text'
-              ? '输入排班逻辑，检查并核对理解结果后再生成；生成后仍可按实际情况修改。'
-              : generationRule === 'rotation'
-                ? '三人轮值：白班2人，其中1人继续上夜班，次日休息。生成后可按实际情况增减人员。'
-                : '手动排班：生成当月空表，逐日选择白班和夜班人员，休息人员自动计算。'
-        }}</span>
       </div>
       <div v-if="generationRule === 'text' && !isLocked" class="text-rule-panel">
         <div class="rule-input-area">
@@ -159,19 +146,11 @@
     <a-alert v-if="monthError" class="feedback" type="error" show-icon message="值班表加载失败" :description="monthError">
       <template #action><a-button size="small" :disabled="busy" @click="refreshMonth">重新加载</a-button></template>
     </a-alert>
-    <a-alert v-if="userError" class="feedback" type="warning" show-icon message="人员选项不可用" :description="userError">
-      <template #action><a-button size="small" :loading="userLoading" :disabled="saving" @click="loadUsers">重新加载</a-button></template>
-    </a-alert>
 
     <section class="roster-panel" aria-labelledby="roster-title">
       <div class="table-heading">
         <div class="table-title"
           ><h2 id="roster-title">{{ selectedMonth.format('YYYY年M月') }}排班</h2><span class="day-count">{{ rosterRows.length }} 天</span></div
-        >
-        <span class="table-hint"
-          ><Icon :icon="isLocked ? 'ant-design:lock-outlined' : 'ant-design:edit-outlined'" />{{
-            isLocked ? '已锁定 · 联系电话随夜班人员展示' : '可自由调整 · 保存以当前明细为准'
-          }}</span
         >
       </div>
       <a-table
@@ -518,7 +497,7 @@
     }
     const selected = rotationUsers.value.filter((person): person is DutyPerson => !!person?.userId);
     if (selected.some((person) => !persons.value.some((current) => current.userId === person.userId))) {
-      ruleAnalysis.value = { errors: ['参与人员包含已不属于运维角色的成员，请先重新选择人员'], summary: [] };
+      ruleAnalysis.value = { errors: ['参与人员包含已不属于运维部的成员，请先重新选择人员'], summary: [] };
       return;
     }
     checkingRule.value = true;
@@ -644,7 +623,7 @@
       usersReady.value = true;
       if (!isLocked.value && !rotationUsers.value.length && !dirty.value && persons.value.length === 3)
         rotationUsers.value = persons.value.map((person) => ({ ...person }));
-      if (!persons.value.length) userError.value = '运维人员角色下暂无可选人员，请联系管理员配置角色成员';
+      if (!persons.value.length) userError.value = '运维部暂无可选人员，请联系管理员配置部门成员';
     } catch (error) {
       userError.value = (error as Error).message;
       persons.value = [];

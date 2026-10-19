@@ -30,7 +30,7 @@ export interface DutyRosterResult extends DutyRosterPayload {
 }
 
 export interface DutyPersonOptions {
-  canManage: boolean;
+  canManage?: boolean;
   persons: DutyPerson[];
 }
 
