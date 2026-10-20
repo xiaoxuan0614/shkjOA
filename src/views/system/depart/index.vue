@@ -1,7 +1,7 @@
 <template>
   <a-row :class="['p-4', `${prefixCls}--box`]" type="flex" :gutter="10">
     <a-col :xl="10" :lg="24" :md="24" style="margin-bottom: 10px">
-      <DepartLeftTree ref="leftTree" @select="onTreeSelect" @rootTreeData="onRootTreeData" />
+      <DepartLeftTree ref="leftTree" @select="onTreeSelect" @root-tree-data="onRootTreeData" />
     </a-col>
     <a-col :xl="14" :lg="24" :md="24" style="margin-bottom: 10px">
       <div style="height: 100%;" :class="[`${prefixCls}`]">
@@ -11,17 +11,7 @@
               <DepartFormTab :data="departData" :rootTreeData="rootTreeData" @success="onSuccess" />
             </div>
           </a-tab-pane>
-          <a-tab-pane tab="部门权限" key="role-info">
-            <div style="padding: 0 20px 20px">
-              <DepartRuleTab :data="departData" :active="activeTab === 'role-info'" />
-            </div>
-          </a-tab-pane>
-          <a-tab-pane tab="职级汇报关系" key="rank">
-            <div style="padding: 0 20px 20px">
-              <DepartRankRelation :data="departData" :active="activeTab === 'rank'" />
-            </div>
-          </a-tab-pane>
-          <a-tab-pane tab="用户列表" key="user">
+          <a-tab-pane tab="部门成员" key="user">
             <div style="padding: 0 20px 20px">
               <DepartUserList :data="departData" :active="activeTab === 'user'" :key="reRender"></DepartUserList>
             </div>
@@ -43,8 +33,6 @@
   import { useDesign } from '/@/hooks/web/useDesign';
   import DepartLeftTree from './components/DepartLeftTree.vue';
   import DepartFormTab from './components/DepartFormTab.vue';
-  import DepartRuleTab from './components/DepartRuleTab.vue';
-  import DepartRankRelation from './components/DepartRankRelation.vue';
   import DepartUserList from './components/DepartUserList.vue';
   import DepartmentHeadList from './components/DepartmentHeadList.vue';
 

@@ -45,14 +45,37 @@ const opsAst = ts.createSourceFile('ops.ts', opsScript, ts.ScriptTarget.Latest, 
 const placement = opsAst.statements.find(node => ts.isFunctionDeclaration(node) && node.name.text === 'isMoreAction').getText(opsAst);
 const props = { project: { status: 'IMPLEMENTING' }, manager: true };
 const isMoreAction = new Function('props', 'canApplySupplement', ts.transpile(`${placement}\nreturn isMoreAction;`))(props, canApplySupplement);
-assert.equal(isMoreAction({ key: 'supplement' }), false, '实施中经理可直接看到申请补料');
+assert.equal(isMoreAction({ key: 'supplementApply' }), false, '实施中经理可直接看到申请补料');
 props.manager = false;
-assert.equal(isMoreAction({ key: 'supplement' }), true, '审批记录保留在更多，不开放申请');
+assert.equal(isMoreAction({ key: 'supplementApprove' }), false, '审批入口直接展示');
 props.manager = true; props.project.status = 'PREPARING';
-assert.equal(isMoreAction({ key: 'supplement' }), true);
+assert.equal(isMoreAction({ key: 'supplementHistory' }), true);
 assert.equal(isMoreAction({ key: 'close', dangerous: true }), true);
 assert.equal(isMoreAction({ key: 'material' }), true);
-assert(ops.includes("action.key === 'supplement' ? '申请补料'"));
+assert(ops.includes('supplementEntryOptions'));
+const { resolveSupplementEntries, supplementEntryOptions } = moduleFrom('src/views/project/detail/supplementEntries.ts', {
+  './periodOperations': { canApplySupplement, SUPPLEMENT_STAGES: ['IMPLEMENTING', 'DEBUGGING', 'DEBUG_COMPLETED'] },
+});
+for (const status of ['IMPLEMENTING', 'DEBUGGING', 'DEBUG_COMPLETED']) {
+  const p = { periodId: 'p', status };
+  assert.deepEqual(resolveSupplementEntries(p, true, false).map(x => x.key), ['supplementApply']);
+  assert.deepEqual(resolveSupplementEntries(p, false, true).map(x => x.key), ['supplementApprove']);
+  assert.deepEqual(resolveSupplementEntries(p, true, true).map(x => x.key), ['supplementApply', 'supplementApprove']);
+  assert.deepEqual(resolveSupplementEntries(p, false, false), []);
+}
+for (const status of ['NOT_STARTED', 'PREPARING', 'PENDING_APPROVAL', 'unknown']) assert.deepEqual(resolveSupplementEntries({periodId:'p',status},true,true),[]);
+for (const status of ['IMPLEMENT_COMPLETED', 'ACCEPTING', 'REWORKING', 'WARRANTY', 'COMPLETED', 'CLOSED']) {
+  assert.deepEqual(resolveSupplementEntries({periodId:'p',status},true,false).map(x=>x.key),['supplementHistory']);
+  assert.deepEqual(resolveSupplementEntries({periodId:'p',status},false,false),[]);
+}
+assert.deepEqual(supplementEntryOptions('supplementApply', false), {allowCreate:true,initialTab:'mine'});
+assert.deepEqual(supplementEntryOptions('supplementApprove', true), {allowCreate:false,initialTab:'pending'});
+assert.deepEqual(supplementEntryOptions('supplementHistory', true), {allowCreate:false,readOnly:true,initialTab:'history'});
+assert.deepEqual(supplementEntryOptions('supplementHistory', false), {allowCreate:false,readOnly:true,initialTab:'mine'});
+assert.equal(supplementEntryOptions('unknown', true), undefined);
+assert(drawer.includes('const canApprove = computed(() => !readOnly.value && hasApprovalAccess.value)'));
+assert(drawer.includes('if (readOnly.value || !id || !userId) return false;'));
+assert(drawer.includes('readOnly.value = data?.readOnly === true;'), '每次打开重置只读模式');
 assert.match(ops, /await projectDetail/);
 assert.match(ops, /key === 'close' \? 'CLOSED' : 'COMPLETED'/);
 const list = fs.readFileSync('src/views/project/index.vue', 'utf8');

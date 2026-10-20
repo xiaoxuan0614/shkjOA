@@ -1,6 +1,7 @@
 import { unref } from 'vue';
 import { defHttp } from '/@/utils/http/axios';
 import { useMessage } from '/@/hooks/web/useMessage';
+import { resolveCompanyRoot } from './singleCompany';
 
 const { createConfirm } = useMessage();
 
@@ -42,6 +43,11 @@ export enum Api {
  * 获取部门树列表
  */
 export const queryDepartTreeSync = (params?) => defHttp.get({ url: Api.queryDepartTreeSync, params });
+
+export async function readCompanyRoot() {
+  const nodes = await defHttp.get({ url: '/sys/sysDepart/queryTreeList' });
+  return resolveCompanyRoot(nodes);
+}
 
 /**
  * 获取部门和岗位树列表

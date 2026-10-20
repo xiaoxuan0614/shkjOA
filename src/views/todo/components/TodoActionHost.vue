@@ -166,6 +166,12 @@
       }
       return;
     }
+    if ([todo.todoType, todo.actionKey].includes('PROJECT_CANDIDATE_PRICE')) {
+      const candidateId = String(params.candidateId || '').trim();
+      if (!periodId || !candidateId) return createMessage.error('报价待定价待办缺少分期或报价 ID，请刷新待办');
+      router.push({ path: '/plan/material-draft/editor', query: { mode: 'price', periodId, candidateId } });
+      return;
+    }
     if ([todo.todoType, todo.actionKey].includes('PROJECT_CANDIDATE_APPROVAL')) {
       const candidateId = String(params.candidateId || todo.bizId || '');
       if (!periodId || !candidateId) return createMessage.error('报价审批待办缺少分期或报价 ID');

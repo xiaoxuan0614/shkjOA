@@ -7,7 +7,7 @@
         <a-popconfirm v-if="action.key === 'complete'" title="确认完结当前分期？" @confirm="finish('complete')">
           <a-button preIcon="ant-design:check-circle-outlined" :loading="busy">{{ action.label }}</a-button>
         </a-popconfirm>
-        <a-button v-else :preIcon="actionIcons[action.key]" @click="open(action.key)">{{ action.key === 'supplement' ? '申请补料' : action.label }}</a-button>
+        <a-button v-else :preIcon="actionIcons[action.key]" @click="open(action.key)">{{ action.label }}</a-button>
       </template>
       </div>
       <a-dropdown v-if="moreActions.length" :trigger="['click']">
@@ -33,7 +33,8 @@
   import { useMessage } from '/@/hooks/web/useMessage';
   import { projectDetail, changePeriodStatus } from '../../Project.api';
   import { refreshTodos } from '/@/views/todo/useTodoCenter';
-  import { canApplySupplement, resolvePeriodOperations } from '../periodOperations';
+  import { resolvePeriodOperations } from '../periodOperations';
+  import { resolveSupplementEntries, supplementEntryOptions } from '../supplementEntries';
   import ArrivalConfirmModal from '../../components/ArrivalConfirmModal.vue';
   import ProcessCompletionDrawer from '../../components/ProcessCompletionDrawer.vue';
   import MaterialSupplementDrawer from '../../components/MaterialSupplementDrawer.vue';
@@ -47,22 +48,23 @@
   const actionIcons: Record<string, string> = {
     arrival: 'ant-design:inbox-outlined',
     process: 'ant-design:solution-outlined',
-    supplement: 'ant-design:appstore-add-outlined',
+    supplementApply: 'ant-design:appstore-add-outlined',
+    supplementApprove: 'ant-design:audit-outlined',
     acceptance: 'ant-design:check-square-outlined',
     pick: 'ant-design:export-outlined',
     return: 'ant-design:import-outlined',
   };
   const actions = computed(() => {
     const result = resolvePeriodOperations(props.project, { manager: props.manager, typeNames: props.typeNames, hasPermission })
-      .filter(action => action.key !== 'acceptance' || props.acceptanceVisible);
+      .filter(action => action.key !== 'supplement' && (action.key !== 'acceptance' || props.acceptanceVisible));
+    result.push(...resolveSupplementEntries(props.project, props.manager, hasPermission('project:materialApply:approve')));
     result.push(...projectMaterialOperations(props.project, props.participant, permissions.getBackMenuList));
     if (props.materialVisible) result.push({ key: 'material', label: '用料记录' });
     if (props.manager && ['IMPLEMENTING', 'DEBUGGING', 'DEBUG_COMPLETED', 'REWORKING'].includes(props.project.status)) result.push({ key: 'delay', label: '申请延期' });
     return result;
   });
   function isMoreAction(item: { key: string; dangerous?: boolean }) {
-    return !!item.dangerous || ['material', 'delay'].includes(item.key) ||
-      (item.key === 'supplement' && !canApplySupplement(props.project.status, props.manager));
+    return !!item.dangerous || ['material', 'delay', 'supplementHistory'].includes(item.key);
   }
   const primaryActions = computed(() => actions.value.filter(item => !isMoreAction(item)));
   const moreActions = computed(() => actions.value.filter(isMoreAction));
@@ -74,7 +76,8 @@
     const record = props.project;
     if (key === 'arrival') openArrival(true, { record });
     if (key === 'process') openProcess(true, { record, periodId: record.periodId });
-    if (key === 'supplement') openSupplement(true, { record, allowCreate: canApplySupplement(record.status, props.manager), initialTab: props.manager ? 'mine' : 'pending' });
+    const supplementOptions = supplementEntryOptions(key, hasPermission('project:materialApply:approve'));
+    if (supplementOptions) openSupplement(true, { record, ...supplementOptions });
     if (key === 'acceptance') emit('acceptance');
     if (key === 'material') emit('material');
     if (key === 'delay') delayOpen.value = true;
