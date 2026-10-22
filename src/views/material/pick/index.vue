@@ -593,7 +593,6 @@
     const cur = getCurrentUser();
     const submitData: any = {
       applyType: 'OUT', // 领料 = 出库
-      bizType: 'PICK', // 领料业务类型(后端扩展字段)
       usageType: usageType.value,
       applyUserId: cur.applyUserId,
       useDate: values.useDate,
