@@ -2,7 +2,7 @@ import { defHttp } from '/@/utils/http/axios';
 
 /**
  * 还料申请 - 接口定义
- * 复用「出入库申请」：/stock/apply/add（项目还料固定 IN + RETURN + PROJECT + periodId）
+ * 复用「出入库申请」：/stock/apply/add（项目还料固定 IN + PROJECT + periodId，不传 bizType）
  * 项目列表：/project/member/participatedProjects（后端自动按当前用户过滤已接受邀请的项目）
  * 剩余物料：/project/materialAccount/page（按 periodId 返回项目物料总账）
  */
@@ -48,7 +48,7 @@ export const getApplyById = (params) => defHttp.get({ url: Api.applyQueryById, p
 
 /**
  * 提交还料申请(入库申请)
- * @param params StockApply: { applyType:'IN', bizType:'RETURN', usageType:'PROJECT', periodId, itemList }
+ * @param params StockApply: { applyType:'IN', usageType:'PROJECT', periodId, itemList }
  */
 export const submitReturnApply = (params) => defHttp.post({ url: Api.applyAdd, params }, { successMessageMode: 'success' });
 

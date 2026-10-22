@@ -18,6 +18,23 @@ function unwrap<T>(response: Response<T>): T {
 const options = { isTransformResponse: false, errorMessageMode: 'none' as const };
 const base = '/operation/dutyRoster';
 
+/** 新接口不返回 rotationUsers；由所有班次快照恢复编辑器参与人员。 */
+function normalizeRoster(result: DutyRosterResult): DutyRosterResult {
+  const days = (result.days ?? []).map((row) => ({
+    ...row,
+    dayUsers: (row.dayUsers ?? []).filter((person): person is DutyPerson => !!person),
+    nightUsers: getNightUsers(row).filter((person): person is DutyPerson => !!person),
+    restUsers: (row.restUsers ?? (row.restUser ? [row.restUser] : [])).filter((person): person is DutyPerson => !!person),
+    nightUser: row.nightUser ?? null,
+    restUser: row.restUser ?? null,
+  }));
+  const participants = new Map<string, DutyPerson>();
+  for (const person of [...(result.rotationUsers ?? []), ...days.flatMap((row) => [...row.dayUsers, ...row.nightUsers, ...row.restUsers])]) {
+    if (person?.userId && !participants.has(person.userId)) participants.set(person.userId, { ...person });
+  }
+  return { ...result, days, rotationUsers: [...participants.values()], version: 0 };
+}
+
 export async function loadDutyRosterUsers(): Promise<DutyPersonOptions> {
   interface Department {
     id?: string;
@@ -57,7 +74,7 @@ export async function loadDutyRosterUsers(): Promise<DutyPersonOptions> {
 
 export async function queryDutyRoster(month: string): Promise<DutyRosterResult> {
   const result = unwrap<DutyRosterResult>(await defHttp.get({ url: `${base}/queryByMonth`, params: { month } }, options));
-  return { ...result, version: 0 }; // 仅兼容编辑器内部状态，正式接口不使用版本号。
+  return normalizeRoster(result);
 }
 
 export async function saveDutyRoster(payload: DutyRosterPayload): Promise<DutyRosterResult> {
@@ -69,7 +86,7 @@ export async function saveDutyRoster(payload: DutyRosterPayload): Promise<DutyRo
   });
   const data = { month: payload.month, rotationUsers: payload.rotationUsers.map(ref), days };
   const result = unwrap<DutyRosterResult>(await defHttp.post({ url: `${base}/save`, data }, options));
-  return { ...result, version: 0 };
+  return normalizeRoster(result);
 }
 
 export async function downloadDutyRoster(month: string): Promise<Blob> {

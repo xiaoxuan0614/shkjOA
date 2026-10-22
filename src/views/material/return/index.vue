@@ -436,7 +436,6 @@
     return {
       ...(String(values.remark || '').trim() ? { remark: String(values.remark).trim() } : {}),
       applyType: 'IN', // 还料 = 入库
-      bizType: 'RETURN',
       usageType: MATERIAL_USAGE_TYPE.PROJECT,
       periodId: selectedPeriodId.value,
       itemList: hasReturn.map((d) => ({

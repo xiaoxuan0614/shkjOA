@@ -103,6 +103,18 @@ function result(month, extra = {}) {
   assert.deepEqual(calls.at(-1).data.days[0], {date:'2026-10-01',dayUsers:[],nightUsers:[],restUsers:users.map(p=>({userId:p.userId}))});
   await api.queryDutyRoster('2026-10');
   assert.deepEqual(calls.at(-1).params, { month: '2026-10' });
+  // 新版接口删除 rotationUsers，参与人员必须包含仅休息的人，且支持空班次/空元素。
+  apiResponse = { success: true, result: {
+    id: 'roster', month: '2026-10', saved: true, canManage: true,
+    days: [{ date: '2026-10-01', dayUsers: [users[0], null], nightUsers: [users[0], users[1], null], restUsers: [users[2]] }],
+  } };
+  const currentRoster = await api.queryDutyRoster('2026-10');
+  assert.deepEqual(currentRoster.rotationUsers, users);
+  assert.deepEqual(currentRoster.days[0].nightUsers, users.slice(0, 2));
+  assert.deepEqual(rules.getRestUsers(currentRoster.rotationUsers, currentRoster.days[0]), [users[2]]);
+  assert.deepEqual((await api.saveDutyRoster(payload)).rotationUsers, users, '保存回显也适配新契约');
+  apiResponse = { success: true, result: { id: null, month: '2026-11', saved: false, canManage: true, days: [] } };
+  assert.deepEqual((await api.queryDutyRoster('2026-11')).rotationUsers, []);
   assert.ok((await api.downloadDutyRoster('2026-10')) instanceof Blob);
   exportBlob = new Blob([JSON.stringify({ success: false, message: '尚未保存' })], { type: 'application/json' });
   await assert.rejects(api.downloadDutyRoster('2026-10'), /尚未保存/);

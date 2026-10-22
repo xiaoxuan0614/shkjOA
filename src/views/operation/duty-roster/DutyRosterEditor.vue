@@ -336,7 +336,7 @@
   const participantOptions = computed(() => {
     const options = new Map<string, { value: string; label: string; disabled: boolean }>();
     // 历史人员只用于回显，不能作为新增选项；更改生成配置也不清除既有明细。
-    const snapshots = rosterRows.value.flatMap((row) => [...row.dayUsers, ...getNightUsers(row), row.restUser]);
+    const snapshots = rosterRows.value.flatMap((row) => [...row.dayUsers, ...getNightUsers(row), ...(row.restUsers ?? [row.restUser])]);
     [...snapshots, ...rotationUsers.value].forEach((person) => {
       if (person?.userId)
         options.set(person.userId, {

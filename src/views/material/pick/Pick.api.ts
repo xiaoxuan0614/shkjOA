@@ -2,7 +2,7 @@ import { defHttp } from '/@/utils/http/axios';
 
 /**
  * 领料申请 - 接口定义
- * 复用「出入库申请」接口：/stock/apply/add（领料 = 出库 OUT，bizType=PICK）
+ * 复用「出入库申请」接口：/stock/apply/add（领料 = 出库 OUT，不传 bizType）
  * 项目领料候选：/project/materialAccount/page；其他领料候选：/stock/material/list。
  * 撤回/驳回后重新编辑：queryById + edit。
  */
@@ -47,7 +47,7 @@ export const getApplyById = (params) => defHttp.get({ url: Api.applyQueryById, p
 
 /**
  * 提交领料申请(出库申请)
- * @param params StockApply: { applyType:'OUT', bizType:'PICK', usageType, periodId?, applyUserId, useDate, remark, itemList:[{materialId,unitQty,unitName}] }
+ * @param params StockApply: { applyType:'OUT', usageType, periodId?, applyUserId, useDate, remark, itemList:[{materialId,unitQty,unitName}] }
  */
 export const submitPickApply = (params) => defHttp.post({ url: Api.applyAdd, params }, { successMessageMode: 'success' });
 

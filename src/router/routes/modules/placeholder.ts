@@ -56,6 +56,18 @@ const operation: AppRouteModule = {
       meta: { title: '运维值班表' },
     },
     {
+      path: 'reports',
+      name: 'OperationReportRecords',
+      component: () => import('/@/views/operation/reports/index.vue'),
+      meta: { title: '报修记录', ignoreKeepAlive: true },
+    },
+    {
+      path: 'repairs',
+      name: 'OperationRepairRecords',
+      component: () => import('/@/views/operation/repair/index.vue'),
+      meta: { title: '维修记录', ignoreKeepAlive: true },
+    },
+    {
       path: 'inspection-preview',
       name: 'InspectionMockPreview',
       component: () => import('/@/views/operation/inspection/index.vue'),
