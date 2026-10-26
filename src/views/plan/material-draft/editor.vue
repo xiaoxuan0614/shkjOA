@@ -119,7 +119,11 @@ ref="serviceFeePickerRef" picker-only :model-value="serviceFees" :ready="feesRea
     <QuotationHistoryModal v-model:open="historyOpen" :period-id="periodId" :candidate-id="candidateId" />
     <a-drawer v-model:open="documentPreviewOpen" title="报价单预览" width="min(1400px, 96vw)" destroy-on-close>
       <a-alert v-if="editing || canEditPricing" type="info" show-icon message="当前页面内容预览，未保存的修改不会写入正式导出文件。" style="margin-bottom: 16px" />
-      <QuotationSnapshotPreview :quotation="documentPreviewData" live />
+      <a-radio-group v-if="showCostTotal && showMarketPricing" v-model:value="documentPreviewBasis" aria-label="预览金额口径" style="margin-bottom: 16px">
+        <a-radio-button value="quote">报价金额</a-radio-button>
+        <a-radio-button value="cost">成本金额</a-radio-button>
+      </a-radio-group>
+      <QuotationSnapshotPreview :quotation="documentPreviewData" :amount-label="effectivePreviewBasis === 'cost' ? '成本' : effectivePreviewBasis === 'quote' ? '报价' : undefined" live />
     </a-drawer>
   </div>
 </template>
@@ -127,7 +131,7 @@ ref="serviceFeePickerRef" picker-only :model-value="serviceFees" :ready="feesRea
 <script setup lang="ts">
   import { computed, onMounted, onDeactivated, ref, nextTick } from 'vue';
   import QuotationSnapshotPreview from '/@/views/project/contract/QuotationSnapshotPreview.vue';
-  import { buildQuotationPreview } from '../quotationPreview';
+  import { buildQuotationPreview, quotationPreviewBasis, type QuotationPreviewBasis } from '../quotationPreview';
   import { useSessionDraft } from '/@/hooks/web/useSessionDraft';
   import { useRoute, useRouter } from 'vue-router';
   import { useUserStore } from '/@/store/modules/user';
@@ -178,15 +182,22 @@ ref="serviceFeePickerRef" picker-only :model-value="serviceFees" :ready="feesRea
   const error = ref('');
   const tableRef = ref();
   const documentPreviewOpen = ref(false);
-  const documentPreviewData = ref<Recordable | null>(null);
+  const documentPreviewRows = ref<Recordable[]>([]);
+  const documentPreviewBasis = ref<QuotationPreviewBasis>('quote');
+  const documentPreviewAccess = computed(() => ({ cost: showCostTotal.value, quote: showMarketPricing.value }));
+  const effectivePreviewBasis = computed(() => quotationPreviewBasis(documentPreviewAccess.value, documentPreviewBasis.value));
+  const documentPreviewData = computed(() => documentPreviewOpen.value
+    ? buildQuotationPreview(candidateName.value, documentPreviewRows.value, serviceFees.value, documentPreviewAccess.value, documentPreviewBasis.value)
+    : null);
   function openDocumentPreview() {
     if (!loaded.value || !materialsReady.value || !feesReady.value || saving.value) return;
     const rows = tableRef.value?.getRows();
     if (!Array.isArray(rows)) return;
-    documentPreviewData.value = buildQuotationPreview(candidateName.value, rows, serviceFees.value, showMarketPricing.value);
+    documentPreviewRows.value = rows;
+    documentPreviewBasis.value = showMarketPricing.value ? 'quote' : 'cost';
     documentPreviewOpen.value = true;
   }
-  onDeactivated(() => { documentPreviewOpen.value = false; documentPreviewData.value = null; });
+  onDeactivated(() => { documentPreviewOpen.value = false; documentPreviewRows.value = []; });
   const tableEpoch = ref(0);
   const serviceFees = ref<Recordable[]>([]);
   const serviceFeePickerRef = ref<InstanceType<typeof ServiceFeeTable>>();

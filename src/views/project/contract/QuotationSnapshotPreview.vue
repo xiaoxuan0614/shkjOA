@@ -29,7 +29,7 @@
           </tr>
           <tr v-if="!sheet.rows.length"><td :colspan="visibleHeaders.length">{{ live ? '暂无可展示的报价明细' : '本轮快照未提供可展示的报价明细' }}</td></tr>
         </tbody>
-        <tfoot v-if="!hideAmounts"><tr><th colspan="8" scope="row">合计</th><td>{{ snapshotMoney(sheet.total) }}</td><td></td></tr></tfoot>
+        <tfoot v-if="!hideAmounts"><tr><th colspan="8" scope="row">{{ amountLabel || '' }}合计</th><td>{{ snapshotMoney(sheet.total) }}</td><td></td></tr></tfoot>
       </table>
     </div>
   </div>
@@ -37,8 +37,10 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { contractSnapshotRows, quotationSnapshotPreview, snapshotMoney, snapshotQuotationHeaders, snapshotQuotationWidths } from './quotationSnapshotPreview';
-const props = defineProps<{ quotation: Record<string, any> | null; live?: boolean; materialOnly?: boolean; hideAmounts?: boolean }>();
-const visibleHeaders = computed(() => snapshotQuotationHeaders.filter((_, index) => !props.hideAmounts || (index !== 7 && index !== 8)));
+const props = defineProps<{ quotation: Record<string, any> | null; live?: boolean; materialOnly?: boolean; hideAmounts?: boolean; amountLabel?: '成本' | '报价' }>();
+const visibleHeaders = computed(() => snapshotQuotationHeaders.map((header, index) =>
+  props.amountLabel && (index === 7 || index === 8) ? `${props.amountLabel}${header}` : header
+).filter((_, index) => !props.hideAmounts || (index !== 7 && index !== 8)));
 const visibleWidths = computed(() => snapshotQuotationWidths.filter((_, index) => !props.hideAmounts || (index !== 7 && index !== 8)));
 const totalWidth = computed(() => visibleWidths.value.reduce((sum, width) => sum + width, 0));
 const materialHeaders = ['序号', '类别', '物料 / 服务费名称', '品牌', '型号', '数量', '单位', '备注'];

@@ -8,11 +8,10 @@
         </div>
       </a-form-item>
       <a-form-item name="password">
-        <span class="black font-size-13">新密码</span>
+        <span class="black font-size-13"><BasicHelp :text="NEW_PASSWORD_HINT" placement="top" style="margin: 0 6px 0 0" />新密码</span>
         <div class="pass-padding">
           <a-input-password v-model:value="formState.password" placeholder="新密码" autocomplete="new-password" />
         </div>
-        <span class="gray-9e font-size-13">密码至少6位</span>
       </a-form-item>
     </a-form>
   </BasicModal>
@@ -24,7 +23,8 @@
   import { updatePasswordNotBindPhone } from '../UserSetting.api';
   import { useMessage } from '/@/hooks/web/useMessage';
   import { useUserStore } from '/@/store/modules/user';
-  import { createPasswordLengthRule } from '@/utils/password';
+  import { createNewPasswordRule, NEW_PASSWORD_HINT } from '@/utils/newPassword';
+  import { BasicHelp } from '/@/components/Basic';
 
   const { createMessage } = useMessage();
   //用户名
@@ -45,7 +45,7 @@
   const userStore = useUserStore();
   const validatorRules: Record<string, Rule[]> = {
     oldPassword: [{ required: true, message: '请输入旧密码' }],
-    password: [{ required: true, validator: checkPassword }, createPasswordLengthRule()],
+    password: [{ required: true, validator: checkPassword }, createNewPasswordRule(() => formState.oldPassword)],
   };
 
   //表单提交事件

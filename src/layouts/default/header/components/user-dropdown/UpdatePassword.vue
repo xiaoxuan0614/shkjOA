@@ -11,7 +11,8 @@
   </BasicModal>
 </template>
 <script lang="ts" setup>
-  import { ref, unref } from 'vue';
+  import { ref, unref, h } from 'vue';
+  import { BasicHelp } from '/@/components/Basic';
   import { rules } from '/@/utils/helper/validator';
   import { defHttp } from '/@/utils/http/axios';
   import { BasicModal, useModalInner } from '/@/components/Modal';
@@ -20,7 +21,7 @@
   import { useMessage } from '/@/hooks/web/useMessage';
   import { useLocaleStore } from '/@/store/modules/locale';
   import { useI18n } from '/@/hooks/web/useI18n';
-  import { createPasswordLengthRule } from '/@/utils/password';
+  import { createNewPasswordRule, NEW_PASSWORD_HINT, newPasswordError } from '/@/utils/newPassword';
   const localeStore = useLocaleStore();
   const { t } = useI18n();
   // 声明Emits
@@ -40,7 +41,7 @@
         required: true,
       },
       {
-        label: t('layout.changePassword.newPassword'),
+        label: () => h('span', [h(BasicHelp, { text: NEW_PASSWORD_HINT, placement: 'top', style: { marginLeft: '0', marginRight: '6px' } }), t('layout.changePassword.newPassword')]),
         field: 'password',
         component: 'StrengthMeter',
         componentProps: {
@@ -51,7 +52,7 @@
             required: true,
             message: t('layout.changePassword.pleaseEnterNewPassword'),
           },
-          createPasswordLengthRule(),
+          createNewPasswordRule(),
         ],
       },
       {
@@ -72,6 +73,8 @@
   async function handleSubmit() {
     try {
       const values = await validate();
+      const passwordError = newPasswordError(values.password, values.oldpassword);
+      if (passwordError) return $message.createMessage.warning(passwordError);
       setModalProps({ confirmLoading: true });
       //提交表单
       let params = Object.assign({ username: unref(username) }, values);
