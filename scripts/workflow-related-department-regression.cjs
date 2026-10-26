@@ -1,0 +1,41 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),crypto=require('node:crypto').webcrypto;
+const ts=require('typescript'),sfc=require('@vue/compiler-sfc');
+function load(file,mocks={}) {const exports={};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,require:id=>mocks[id]||require(id),crypto,TextEncoder});return exports}
+const base='src/views/workflow/';
+const workflow=load(base+'workflow.ts',{'./structure':load(base+'structure.ts'),'./starterScope':load(base+'starterScope.ts')});
+const graph=load(base+'designer/graph.ts',{'../workflow':workflow});
+const related=load(base+'designer/relatedDepartment.ts');
+const presets=load(base+'designer/businessPresets.ts',{'../workflow':workflow,'./graph':graph,'./relatedDepartment':related});
+const preset=presets.repairInternalPreset();
+assert.ok(presets.isRepairInternal(preset.definition));
+assert.equal(preset.nodes.length,2);
+assert.equal(preset.nodes[1].config.source,'relatedDepartment');
+assert.equal(preset.nodes[0].approval.roleIds.length,0,'never guess operations manager role IDs');
+assert.equal(JSON.stringify(presets.editorSteps(true)),'[0,2,3,4]');
+assert.equal(JSON.stringify(presets.editorSteps(false)),'[0,1,2,3,4]');
+assert.equal(graph.executionBlockers(preset.nodes).length,0);
+const executable = graph.executableNodes(preset.nodes);
+assert.equal(executable[1].approverRules[0].type,'RELATED_DEPARTMENT_HEADS');
+assert.equal(executable[1].approverRules[0].relatedDepartment.sourceKind,'DEPARTMENTS');
+assert.equal(JSON.stringify(graph.executableNodes(graph.fromNodes(executable))),JSON.stringify(executable));
+const objectRule=executable[1].approverRules[0].relatedDepartment;objectRule.itemIdPath='departmentId';
+assert.equal(graph.executableNodes(graph.fromNodes(executable))[1].approverRules[0].relatedDepartment.itemIdPath,'departmentId');
+const invalid=JSON.parse(JSON.stringify(preset.nodes));invalid[1].config.relatedDepartment.fieldKey='';
+assert.throws(()=>graph.executableNodes(invalid),/来源字段/);
+invalid[1].config.relatedDepartment.fieldKey='departments';invalid[1].config.emptyType='auto';
+assert.throws(()=>graph.executableNodes(invalid),/人工审批/);
+const rule=related.newRelatedDepartmentDesign();assert.equal(rule.departmentMode,'ALL');assert.equal(rule.headMode,'ANY');assert.equal(rule.emptyPolicy,'FAIL');
+const fields=[{key:'memo',name:'备注',type:'string'},{key:'deps',name:'部门',type:'departments'},{key:'people',name:'人员',type:'users'}];
+assert.equal(related.relatedDepartmentFields(fields,'DEPARTMENTS')[0].value,'deps');
+assert.equal(related.relatedDepartmentFields(fields,'MEMBERS')[0].value,'people');
+assert.equal(related.relatedDepartmentFields(fields.slice(0,1),'DEPARTMENTS').length,0);
+const draft=JSON.parse(JSON.stringify(preset));assert.equal(draft.nodes[1].config.relatedDepartment.fieldKey,'departments');
+for(const file of ['components/WorkflowEditor.vue','designer/FlowSettings.vue','designer/FlowSequence.vue']) {
+ const filename=base+file;const {descriptor}=sfc.parse(fs.readFileSync(filename,'utf8'));sfc.compileScript(descriptor,{id:file});
+ assert.deepEqual(sfc.compileTemplate({source:descriptor.template.content,filename,id:file}).errors,[]);
+}
+const editor=fs.readFileSync(base+'components/WorkflowEditor.vue','utf8');
+assert.ok(editor.includes('if (localOnly.value)'));
+assert.ok(editor.includes('if (designBlockers.value.length) throw'));
+assert.ok(editor.includes('localOnly.value ? [relatedDepartmentPending]'));
+console.log('PASS related department defaults, semantic fields, draft roundtrip, preset steps, execution guards and SFC compilation');

@@ -6,7 +6,7 @@
       <header
         ><div><h1>审批流程配置</h1><p>统一维护审批表单、人员和规则，发布后用于新的申请。</p></div
         ><a-space
-          ><a-button @click="load">刷新</a-button><a-button type="primary" @click="create"><PlusOutlined />新建流程</a-button></a-space
+          ><a-button v-if="localMockEnabled" @click="mockOpen = true">内协审批 Mock</a-button><a-button @click="load">刷新</a-button><a-button type="primary" @click="create"><PlusOutlined />新建流程</a-button></a-space
         ></header
       >
       <a-alert v-if="error" type="error" show-icon :message="error"
@@ -60,7 +60,7 @@
             ><div class="model-key">{{ record.process_key }}</div></template
           >
           <template v-else-if="column.key === 'maintainer'">{{ record.updated_by_name || record.updated_by || '—' }}</template
-          ><template v-else-if="column.key === 'type'">{{ businessTypeLabels[record.business_type] || record.business_type }}</template>
+          ><template v-else-if="column.key === 'type'">{{ businessLabel(record.business_type, record.process_key, businessCatalog) }}</template>
           <template v-else-if="column.key === 'version'"
             ><a-tag v-if="record.published_version" color="blue">V{{ record.published_version }}</a-tag
             ><a-tag v-else>未发布</a-tag></template
@@ -83,7 +83,7 @@
                     }}</a-menu-item
                     ><a-menu-item :key="record.archived ? 'RESTORE' : 'ARCHIVE'">{{
                       record.archived ? '恢复流程（保持停用）' : '归档流程'
-                    }}</a-menu-item></a-menu
+                    }}</a-menu-item><a-menu-divider /><a-menu-item v-if="canManage" key="DELETE" danger>删除流程</a-menu-item></a-menu
                   ></template
                 ></a-dropdown
               ></a-space
@@ -95,6 +95,7 @@
         >
       </a-table>
     </section>
+    <RepairInternalMock v-if="localMockEnabled && canManage && mockOpen" @close="mockOpen = false" />
     <a-drawer v-model:open="versionsOpen" title="发布版本历史" width="min(760px, 96vw)">
       <a-alert type="info" show-icon message="回退会创建新的发布版本，不覆盖历史，不改变运行中的申请。" />
       <a-alert v-if="versionError" type="error" :message="versionError" show-icon />
@@ -113,19 +114,23 @@
 <script setup lang="ts" name="WorkflowModelList">
   import { withPagination } from '/@/components/Pagination/config';
   defineOptions({ name: 'WorkflowModelList' });
-  import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+  import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref } from 'vue';
+  const localMockEnabled = import.meta.env.DEV;
+  const RepairInternalMock = defineAsyncComponent(() => import('./designer/RepairInternalMock.vue'));
+  const mockOpen = ref(false);
   import { Modal, message } from 'ant-design-vue';
   import { DownOutlined, PlusOutlined } from '@ant-design/icons-vue';
   import { usePermission } from '/@/hooks/web/usePermission';
-  import { designerList, enableModel, listModels, modelVersions, operateModel } from './Workflow.api';
+  import { businessTypes, designerList, deleteModel, enableModel, listModels, modelVersions, operateModel } from './Workflow.api';
   import { newId, parseDefinition } from './workflow';
-  import { businessTypeLabels } from './businessMetadata';
+  import { businessLabel, type BusinessMetadata } from './businessMetadata';
   import WorkflowEditor from './components/WorkflowEditor.vue';
   import { useUserStore } from '/@/store/modules/user';
   const isBindingAdmin = computed(() => (useUserStore().getRoleList || []).some((role) => String(role) === 'admin'));
   import type { DesignerDraft, WorkflowModel, WorkflowVersion } from './workflow.types';
   const { hasPermission } = usePermission();
   const canManage = computed(() => hasPermission('workflow:model:manage'));
+  const businessCatalog = ref<BusinessMetadata[]>([]);
   const listTab = ref('models');
   const designRows = ref<DesignerDraft[]>([]);
   const selectedDesign = ref<DesignerDraft>();
@@ -175,8 +180,9 @@
         }
         return;
       }
-      const result = await listModels(page.value);
+      const [result, catalog] = await Promise.all([listModels(page.value), businessTypes().catch(() => [])]);
       if (current !== generation) return;
+      businessCatalog.value = catalog;
       rows.value = result.records;
       total.value = result.total;
     } catch (e) {
@@ -234,7 +240,33 @@
     editing.value = false;
     load();
   }
+  function removeModel(model: WorkflowModel) {
+    if (!canManage.value) return;
+    Modal.confirm({
+      title: `删除流程“${model.name}”？`,
+      content: '将删除模型及模型内的配置草稿，删除后不能发起或重新提交申请。发布版本、审批历史和独立设计草稿保留；存在运行中或挂起的审批时，服务器会拒绝删除。',
+      okText: '删除流程', okType: 'danger', cancelText: '取消',
+      onOk: async () => {
+        try {
+          await deleteModel(model.process_key, model.revision);
+          message.success('流程模型已删除');
+          if (rows.value.length === 1 && page.value > 1) page.value--;
+          if (versionModel.value?.process_key === model.process_key) {
+            versionGeneration++;
+            versionsOpen.value = false;
+          }
+          await load();
+        } catch (e) {
+          // Close this confirmation and refresh: never retry with a stale revision.
+          await load();
+          error.value = (e as Error).message;
+          message.error(error.value);
+        }
+      },
+    });
+  }
   function operate(model: WorkflowModel, operation: string) {
+    if (operation === 'DELETE') { removeModel(model); return; }
     const label =
       operation === 'COPY'
         ? '复制流程'

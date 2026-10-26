@@ -13,7 +13,7 @@
       >
       <h2>审批记录</h2>
       <p v-for="(item, index) in data.instance.history" :key="index"
-        >{{ item.actor_name || item.actor_id }} · {{ item.action }} · {{ item.comment_text }} · {{ item.created_at }}</p
+        >{{ item.actor_name || item.actor_id }} · {{ item.action === 'APPROVAL_REUSED' ? '已通过（复用一级审批结果）' : item.action }} · {{ item.comment_text }} · {{ item.created_at }}</p
       >
     </div>
     <template #footer

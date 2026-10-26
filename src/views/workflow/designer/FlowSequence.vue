@@ -1,8 +1,21 @@
 <template>
   <div class="flow-sequence">
     <AddNode :disabled="readonly" @add="(kind) => insert(0, kind)" />
-    <template v-for="(node, index) in nodes" :key="node.id">
+    <template v-for="entry in entries" :key="entry.key">
+      <section v-if="entry.group" class="approval-summary">
+        <div class="summary-heading"><strong>动态审批组</strong><span>{{ entry.group.nodes.length }} 个节点</span></div>
+        <p>依次审批 · 按各节点条件执行</p>
+        <p class="summary-note">审批人员来自表单字段；折叠不改变流程。</p>
+        <button class="summary-toggle" :aria-expanded="expanded.has(entry.group.id)" @click="toggleGroup(entry.group.id)">{{ expanded.has(entry.group.id) ? '收起节点' : '展开查看节点与规则' }}<UpOutlined v-if="expanded.has(entry.group.id)" /><DownOutlined v-else /></button>
+      </section>
+      <template v-for="node in entry.node ? [entry.node] : []" :key="node.id">
       <template v-if="node.branches">
+        <section class="approval-summary branch-summary">
+          <div class="summary-heading"><strong>{{ node.name || '分支组' }}</strong><span>{{ node.branches.length }} 个分支</span></div>
+          <p>{{ node.kind === 'PARALLEL' ? '并行执行' : node.kind === 'CONDITION' ? '按条件选择分支' : '按顺序执行' }}</p>
+          <button class="summary-toggle" :aria-expanded="!collapsedBranches.has(node.id)" @click="toggleBranch(node.id)">{{ collapsedBranches.has(node.id) ? '展开分支' : '收起分支' }}<DownOutlined v-if="collapsedBranches.has(node.id)" /><UpOutlined v-else /></button>
+        </section>
+        <template v-if="!collapsedBranches.has(node.id)">
         <div class="branch-group">
           <button v-if="['CONDITION', 'PARALLEL'].includes(node.kind)" class="add-branch" :disabled="readonly" @click="addBranch(node)">{{
             node.kind === 'CONDITION' ? '添加条件' : '添加并行分支'
@@ -41,8 +54,9 @@
               <div class="lane-tail"></div>
             </div>
           </div>
-          <button v-if="!readonly" class="remove-group" aria-label="删除整个分支组" @click="remove(index)"><DeleteOutlined /></button>
+          <button v-if="!readonly" class="remove-group" aria-label="删除整个分支组" @click="remove(entry.index)"><DeleteOutlined /></button>
         </div>
+        </template>
       </template>
       <article v-else class="canvas-node" :class="[node.kind.toLowerCase(), { selected: selected === node.id }]">
         <button class="node-select" @click="emit('select', node)">
@@ -52,13 +66,18 @@
           /></strong>
           <span class="node-description">{{ summary(node) }}<RightOutlined /></span>
         </button>
-        <button v-if="!readonly" class="delete-node" :aria-label="`删除${node.name}`" @click="remove(index)"><CloseOutlined /></button>
+        <button v-if="!readonly" class="delete-node" :aria-label="`删除${node.name}`" @click="remove(entry.index)"><CloseOutlined /></button>
       </article>
-      <AddNode :disabled="readonly" @add="(kind) => insert(index + 1, kind)" />
+      <AddNode :disabled="readonly" @add="(kind) => insert(entry.index + 1, kind)" />
+      </template>
+      <AddNode v-if="entry.group && !expanded.has(entry.group.id)" :disabled="readonly" @add="(kind) => insert(entry.index + entry.group!.nodes.length, kind)" />
     </template>
   </div>
 </template>
 <script setup lang="ts">
+  import { computed, ref } from 'vue';
+  import { canvasEntries } from './presentation';
+  import { relatedDepartmentSummary } from './relatedDepartment';
   import { Modal } from 'ant-design-vue';
   import {
     UserOutlined,
@@ -68,12 +87,19 @@
     RightOutlined,
     CloseOutlined,
     DeleteOutlined,
+    DownOutlined,
+    UpOutlined,
   } from '@ant-design/icons-vue';
   import AddNode from './AddNode.vue';
   import { createDesignNode, branch } from './graph';
   import type { DesignNode, DesignBranch, NodeKind } from './graph';
   const props = defineProps<{ readonly?: boolean; selected?: string }>();
   const nodes = defineModel<DesignNode[]>('nodes', { required: true });
+  const expanded = ref(new Set<string>());
+  const collapsedBranches = ref(new Set<string>());
+  const entries = computed(() => canvasEntries(nodes.value, expanded.value));
+  function toggleGroup(id: string) { const next = new Set(expanded.value); next.has(id) ? next.delete(id) : next.add(id); expanded.value = next; }
+  function toggleBranch(id: string) { const next = new Set(collapsedBranches.value); next.has(id) ? next.delete(id) : next.add(id); collapsedBranches.value = next; }
   const emit = defineEmits<{ (e: 'select', node: DesignNode, lane?: DesignBranch): void; (e: 'changed'): void }>();
   const icons = {
     SEQUENCE: ProfileOutlined,
@@ -125,6 +151,7 @@
     return count ? `已设置 ${count} 个条件` : b.predicate ? '已配置递归条件' : '请设置条件';
   }
   function summary(n: DesignNode) {
+    if (n.config.source === 'relatedDepartment') return relatedDepartmentSummary(n);
     if (n.kind === 'APPROVAL') {
       const a = n.approval!;
       const count = (a.userIds?.length || 0) + (a.roleIds?.length || 0) + (a.approverRules?.length || 0);
@@ -135,6 +162,14 @@
   }
 </script>
 <style scoped>
+  .approval-summary { width:280px; padding:16px; border:1px solid #dcdee7; border-radius:4px; background:#fff; color:#424659; box-sizing:border-box; }
+  .summary-heading { display:flex; align-items:baseline; justify-content:space-between; gap:12px; }
+  .summary-heading strong { font-size:16px; overflow-wrap:anywhere; }
+  .summary-heading span { flex-shrink:0; color:#545b6c; font-size:13px; }
+  .approval-summary p { margin:10px 0 0; font-size:14px; line-height:1.6; }
+  .approval-summary .summary-note { color:#545b6c; font-size:13px; }
+  .summary-toggle { display:flex; justify-content:space-between; align-items:center; gap:12px; width:100%; min-height:40px; margin-top:12px; padding:0; border:0; background:transparent; color:#424659; cursor:pointer; text-align:left; }
+  .branch-summary { margin-bottom:12px; }
   .flow-sequence {
     display: flex;
     flex-direction: column;

@@ -1,0 +1,34 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const ts = require('typescript');
+const sfc = require('@vue/compiler-sfc');
+const exportsBox = {};
+vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/views/workflow/designer/presentation.ts', 'utf8'), {
+  compilerOptions: {module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022},
+}).outputText, {exports:exportsBox});
+const {canvasEntries} = exportsBox;
+const fixed = {id:'head',kind:'APPROVAL',config:{},approval:{userIds:['head']}};
+const dynamic = Array.from({length:20},(_,i)=>({id:`node-${i}`,name:`审批${i}`,kind:'APPROVAL',config:{},approval:{approverRules:[{type:'FORM_USERS',fieldKey:`reviewers${i}`}],condition:{field:'count',operator:'GT',value:String(i)}}}));
+const nodes = [fixed,...dynamic];
+const original = JSON.stringify(nodes);
+let entries = canvasEntries(nodes,new Set());
+assert.equal(entries.length,2);
+assert.equal(entries[1].group.nodes.length,20);
+assert.equal(entries[0].node,fixed);
+entries = canvasEntries(nodes,new Set([entries[1].group.id]));
+assert.equal(entries.length,22);
+assert.equal(entries[2].node,dynamic[0]);
+assert.equal(entries.at(-1).index,20);
+assert.equal(JSON.stringify(nodes),original,'presentation must not mutate or serialize grouping state');
+assert.equal(canvasEntries(dynamic.slice(0,2),new Set()).length,2);
+const branch = {id:'branch',kind:'PARALLEL',config:{},branches:[]};
+assert.equal(canvasEntries([...dynamic.slice(0,2),branch,...dynamic.slice(2,4)],new Set()).length,5,'do not group across execution boundaries');
+assert.equal(canvasEntries([],new Set()).length,0);
+const filename='src/views/workflow/designer/FlowSequence.vue';
+const {descriptor}=sfc.parse(fs.readFileSync(filename,'utf8'));
+sfc.compileScript(descriptor,{id:'groups'});
+assert.deepEqual(sfc.compileTemplate({source:descriptor.template.content,filename,id:'groups'}).errors,[]);
+assert.ok(descriptor.template.content.includes('remove(entry.index)'));
+assert.ok(descriptor.template.content.includes('aria-expanded'));
+console.log('PASS canvas groups: generic dynamic nodes, boundaries, original indexes, immutability, expanded view and Vue compilation');

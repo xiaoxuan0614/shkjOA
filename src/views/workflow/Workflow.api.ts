@@ -34,7 +34,7 @@ export function normalizeDefinition(definition: WorkflowDefinition): WorkflowDef
   for (const field of result.formFields || []) field.required ??= false;
   for (const node of result.nodes) {
     node.allowSelf ??= false;
-    for (const rule of node.approverRules || []) rule.includeChildren ??= false;
+    for (const rule of node.approverRules || []) if (rule.type !== 'RELATED_DEPARTMENT_HEADS') rule.includeChildren ??= false;
   }
   result.policy ||= {};
   result.policy.starters = serializeStarters(result.policy.starters);
@@ -43,6 +43,11 @@ export function normalizeDefinition(definition: WorkflowDefinition): WorkflowDef
 }
 export const saveModel = (definition: WorkflowDefinition, revision?: number) =>
   request<WorkflowModel>('post', 'model/save', { definition: normalizeDefinition(definition), ...(revision == null ? {} : { revision }) });
+export async function deleteModel(key: string, revision: number) {
+  const result = await request<{ key: string; deleted: boolean; historyPreserved: boolean; designerDraftPreserved: boolean }>('post', 'model/delete', { key, revision });
+  if (result?.key !== key || result.deleted !== true) throw new Error('服务未确认删除成功，请刷新列表核查');
+  return result;
+}
 export const publishModel = (key: string, revision: number) => request<WorkflowModel>('post', 'model/publish', { key, revision });
 export const enableModel = (key: string, revision: number, enabled: boolean) =>
   request<WorkflowModel>('post', 'model/enable', { key, revision, enabled });
@@ -131,3 +136,14 @@ export const instanceRounds = (instanceId: string, pageNo = 1) =>
 
 export const searchInstances = (pageNo = 1, latestOnly = false) =>
   request<PageResult<WorkflowInstance>>('post', `instance/search?pageNo=${pageNo}&pageSize=10`, { latestOnly });
+
+/** Use the business-owned template, including its current operations-manager role. */
+export async function repairInternalTemplate(): Promise<WorkflowDefinition> {
+  const response = await defHttp.get({ url: '/repair/workflow/template', params: { type: 'COLLABORATION', personType: 'INTERNAL' } },
+    { isTransformResponse: false, errorMessageMode: 'none', successMessageMode: 'none' });
+  if (response?.success !== true || response?.code !== 200) throw new Error(response?.message || '维修内协模板读取失败');
+  const definition = response.result as WorkflowDefinition;
+  if (definition?.key !== 'repair_ops_collaboration' || definition.businessType !== 'REPAIR_OPS_APPLICATION' || !Array.isArray(definition.nodes) || !definition.nodes.some(n => n.approverRules?.some(r => r.type === 'RELATED_DEPARTMENT_HEADS')))
+    throw new Error('服务未提供新版维修内协模板，请更新后端后重试');
+  return definition;
+}

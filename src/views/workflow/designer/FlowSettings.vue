@@ -36,12 +36,17 @@
       <a-radio-group :value="source" @change="changeSource($event.target.value)" class="people-types">
         <a-radio value="users">指定成员</a-radio><a-radio value="roles">指定角色</a-radio><a-radio value="supervisor">上级</a-radio
         ><a-radio value="head">部门负责人</a-radio>
+        <a-radio value="relatedDepartment">关联部门主管</a-radio>
         <a-tooltip title="运行时读取表单中的有效用户ID或ID数组"><a-radio value="field" :disabled="!capabilities">表单内成员</a-radio></a-tooltip>
         <a-tooltip title="按主管链顺序审批，支持1至30级"><a-radio value="levels" :disabled="!capabilities">连续多级负责人</a-radio></a-tooltip>
         <a-radio v-if="source === 'mixed'" value="mixed">组合选人</a-radio>
       </a-radio-group>
       <div class="source-fields">
-        <template v-if="source === 'users' || source === 'roles'">
+        <template v-if="source === 'relatedDepartment' && node.config.relatedDepartment">
+          <a-alert v-if="!capabilities?.relatedDepartmentHeads?.supported" type="warning" show-icon :message="relatedDepartmentPending" />
+          <RelatedDepartmentConfig v-model:value="node.config.relatedDepartment" :fields="fields" :repair="repairInternal" />
+        </template>
+        <template v-else-if="source === 'users' || source === 'roles'">
           <div class="selection-toolbar">
             <a-button class="add-people" @click="pick(source)"><PlusOutlined />添加{{ source === 'users' ? '成员' : '角色' }}</a-button>
             <span class="selection-count">已选 {{ selectedIds.length }} / 100 {{ source === 'users' ? '人' : '个角色' }}</span>
@@ -70,7 +75,7 @@
           source === 'field' ? '表单值须为有效用户 ID 或 ID 数组。' : '按主管链逐级串行审批，最多30级。'
         }}</p>
       </div>
-      <a-collapse v-model:activeKey="advancedKeys" ghost class="advanced"
+      <a-collapse v-if="source !== 'relatedDepartment'" v-model:activeKey="advancedKeys" ghost class="advanced"
         ><a-collapse-panel key="advanced" header="组合选人及排除设置"
           ><NodeEditor v-model:node="node.approval!" :fields="fields" people-only /></a-collapse-panel
       ></a-collapse>
@@ -80,7 +85,7 @@
       ><a-form layout="vertical">
         <a-form-item label="审批类型"
           ><a-radio-group :value="node.config.approvalType || 'manual'" @change="node.config.approvalType = $event.target.value"
-            ><a-radio value="manual">人工审批</a-radio><a-radio value="auto" :disabled="!capabilities">自动通过</a-radio></a-radio-group
+            ><a-radio value="manual">人工审批</a-radio><a-radio value="auto" :disabled="!capabilities || source === 'relatedDepartment'">自动通过</a-radio></a-radio-group
           ></a-form-item
         >
         <a-form-item label="审批退回类型"
@@ -89,14 +94,15 @@
             ><a-radio value="disabled">禁止退回</a-radio></a-radio-group
           ></a-form-item
         >
-        <a-form-item label="多人审批类型"
+        <a-form-item v-if="source !== 'relatedDepartment'" label="多人审批类型"
           ><a-select v-model:value="node.approval!.options!.mode" :options="modeOptions" @change="delete node.approval!.options!.threshold"
         /></a-form-item>
-        <a-form-item v-if="['COUNT', 'PERCENT'].includes(node.approval!.options!.mode || '')" label="通过阈值"
+        <a-form-item v-if="source !== 'relatedDepartment' && ['COUNT', 'PERCENT'].includes(node.approval!.options!.mode || '')" label="通过阈值"
           ><a-input-number v-model:value="node.approval!.options!.threshold" :min="1" :max="100" :precision="0"
         /></a-form-item>
 
-        <a-form-item label="审批人员为空时"
+        <a-alert v-if="source === 'relatedDepartment'" type="info" message="关联部门主管按人员配置中的两层通过规则办理；无主管时停止，不使用普通人员平铺投票。" />
+        <a-form-item v-else label="审批人员为空时"
           ><a-radio-group :value="node.config.emptyType || 'fail'" @change="node.config.emptyType = $event.target.value"
             ><a-radio value="fail">停止并提示</a-radio><a-radio value="auto" :disabled="!capabilities">自动通过</a-radio
             ><a-radio value="transfer">自动转交给某个人</a-radio></a-radio-group
@@ -201,6 +207,9 @@
 </template>
 <script setup lang="ts">
   import { ref, computed, watch, inject } from 'vue';
+  import { newRelatedDepartmentDesign, relatedDepartmentPending } from './relatedDepartment';
+  const repairInternal = inject('workflowRepairInternal', ref(false));
+  import RelatedDepartmentConfig from './RelatedDepartmentConfig.vue';
   import { Modal } from 'ant-design-vue';
   import { PlusOutlined, CloseOutlined } from '@ant-design/icons-vue';
   import PeoplePicker from './PeoplePicker.vue';
@@ -297,7 +306,11 @@
     const n = node.value;
     const a = n.approval!;
     const apply = () => {
-      n.config.source = ['field', 'levels'].includes(value) ? value : undefined;
+      n.config.source = ['field', 'levels', 'relatedDepartment'].includes(value) ? value : undefined;
+      if (value === 'relatedDepartment') {
+        n.config.relatedDepartment ||= newRelatedDepartmentDesign();
+        n.config.approvalType = 'manual'; n.config.emptyType = 'fail';
+      } else delete n.config.relatedDepartment;
       if (value === 'levels') n.config.levels = 1;
       delete n.config.field;
       delete n.config.task;

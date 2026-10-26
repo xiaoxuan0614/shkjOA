@@ -66,11 +66,14 @@ export function parseDefinition(model: WorkflowModel): WorkflowDefinition {
   if (!data || data.key !== model.process_key || !Array.isArray(data.nodes)) throw new Error('流程草稿结构异常，请刷新或联系管理员。');
   return data;
 }
-export function canEditDefinition(definition: WorkflowDefinition) {
-  return ['WORKFLOW_FORM', 'PROJECT_CONTRACT'].includes(definition.businessType);
+export function canEditDefinition(definition: WorkflowDefinition, registeredTypes: string[] = ['WORKFLOW_FORM', 'PROJECT_CONTRACT']) {
+  // Retired adapters remain history-only even if an older server still lists them.
+  if (['WORKFLOW_TEST', 'PROJECT_REPAIR'].includes(definition.businessType)) return false;
+  return registeredTypes.includes(definition.businessType);
 }
 export function validateDefinition(definition: WorkflowDefinition): string[] {
   const errors: string[] = [];
+  if (definition.settings?.reuseFirstLevelApprovalResult === true && !(definition.businessType === 'REPAIR_OPS_APPLICATION' && definition.key === 'repair_ops_collaboration')) errors.push('一级审批结果复用仅适用于维修内协邀请流程');
   try {
     serializeStarters(definition.policy?.starters);
   } catch (e) {
@@ -87,7 +90,7 @@ export function validateDefinition(definition: WorkflowDefinition): string[] {
       errors.push(`字段“${field.name || '未命名'}”需要名称和有效标识`);
     if (field.key.split(/\.|\[\]/).some((part) => ['__proto__', 'constructor', 'prototype'].includes(part)) || fieldKeys.has(field.key))
       errors.push(`字段标识“${field.key}”不可重复或使用保留名称`);
-    if (!['string', 'number', 'boolean', 'date', 'object', 'array', 'attachment'].includes(field.type)) errors.push(`字段“${field.name}”类型不支持`);
+    if (!['string', 'number', 'boolean', 'date', 'object', 'array', 'attachment', 'department', 'departments', 'member', 'members'].includes(field.type)) errors.push(`字段“${field.name}”类型不支持`);
     fieldKeys.add(field.key);
   }
   const nodeKeys = new Set<string>();
@@ -108,7 +111,15 @@ export function validateDefinition(definition: WorkflowDefinition): string[] {
     if (sources > 100) errors.push(`${label}选人配置合计最多100项`);
     for (const rule of node.approverRules || []) {
       if (rule.type.startsWith('DEPARTMENT_') && !rule.departmentIds?.length) errors.push(`${label}请选择部门`);
-      if (rule.type === 'FORM_USERS' && (!rule.fieldKey || !fieldKeys.has(rule.fieldKey))) errors.push(`${label}请选择有效的表单人员字段`);
+      if (rule.type === 'RELATED_DEPARTMENT_HEADS') {
+        const r = rule.relatedDepartment;
+        if (!r || !fieldKeys.has(r.fieldKey) || !['DEPARTMENTS','MEMBERS'].includes(r.sourceKind) || !['ALL','ANY'].includes(r.departmentMode) || !['ALL','ANY'].includes(r.headMode) || r.emptyPolicy !== 'FAIL') errors.push(`${label}关联部门主管配置无效`);
+        if (node.options?.behavior?.autoApprove || node.options?.behavior?.emptyApprover && node.options.behavior.emptyApprover !== 'FAIL') errors.push(`${label}关联部门主管必须人工审批且无主管时停止`);
+        if (sources !== 1) errors.push(`${label}关联部门主管不能混用其他审批人来源`);
+        if (r?.itemIdPath && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(r.itemIdPath)) errors.push(`${label}对象ID字段必须是直接子字段`);
+        if (definition.businessType === 'REPAIR_OPS_APPLICATION' && definition.key === 'repair_ops_collaboration' && (r?.departmentMode !== 'ALL' || r?.headMode !== 'ANY')) errors.push(`${label}维修内协必须全部部门通过、同部门任一主管通过`);
+      }
+      if (rule.type === 'FORM_USERS'  && (!rule.fieldKey || !fieldKeys.has(rule.fieldKey))) errors.push(`${label}请选择有效的表单人员字段`);
       if (rule.type === 'SUPERVISOR_CHAIN' && (!Number.isInteger(rule.levels) || rule.levels! < 1 || rule.levels! > 30))
         errors.push(`${label}主管层级需为1至30的整数`);
       if (rule.type === 'POSITION_USERS' && !rule.positionIds?.length) errors.push(`${label}请选择岗位`);
@@ -153,7 +164,7 @@ export function removeField(definition: WorkflowDefinition, key: string) {
     JSON.stringify(definition.stages || []).includes(`"${key}"`) ||
     definition.nodes.some(
       (node) =>
-        node.approverRules?.some((r) => r.fieldKey === key) ||
+        node.approverRules?.some((r) => r.fieldKey === key || r.relatedDepartment?.fieldKey === key) ||
         node.options?.behavior?.notificationTemplate?.includes('${' + key + '}') ||
         node.condition?.field === key ||
         (node.options?.predicate && JSON.stringify(node.options.predicate).includes(`"${key}"`))

@@ -14,6 +14,12 @@ function load(file, mocks = {}) {
 }
 const structure = load('src/views/workflow/structure.ts');
 const workflow = load('src/views/workflow/workflow.ts', { './structure': structure, './starterScope': load('src/views/workflow/starterScope.ts') });
+const metadata = load('src/views/workflow/businessMetadata.ts');
+assert.equal(metadata.businessLabel('REPAIR_OPS_APPLICATION','repair_ops_collaboration'),'维修内协邀请');
+assert.equal(metadata.businessLabel('REPAIR_OPS_APPLICATION','repair_ops_close'),'维修事项审批');
+assert.equal(metadata.businessLabel('REPAIR_OPS_APPLICATION','repair_ops_close',[{businessType:'REPAIR_OPS_APPLICATION',scenes:[{processKey:'repair_ops_close',name:'维修关闭审批'}]}]),'维修关闭审批');
+assert.equal(metadata.businessLabel('NEW_BUSINESS'),'NEW_BUSINESS');
+assert.equal(metadata.businessLabel('REPAIR_OPS_APPLICATION','repair_ops_collaboration',[{businessType:'REPAIR_OPS_APPLICATION',businessType_text:'接口业务名称'}]),'接口业务名称');
 const definition = workflow.newDefinition();
 definition.name = '通用申请';
 definition.formFields = [{ key: 'note', name: '说明', type: 'string' }];
@@ -37,6 +43,17 @@ definition.nodes[0].excludedUserIds = ['reviewer', 'reviewer'];
 assert(workflow.validateDefinition(definition).some((e) => e.includes('列表无效')));
 assert.equal(workflow.canEditDefinition({ ...definition, stages: [{ kind: 'PARALLEL' }] }), true);
 assert.equal(workflow.canEditDefinition({ ...definition, businessType: 'CONTRACT' }), false);
+const activeTypes=['WORKFLOW_FORM','PROJECT_CONTRACT','REPAIR_OPS_APPLICATION','STOCK_PROJECT_REQUISITION','EXTENSION'];
+for(const key of ['repair_ops_collaboration','repair_ops_external','repair_ops_close'])
+  assert.equal(workflow.canEditDefinition({...definition,key,businessType:'REPAIR_OPS_APPLICATION'},activeTypes),true);
+assert.equal(workflow.canEditDefinition({...definition,businessType:'STOCK_PROJECT_REQUISITION'},activeTypes),true);
+assert.equal(workflow.canEditDefinition({...definition,businessType:'EXTENSION'},activeTypes),true);
+assert.equal(workflow.canEditDefinition({...definition,businessType:'REPAIR_OPS_APPLICATION'},[]),false);
+assert.equal(workflow.canEditDefinition({...definition,businessType:'PROJECT_REPAIR'},['PROJECT_REPAIR']),false);
+assert.match(metadata.businessFormInstructions('REPAIR_OPS_APPLICATION').submission,/维修单/);
+assert.doesNotMatch(JSON.stringify(metadata.businessFormInstructions('REPAIR_OPS_APPLICATION')),/合同|回款/);
+assert.match(metadata.businessFormInstructions('PROJECT_CONTRACT').attachments,/回款计划/);
+
 assert.throws(() => workflow.parseDefinition({ process_key: 'wrong', draft_json: JSON.stringify(definition) }));
 
 const graph = load('src/views/workflow/designer/graph.ts', { '../workflow': workflow });
@@ -192,6 +209,40 @@ for (const method of ['get', 'post'])
   };
 const api = load('src/views/workflow/Workflow.api.ts', { '/@/utils/http/axios': { defHttp: http }, './starterScope': load('src/views/workflow/starterScope.ts') });
 (async () => {
+  const previousResponse = response;
+  const reuseDefinition={...definition,key:'repair_ops_collaboration',businessType:'REPAIR_OPS_APPLICATION',settings:{reuseFirstLevelApprovalResult:true,notifications:{TASK:false}}};
+  await api.saveModel(reuseDefinition,9);
+  assert.equal(calls.at(-1).data.definition.settings.reuseFirstLevelApprovalResult,true);
+  assert.equal(calls.at(-1).data.definition.settings.notifications.TASK,false);
+  reuseDefinition.settings.reuseFirstLevelApprovalResult=false;
+  await api.saveModel(reuseDefinition,10);
+  assert.equal(calls.at(-1).data.definition.settings.reuseFirstLevelApprovalResult,false);
+  assert.ok(workflow.validateDefinition({...definition,settings:{reuseFirstLevelApprovalResult:true}}).some(e=>e.includes('仅适用于')));
+
+  response = {success:true,code:200,result:{key:'delete-test',deleted:true,historyPreserved:true,designerDraftPreserved:true}};
+  await api.deleteModel('delete-test',9);
+  assert.equal(calls.at(-1).method,'post');
+  assert.equal(calls.at(-1).url,'/workflow/model/delete');
+  assert.equal(JSON.stringify(calls.at(-1).data),JSON.stringify({key:'delete-test',revision:9}));
+  response = {success:false,code:500,message:'存在运行中审批'};
+  await assert.rejects(()=>api.deleteModel('delete-test',9),/存在运行中审批/);
+  response = {success:true,code:200,result:{key:'delete-test',deleted:false}};
+  await assert.rejects(()=>api.deleteModel('delete-test',9),/未确认删除成功/);
+  response = previousResponse;
+
+  const template = {...definition, key:'repair_ops_collaboration', businessType:'REPAIR_OPS_APPLICATION', nodes:[{key:'heads',name:'部门主管',approverRules:[{type:'RELATED_DEPARTMENT_HEADS',relatedDepartment:{sourceKind:'DEPARTMENTS',fieldKey:'departments',departmentMode:'ALL',headMode:'ANY',emptyPolicy:'FAIL'}}]}]};
+  response = {success:true,code:200,result:template};
+  assert.equal((await api.repairInternalTemplate()).key,template.key);
+  assert.equal(calls.at(-1).url,'/repair/workflow/template');
+  assert.equal(calls.at(-1).params.type,'COLLABORATION');
+  assert.equal(calls.at(-1).params.personType,'INTERNAL');
+  assert.equal('roleId' in calls.at(-1).params,false);
+  assert.equal('includeChildren' in api.normalizeDefinition(template).nodes[0].approverRules[0],false);
+  response = {success:true,code:200,result:{...template,nodes:[]}};
+  await assert.rejects(()=>api.repairInternalTemplate(),/新版维修内协模板/);
+  response = {success:false,code:500,message:'模板失败'};
+  await assert.rejects(()=>api.repairInternalTemplate(),/模板失败/);
+  response = previousResponse;
   const original = JSON.stringify(definition);
   await api.saveModel(definition);
   assert.equal(calls.at(-1).data.definition.policy.starters, null);

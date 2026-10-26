@@ -23,8 +23,20 @@
         >
         <a-alert v-if="metadataError" type="warning" :message="metadataError" show-icon />
         <a-alert v-if="detail.businessType === 'PROJECT_CONTRACT'" type="info" message="合同快照只读；驳回或撤回后，请由原发起人从项目合同页面修改并重新提交。" />
-        <h2>申请内容</h2
-        ><a-descriptions bordered :column="1"
+        <a-tabs v-if="isInternalCollaboration" v-model:active-key="detailTab" class="detail-tabs">
+          <a-tab-pane key="application" tab="申请内容">
+        <section class="collaboration-summary" aria-label="受邀部门及协助原因">
+          <p v-if="!collaborationDepartments.length" class="hint">暂无可查看的受邀部门及协助原因</p>
+          <div v-for="(department, index) in collaborationDepartments" :key="index" class="collaboration-department">
+            <strong>{{ department.name }}</strong>
+            <p><span class="hint">协助原因：</span>{{ department.reason }}</p>
+          </div>
+        </section>
+          </a-tab-pane>
+          <a-tab-pane key="progress" tab="审批进程"><ApprovalProgress :instance="detail" compact /></a-tab-pane>
+        </a-tabs>
+        <h2 v-if="!isInternalCollaboration">申请内容</h2>
+        <a-descriptions v-if="!isInternalCollaboration" bordered :column="1"
           ><a-descriptions-item
             v-for="(value, key) in visibleSnapshot"
             :key="key"
@@ -39,7 +51,7 @@
             }}</span></a-descriptions-item
           ></a-descriptions
         >
-        <ApprovalProgress :instance="detail">
+        <ApprovalProgress v-if="!isInternalCollaboration" :instance="detail">
           <template #task="{ task }">
             <p v-if="taskAction(task.id)?.reason" class="hint">{{ taskAction(task.id)?.reason }}</p>
             <a-space
@@ -61,7 +73,13 @@
       </template>
     </a-spin>
     <template #footer
-      ><div class="drawer-actions"
+      ><div v-if="isInternalCollaboration && approvalTasks.length" class="approval-footer">
+        <a-select v-if="approvalTasks.length > 1" v-model:value="approvalTaskId" aria-label="选择办理任务" :disabled="busy || loading" :options="approvalTasks.map(task => ({value: task.id, label: task.name}))" />
+        <span v-else class="hint">{{ selectedApprovalTask?.name }}</span>
+        <a-space>
+          <a-button v-for="action in ['REJECT', 'APPROVE'].filter(value => selectedApprovalTask && taskAction(selectedApprovalTask.id)?.actions?.includes(value))" :key="action" :type="action === 'APPROVE' ? 'primary' : 'default'" :danger="action === 'REJECT'" :disabled="busy || loading || !!error || !!metadataError" @click="chooseAction(selectedApprovalTask!.id, action)">{{ action === 'APPROVE' ? '同意' : '驳回' }}</a-button>
+        </a-space>
+      </div><div class="drawer-actions"
         ><a-button @click="load" :disabled="busy">刷新状态</a-button
         ><a-button v-if="actions?.canWithdraw" danger :disabled="busy || loading || !!error" @click="chooseAction(undefined, 'WITHDRAW')"
           >撤回申请</a-button
@@ -139,6 +157,7 @@
 </template>
 <script setup lang="ts">
   import BusinessSnapshotValue from './BusinessSnapshotValue.vue';
+  import { repairApplicationDepartments } from '../repairApplicationSummary';
   import { computed, onBeforeUnmount, ref, watch } from 'vue';
   import {
     commentInstance,
@@ -231,6 +250,7 @@
     RESUBMIT: '修改并重新提交',
     COMMENT: '评论',
     AUTO_APPROVE: '自动通过',
+    APPROVAL_REUSED: '已通过（复用一级审批结果）',
   };
   // Resolve metadata paths against nested data, never expose extra snapshot keys.
   function fieldValue(data: unknown, path: string): unknown {
@@ -249,7 +269,17 @@
         .map((field) => [field.key, fieldValue(detail.value?.snapshot, field.key)])
     )
   );
+  const isInternalCollaboration = computed(() => detail.value?.businessType === 'REPAIR_OPS_APPLICATION' && detail.value?.processKey === 'repair_ops_collaboration');
   const taskAction = (id: string) => actions.value?.tasks?.find((t) => t.taskId === id);
+  const detailTab = ref('application');
+  const approvalTaskId = ref<string>();
+  const approvalTasks = computed(() => isInternalCollaboration.value ? (detail.value?.tasks || []).filter(task => task.canHandle && task.kind !== 'WORK' && taskAction(task.id)?.actions?.some(action => ['APPROVE', 'REJECT'].includes(action))) : []);
+  const selectedApprovalTask = computed(() => approvalTasks.value.find(task => task.id === approvalTaskId.value));
+  watch(approvalTasks, tasks => {
+    if (!tasks.some(task => task.id === approvalTaskId.value)) approvalTaskId.value = tasks.length === 1 ? tasks[0].id : undefined;
+  });
+  watch(() => [props.instanceId, props.open], () => { detailTab.value = 'application'; approvalTaskId.value = undefined; });
+  const collaborationDepartments = computed(() => repairApplicationDepartments(visibleSnapshot.value));
   async function load() {
     if (!props.open || !props.instanceId || busy.value) return;
     const current = ++generation;
@@ -455,6 +485,13 @@
   onBeforeUnmount(() => generation++);
 </script>
 <style scoped>
+  .detail-tabs { margin-top: 20px; }
+  .approval-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0 12px; }
+  .approval-footer :deep(.ant-select) { width: 300px; max-width: 100%; }
+  .collaboration-department { padding: 12px 0; border-bottom: 1px solid var(--border-color-split, #dcdee7); overflow-wrap: anywhere; }
+  .collaboration-department:first-child { padding-top: 0; }
+  .collaboration-department:last-child { border-bottom: 0; }
+  .collaboration-department p { margin: 6px 0 0; white-space: pre-wrap; line-height: 1.7; }
   h2 {
     font-size: 16px;
     margin: 28px 0 16px;

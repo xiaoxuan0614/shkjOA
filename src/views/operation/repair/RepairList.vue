@@ -5,7 +5,7 @@
         <template v-if="column.key === 'action'"><a-button type="link" @click="selectedId = String(record.id)">查看详情</a-button></template>
         <template v-else-if="column.dataIndex === 'projectName'">{{ projectName(record) }}</template>
         <template v-else-if="column.dataIndex === 'workStatus'"><a-tag>{{ workStates[record.workStatus] || display(record.workStatus) }}</a-tag></template>
-        <template v-else-if="column.dataIndex === 'quotationStatus'">{{ quotationStates[record.quotationStatus] || display(record.quotationStatus) }}</template>
+        <template v-else-if="column.dataIndex === 'quotationStatus'"><DictValue code="repair_quotation_status" :value="record.quotationStatus" /></template>
         <template v-else>{{ display(record[column.dataIndex]) }}</template>
       </template>
     </BasicTable>
@@ -17,7 +17,8 @@ import { ref } from 'vue';
 import { BasicTable, type BasicColumn } from '/@/components/Table';
 import { useListPage } from '/@/hooks/system/useListPage';
 import { type FormSchema } from '/@/components/Form';
-import { display, projectName, listRepairs, workStates, quotationStates } from './repair.api';
+import { display, projectName, listRepairs, workStates } from './repair.api';
+import DictValue from '/@/components/DictValue.vue';
 import RepairDetail from './RepairDetail.vue';
 const props = defineProps<{ reports?: boolean }>();
 const selectedId = ref('');

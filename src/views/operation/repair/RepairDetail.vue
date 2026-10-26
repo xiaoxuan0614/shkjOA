@@ -5,6 +5,7 @@
       <template v-else-if="data">
         <a-descriptions bordered :column="2" size="small">
           <a-descriptions-item label="工单编号">{{ display(order.orderNo) }}</a-descriptions-item>
+          <a-descriptions-item label="报价状态"><DictValue code="repair_quotation_status" :value="order.quotationStatus" /></a-descriptions-item>
           <a-descriptions-item label="状态">{{ workStates[order.workStatus] || display(order.workStatus) }}</a-descriptions-item>
           <a-descriptions-item label="项目 / 分期">{{ projectName(order) }}</a-descriptions-item>
           <a-descriptions-item label="当前负责人">{{ display(order.responsibleUserName) }}</a-descriptions-item>
@@ -23,7 +24,7 @@
             <section v-for="table in group.tables" :key="table.key" class="repair-section">
               <h3>{{ table.title }}</h3>
               <a-table :data-source="rows(table.key)" :columns="table.fields.map(([dataIndex, title]) => ({ dataIndex, title, width: 160 }))" row-key="id" size="small" :pagination="{ pageSize: 10, showSizeChanger: false }" :scroll="{ x: Math.max(640, table.fields.length * 160) }">
-                <template #bodyCell="{ column, record }">{{ fieldText(column.dataIndex, record[column.dataIndex]) }}</template>
+                <template #bodyCell="{ column, record }"><DictValue v-if="table.key === 'quotations' && column.dataIndex === 'stage'" code="repair_quotation_status" :value="record.stage" /><template v-else>{{ fieldText(column.dataIndex, record[column.dataIndex]) }}</template></template>
               </a-table>
             </section>
           </a-tab-pane>
@@ -42,7 +43,8 @@
 </template>
 <script setup lang="ts">
 import { computed, ref, watch, onBeforeUnmount } from 'vue';
-import { display, hours, projectName, repairDetail, repairLogs, workStates, quotationStates, type Row } from './repair.api';
+import { display, hours, projectName, repairDetail, repairLogs, workStates, type Row } from './repair.api';
+import DictValue from '/@/components/DictValue.vue';
 import FileLinks from './RepairFiles.vue';
 const props = defineProps<{ id: string }>();
 defineEmits(['close']);
@@ -76,7 +78,7 @@ const groups = [
   ] },
 ];
 const labels: Record<string,string> = { ONLINE:'线上', OFFLINE:'线下', INTERNAL:'内部人员', EXTERNAL:'外协', ACTIVE:'进行中', ENDED:'已结束', EXITED:'已退出', RUNNING:'审批中', APPROVED:'已通过', REJECTED:'已驳回', RETURNED:'已退回', WITHDRAWN:'已撤回', TERMINATED:'已终止', COMPLETED:'已完成', TRANSFER:'转单', CLOSE:'关闭', COMPLETION:'完工', COLLABORATION:'协助', QUOTATION:'报价', REQUIRED:'需要报价', NOT_REQUIRED:'无需报价', DRAFT:'草稿', SUBMITTED:'已提交', CONFIRMED:'已确认', VOIDED:'已作废' };
-function fieldText(key: string, value: unknown) { if(key === 'durationSeconds') return hours(value); return /Status$|^status$|^stage$|Type$|Mode$|Method$/.test(key) ? labels[String(value)] || quotationStates[String(value)] || display(value) : display(value); }
+function fieldText(key: string, value: unknown) { if(key === 'durationSeconds') return hours(value); return /Status$|^status$|^stage$|Type$|Mode$|Method$/.test(key) ? labels[String(value)] || display(value) : display(value); }
 const logColumns = [{ title:'时间',dataIndex:'occurredAt',width:190 },{title:'操作',dataIndex:'eventName',width:180},{title:'操作人',dataIndex:'operatorName',width:120},{title:'内容 / 审批意见',dataIndex:'content'},{title:'附件',key:'files',width:180}];
 async function load() {
   const token = ++generation; ++logGeneration;

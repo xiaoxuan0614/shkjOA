@@ -1,5 +1,6 @@
 import { newId, newNode } from '../workflow';
 import type { WorkflowNode, WorkflowStage, WorkflowDefinition, WorkflowPredicate } from '../workflow.types';
+import type { RelatedDepartmentDesign } from './relatedDepartment';
 export type NodeKind = 'APPROVAL' | 'CC' | 'CONDITION' | 'PARALLEL' | 'NOTICE' | 'TASK' | 'SEQUENCE' | 'SUBPROCESS';
 export interface ConditionRow {
   field: string;
@@ -24,6 +25,7 @@ export interface DesignNode {
   stageCondition?: WorkflowPredicate;
   branches?: DesignBranch[];
   config: {
+    relatedDepartment?: RelatedDepartmentDesign;
     source?: string;
     users?: string[];
     field?: string;
@@ -72,6 +74,12 @@ export function fromNodes(nodes: WorkflowNode[]): DesignNode[] {
     const behavior = n.options?.behavior;
     const kind: NodeKind = behavior?.kind === 'WORK' ? 'TASK' : behavior?.kind || 'APPROVAL';
     const config: DesignNode['config'] = {};
+    const related = n.approverRules?.find(rule => rule.type === 'RELATED_DEPARTMENT_HEADS')?.relatedDepartment;
+    if (kind === 'APPROVAL' && related && n.approverRules?.length === 1 && !n.userIds?.length && !n.roleIds?.length) {
+      const { sourceKind, ...details } = related;
+      config.source = 'relatedDepartment';
+      config.relatedDepartment = { ...clone(details), source: sourceKind };
+    }
     if (kind !== 'APPROVAL') {
       config.users = clone(n.userIds || []);
       const singleRule = !n.userIds?.length && !n.roleIds?.length && n.approverRules?.length === 1 ? n.approverRules[0] : undefined;
@@ -102,6 +110,12 @@ export const buttonCodes: Record<string, string> = {
 export function executionBlockers(nodes: DesignNode[]): string[] {
   const reasons = new Set<string>();
   for (const n of flatten(nodes)) {
+    if (n.config.source === 'relatedDepartment') {
+      const rule = n.config.relatedDepartment;
+      if (!rule?.fieldKey?.trim()) reasons.add('请选择关联部门来源字段');
+      if (!rule || !['DEPARTMENTS','MEMBERS'].includes(rule.source) || !['ALL','ANY'].includes(rule.departmentMode) || !['ALL','ANY'].includes(rule.headMode) || rule.emptyPolicy !== 'FAIL') reasons.add('关联部门主管规则无效');
+      if (n.config.approvalType === 'auto' || n.config.emptyType && n.config.emptyType !== 'fail') reasons.add('关联部门主管必须人工审批，无主管时停止');
+    }
     if (n.config.callback || n.approval?.options?.behavior?.callbackEnabled) reasons.add('节点回调尚未定义，请关闭后发布');
     if (n.config.channels?.some((c) => !['SITE', '站内信'].includes(c))) reasons.add('仅支持站内信，请明确调整节点通知通道');
     if (n.config.delay && n.config.delayMinutes == null) reasons.add('请填写延迟通知分钟数');
@@ -131,6 +145,11 @@ export function executableNodes(nodes: DesignNode[]): WorkflowNode[] {
         if (c.task !== undefined) behavior.description = c.task;
       }
       if (n.kind === 'APPROVAL' && c.source === 'field') result.approverRules = [{ type: 'FORM_USERS', fieldKey: c.field }];
+      if (n.kind === 'APPROVAL' && c.source === 'relatedDepartment' && c.relatedDepartment) {
+        const { source, ...details } = c.relatedDepartment;
+        result.userIds = []; result.roleIds = [];
+        result.approverRules = [{ type: 'RELATED_DEPARTMENT_HEADS', relatedDepartment: { ...clone(details), sourceKind: source } }];
+      }
       if (c.source === 'levels') {
         result.approverRules = [{ type: 'SUPERVISOR_CHAIN', levels: c.levels }];
         result.options.mode = 'SEQUENTIAL';

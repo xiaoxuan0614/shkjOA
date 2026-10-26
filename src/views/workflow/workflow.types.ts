@@ -38,9 +38,14 @@ export interface FormField {
   required?: boolean;
 }
 export interface ApprovalRule {
+  relatedDepartment?: {
+    sourceKind: 'DEPARTMENTS' | 'MEMBERS'; fieldKey: string; itemIdPath?: string;
+    departmentMode: 'ALL' | 'ANY'; headMode: 'ALL' | 'ANY'; emptyPolicy: 'FAIL';
+  };
   fieldKey?: string;
   levels?: number;
   type:
+    | 'RELATED_DEPARTMENT_HEADS'
     | 'DEPARTMENT_MEMBERS'
     | 'DEPARTMENT_HEADS'
     | 'INITIATOR_DEPARTMENT_HEADS'
@@ -191,6 +196,7 @@ export interface NodeBehavior {
   callbackEnabled?: boolean;
 }
 export interface WorkflowSettings {
+  reuseFirstLevelApprovalResult?: boolean | null;
   notifications?: Record<string, boolean>;
   channels?: string[];
   reminderHours?: number[];
@@ -200,6 +206,7 @@ export interface WorkflowSettings {
   autoCompleteNextMonthDay?: number | null;
 }
 export interface DesignerCapabilities {
+  relatedDepartmentHeads?: { supported: boolean; type: string; sourceKinds: string[]; departmentModes: string[]; headModes: string[]; emptyPolicy: string; memberDepartmentPolicy?: string };
   nodeKinds: string[];
   channels: string[];
   disabledFeatures: Record<string, string>;

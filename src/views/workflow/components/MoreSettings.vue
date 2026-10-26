@@ -33,6 +33,12 @@
           >
         </a-tab-pane>
         <a-tab-pane key="other" tab="其他配置">
+          <section v-if="repairInternal" class="setting-group">
+            <h2>复用一级审批结果 <a-tooltip :trigger="['hover', 'focus', 'click']" title="仅用于维修内协。一级实际审批人同时是受邀部门的冻结且当前有效主管时，由后端让该部门自动通过，其他部门仍需审批。各部门保留独立记录，全部通过后仍需单独指定人员。"><button type="button" class="setting-help" aria-label="复用一级审批结果说明"><QuestionCircleOutlined /></button></a-tooltip></h2>
+            <a-switch :checked="settings.reuseFirstLevelApprovalResult === true" :disabled="!capabilities" aria-label="复用一级审批结果" @change="(value) => update({ reuseFirstLevelApprovalResult: !!value })" />
+            <p class="scope-note">一级审批人同时是受邀部门有效主管时，由后端复用其通过结果；其他部门仍需审批。全部通过后，各部门仍需单独指定人员。</p>
+            <p class="scope-note">默认关闭。保存后需发布并启用新版本才生效，在途申请沿用原版本。</p>
+          </section>
           <section class="setting-group"
             ><h2>节点超时提醒</h2
             ><a-checkbox-group
@@ -55,10 +61,10 @@
             >
           </section>
           <section class="setting-group"
-            ><h2>审批人去重规则</h2
+            ><h2>审批人去重规则 <a-tooltip :trigger="['hover', 'focus', 'click']" title="用于通用流程：同一人在多个节点出现时，可复用本轮相同数据的已通过结果、仅对连续节点去重，或每个节点都审批。维修内协不使用此规则，需通过上方的复用一级审批结果按受邀部门处理。"><button type="button" class="setting-help" aria-label="审批人去重规则说明"><QuestionCircleOutlined /></button></a-tooltip></h2
             ><a-radio-group
               :value="settings.duplicateApproval || 'EVERY_NODE'"
-              :disabled="!capabilities"
+              :disabled="!capabilities || repairInternal"
               class="vertical-options"
               @change="(e) => update({ duplicateApproval: e.target.value })"
               ><a-radio value="APPROVED_BEFORE">同一轮相同数据已通过，其余自动同意</a-radio><a-radio value="CONSECUTIVE">仅连续节点时自动同意</a-radio
@@ -85,8 +91,9 @@
 </template>
 <script setup lang="ts">
   import { ref, computed, inject } from 'vue';
+  import { QuestionCircleOutlined } from '@ant-design/icons-vue';
   import type { DesignerCapabilities, WorkflowSettings } from '../workflow.types';
-  const props = defineProps<{ value?: WorkflowSettings }>();
+  const props = defineProps<{ value?: WorkflowSettings; repairInternal?: boolean }>();
   const emit = defineEmits<{ (e: 'update:value', value: WorkflowSettings): void }>();
   const capabilities = inject<import('vue').Ref<DesignerCapabilities | null>>('workflowCapabilities', ref(null));
   const settings = computed(() => props.value || {});
@@ -113,6 +120,22 @@
   ];
 </script>
 <style scoped>
+  .setting-help {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: #737b8c;
+    font-size: 14px;
+    vertical-align: middle;
+    cursor: help;
+  }
+  .setting-help:hover { color: #4357bf; }
+  .setting-help:focus-visible { outline: 2px solid #4357bf; outline-offset: 2px; border-radius: 4px; }
   .more-page {
     background: #f7f8fc;
     padding: 16px 24px 28px;

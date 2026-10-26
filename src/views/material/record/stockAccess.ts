@@ -67,7 +67,8 @@ export function useStockAccess() {
     // 非项目还料的其他入库保持原库管审批流程。
     if (record.applyType === 'IN') return hasExecutePermission();
     if (record.applyType !== 'OUT' || !['MAINTENANCE', 'LABOR_PROTECTION'].includes(record.usageType)) return false;
-    if (!hasPermission(STOCK_APPROVE_PERMISSION)) return false;
+    // 维修用料按申请部门负责人办理，不额外要求菜单按钮权限；后端最终鉴权。
+    if (record.usageType === 'LABOR_PROTECTION' && !hasPermission(STOCK_APPROVE_PERMISSION)) return false;
     const user: any = userStore.getUserInfo || {};
     const loginUser = (userStore.getLoginInfo as any)?.userInfo || {};
     const identity = user.userIdentity ?? loginUser.userIdentity;

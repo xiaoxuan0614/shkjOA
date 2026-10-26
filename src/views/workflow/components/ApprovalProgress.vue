@@ -1,8 +1,16 @@
 <template>
-  <section class="approval-progress" aria-label="审批进程">
+  <section class="approval-progress" :class="{ compact }" aria-label="审批进程">
     <header class="progress-heading"
-      ><h2>审批进程</h2><span>第 {{ instance.roundNo }} 轮 · {{ statusLabels[instance.status] || instance.status }}</span></header
+      ><h2 v-if="!compact">审批进程</h2><span>第 {{ instance.roundNo }} 轮 · {{ statusLabels[instance.status] || instance.status }}</span></header
     >
+    <a-descriptions v-for="(department, index) in reusedDepartments" :key="`${department.departmentId}-${index}`" bordered :column="1" size="small" style="margin-bottom:16px">
+      <a-descriptions-item label="受邀部门">{{ department.departmentName || department.departmentId || '受邀部门' }}</a-descriptions-item>
+      <a-descriptions-item label="审批结果">已通过（复用一级审批结果）</a-descriptions-item>
+      <a-descriptions-item label="审批人">{{ reuseActor(department.handledBy) }}</a-descriptions-item>
+      <a-descriptions-item label="通过时间">{{ formatTime(department.handledAt || department.sourceApprovedAt || '') || '—' }}</a-descriptions-item>
+      <a-descriptions-item v-if="department.reuseReason" label="复用原因">{{ department.reuseReason }}</a-descriptions-item>
+      <a-descriptions-item v-if="!compact && department.sourceTaskId" label="来源一级任务">{{ department.sourceTaskId }}</a-descriptions-item>
+    </a-descriptions>
     <ol class="progress-list">
       <li v-for="(item, index) in instance.history" :key="index" class="progress-item" :class="tone(item.action)">
         <span class="progress-icon" aria-hidden="true"
@@ -18,7 +26,7 @@
             ><span v-if="item.actor_name || item.actor_id" class="person-chip"><UserOutlined />{{ item.actor_name || item.actor_id }}</span
             ><span class="action-status">{{ label(item.action) }}</span></div
           >
-          <blockquote v-if="item.comment_text">{{ item.comment_text }}</blockquote>
+          <blockquote v-if="item.comment_text && (!compact || item.action !== 'NODE_ACTIVATED')">{{ item.comment_text }}</blockquote>
         </div>
       </li>
       <li v-for="task in instance.tasks" :key="task.id" class="progress-item active">
@@ -31,7 +39,7 @@
             <span class="person-chip" :aria-label="`待审批：${peopleNames(task.pendingUsers)}`"><UserOutlined />{{ peopleNames(task.pendingUsers) }}</span>
             <span class="action-status">{{ task.kind === 'WORK' ? '任务待完成' : '待审批' }}</span>
           </div
-          ><p v-if="task.description" class="task-description">{{ task.description }}</p
+          ><p v-if="!compact && task.description" class="task-description">{{ task.description }}</p
           ><slot name="task" :task="task"
         /></div>
       </li>
@@ -44,22 +52,31 @@
       </li>
     </ol>
     <a-empty v-if="!instance.history.length && !instance.tasks.length && instance.status === 'RUNNING'" description="暂无可显示的审批进程" />
-    <p class="progress-note">展示本轮实际记录与当前任务，后续节点以流程实际流转为准。</p>
+    <p v-if="!compact" class="progress-note">展示本轮实际记录与当前任务，后续节点以流程实际流转为准。</p>
   </section>
 </template>
 <script setup lang="ts">
   import dayjs from 'dayjs';
+  import { computed } from 'vue';
+  import { reusedDepartmentRecords } from '../approvalReuse';
   import { CheckOutlined, CloseOutlined, ClockCircleOutlined, RollbackOutlined, UserOutlined, MinusOutlined } from '@ant-design/icons-vue';
   import type { WorkflowInstance } from '../workflow.types';
   import { peopleNames } from '../instancePresentation';
   import { statusLabels } from '../workflow';
-  defineProps<{ instance: WorkflowInstance }>();
+  const props = defineProps<{ instance: WorkflowInstance; compact?: boolean }>();
+  const reusedDepartments = computed(() => reusedDepartmentRecords(props.instance.snapshot));
+  function reuseActor(id?: string) {
+    if (!id) return '—';
+    return props.instance.history.find(item => item.actor_id === id && item.actor_name)?.actor_name || id;
+  }
   const labels: Record<string, string> = {
     START: '发起审批',
+    NODE_ACTIVATED: '进入节点',
     SUBMIT: '提交申请',
     RESUBMIT: '重新提交',
     APPROVE: '已同意',
     AUTO_APPROVE: '自动通过',
+    APPROVAL_REUSED: '已通过（复用一级审批结果）',
     REJECT: '已驳回',
     RETURN: '已退回',
     WITHDRAW: '已撤回',
@@ -75,7 +92,7 @@
   };
   const label = (action: string) => labels[action] || action;
   const tone = (action: string) =>
-    ['APPROVE', 'AUTO_APPROVE', 'COMPLETE', 'START', 'SUBMIT', 'RESUBMIT'].includes(action)
+    ['APPROVE', 'AUTO_APPROVE', 'APPROVAL_REUSED', 'COMPLETE', 'START', 'SUBMIT', 'RESUBMIT'].includes(action)
       ? 'success'
       : ['REJECT', 'RETURN'].includes(action)
         ? 'danger'
@@ -89,6 +106,8 @@
   }
 </script>
 <style scoped>
+  .approval-progress.compact { margin-top: 0; }
+  .compact .progress-item { padding-bottom: 20px; }
   .approval-progress {
     margin-top: 28px;
     color: #303448;
