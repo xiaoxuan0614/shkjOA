@@ -2,7 +2,7 @@
   <div class="detail-file">
     <div class="detail-file__toolbar">
       <a-upload :accept="DOCUMENT_UPLOAD_ACCEPT" :show-upload-list="false" :before-upload="handleFileChange" :disabled="uploading">
-        <a-button type="primary" preIcon="ant-design:cloud-upload-outlined" :loading="uploading">上传文件</a-button>
+        <a-tooltip :title="DOCUMENT_UPLOAD_HINT"><a-button type="primary" preIcon="ant-design:cloud-upload-outlined" :loading="uploading">上传文件</a-button></a-tooltip>
       </a-upload>
       <span class="detail-file__upload-hint">支持 PDF、Word、Excel、PPT 文件</span>
     </div>
@@ -23,7 +23,7 @@
   import { ref, watch } from 'vue';
   import { useMessage } from '/@/hooks/web/useMessage';
   import { addProjectFiles, deleteFile, getFiles } from '../ProjectDetail.api';
-  import { DOCUMENT_UPLOAD_ACCEPT, isAllowedDocumentFile, uploadProjectDocument } from '/@/utils/documentUpload';
+  import { DOCUMENT_UPLOAD_ACCEPT, DOCUMENT_UPLOAD_HINT, isAllowedDocumentFile, uploadProjectDocument } from '/@/utils/documentUpload';
   import { previewFileInModal } from '/@/utils/filePreview';
 
   const props = defineProps<{
@@ -69,7 +69,7 @@
   async function handleFileChange(file: any): Promise<boolean> {
     if (!file) return false;
     if (!isAllowedDocumentFile(file)) {
-      createMessage.warning('仅支持 PDF、Word、Excel、PPT 文件');
+      createMessage.warning(DOCUMENT_UPLOAD_HINT);
       return false;
     }
     if (uploading.value) return false;

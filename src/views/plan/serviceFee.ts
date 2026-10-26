@@ -6,9 +6,9 @@ export function quotationDisplayRows(materials: Record<string, any>[], fees: Rec
   return [...materials, ...fees.map((fee, index) => ({ _key: `service:${fee._key ?? fee.id ?? index}`, _serviceFee: fee }))];
 }
 
-/** 指导比例使用百分数原值；税率 taxRate 仅展示，不参与计算。 */
+/** 加价比例使用百分数原值；税率 taxRate 仅展示，不参与计算。 */
 export function serviceFeePrice(cost: unknown, rate: unknown) {
-  const price = decimalPrice(cost, '服务费成本价').times(decimalPrice(rate, '指导比例', 4).div(100).plus(1)).round(2, Big.roundHalfUp);
+  const price = decimalPrice(cost, '服务费成本价').times(decimalPrice(rate, '加价比例', 4, -100).div(100).plus(1)).round(2, Big.roundHalfUp);
   return decimalPrice(price.toFixed(2), '服务费指导价').toFixed(2);
 }
 
@@ -25,7 +25,7 @@ export function serviceFeeCopy(source: Record<string, any>, directQuotation = fa
     guidePrice: directQuotation ? '0.00' : hasPrice(costPrice) && hasPrice(markupRate) ? serviceFeePrice(costPrice, markupRate) : null };
 }
 
-export function serviceFeePayload(row: Record<string, any>, options = { structure: true, cost: true, price: true }, directQuotation = false) {
+export function serviceFeePayload(row: Record<string, any>, options = { structure: true, cost: true, price: true }, _directQuotation = false) {
   const name = String(row.name || '').trim();
   const unit = String(row.unit || '').trim();
   if (!name || name.length > 100) throw new Error('服务费名称必填且最多100字');
@@ -38,14 +38,11 @@ export function serviceFeePayload(row: Record<string, any>, options = { structur
   if (row.serviceFeeId) result.serviceFeeId = row.serviceFeeId;
   if (hasPrice(row.taxRate)) result.taxRate = Number(decimalPrice(row.taxRate, '税率', 6));
   if (options.cost) result.costPrice = Number(decimalPrice(row.costPrice, '服务费成本价'));
-  // 新选行须冻结已带出的默认价格，否则服务端会回落到基础库旧markupRate。
+  // 比例只用于前端联动，提交当前指导价，不使用舍入后的比例再次计算。
   // 已有明细仍严格遵守价格编辑权限，不借保存备注覆盖价格。
   if (options.price || (!row.id && options.structure && row.serviceFeeId)) {
-    if (!directQuotation) result.markupRate = Number(decimalPrice(row.markupRate, '指导比例', 4));
-    // 普通成员新选行可能来自旧本地草稿，保存时按当前成本再校准默认价。
-    // 有定价权时保留人工输入；已有行不在加载或保存时擅自重算。
-    const guidePrice = !directQuotation && !options.price && options.cost && !row.id
-      ? serviceFeePrice(row.costPrice, row.markupRate) : row.guidePrice;
+    // 新行默认价在选择/输入时计算，保存时不再反复舍入。
+    const guidePrice = row.guidePrice;
     result.guidePrice = Number(decimalPrice(guidePrice, '服务费指导价'));
   }
   return result;

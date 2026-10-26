@@ -32,12 +32,25 @@ export function validateDirectQuotation(basePrice: any, finalPrice: any) {
   decimalPrice(finalPrice, '报价');
 }
 
-/** 比例使用百分数原值，如20表示20%。 */
+/** 加价比例使用百分数原值：成本20、比例25%得到指导价25，不是成本倍数或毛利率。 */
 export function guidancePrice(cost: any, percent: any) {
-  return decimalPrice(cost, '成本价').times(decimalPrice(percent, '指导比例', 4).div(100).plus(1)).round(2, Big.roundHalfUp).toFixed(2);
+  return decimalPrice(cost, '成本价').times(decimalPrice(percent, '加价比例', 4, -100).div(100).plus(1)).round(2, Big.roundHalfUp).toFixed(2);
 }
 
-export function decimalPrice(value: any, label: string, precision = 2) {
+/** 反算百分数，保留最后编辑的指导价，不再用舍入后的比例覆盖它。 */
+export function guidanceRate(cost: any, price: any) {
+  const base = decimalPrice(cost, '成本价');
+  const final = decimalPrice(price, '指导价');
+  if (base.eq(0)) throw new Error('成本价为 0，无法反算加价比例');
+  return decimalPrice(final.minus(base).div(base).times(100).round(2, Big.roundHalfUp).toFixed(2), '加价比例', 2, -100).toFixed(2);
+}
+
+/** 价格缺失、脱敏或零成本时没有可回显的比例，不能使用后端旧比例兜底。 */
+export function derivedGuidanceRate(cost: any, price: any): string | null {
+  try { return guidanceRate(cost, price); } catch { return null; }
+}
+
+export function decimalPrice(value: any, label: string, precision = 2, minimum = 0) {
   if (!hasPrice(value)) throw new Error(`请填写${label}`);
   let number: Big;
   try {
@@ -46,7 +59,7 @@ export function decimalPrice(value: any, label: string, precision = 2) {
     throw new Error(`${label}必须为有效数字`);
   }
   // UI uses a conservative safe bound to avoid JSON number precision loss.
-  if (number.lt(0) || number.gt('9999999999')) throw new Error(`${label}须在 0～9999999999 之间`);
+  if (number.lt(minimum) || number.gt('9999999999')) throw new Error(`${label}须在 ${minimum}～9999999999 之间`);
   if (!number.eq(number.round(precision))) throw new Error(`${label}最多 ${precision} 位小数`);
   return number;
 }
@@ -74,7 +87,6 @@ export function quotationPricePayload(row: any, required = false) {
   const result: Record<string, number> = {};
   for (const [key, label, precision] of [
     ['basePrice', '成本价', 2],
-    ['markupRate', '提价比例', 4],
     ['finalPrice', '终价', 2],
   ] as const) {
     if (required || hasPrice(row[key])) result[key] = Number(decimalPrice(row[key], label, precision));
@@ -84,7 +96,7 @@ export function quotationPricePayload(row: any, required = false) {
 
 export function quotationSnapshot(row: any) {
   return JSON.stringify(
-    ['id', 'materialId', 'unitId', 'quantity', 'remark', 'basePrice', 'markupRate', 'finalPrice'].map((key) => {
+    ['id', 'materialId', 'unitId', 'quantity', 'remark', 'basePrice', 'finalPrice'].map((key) => {
       const value = row[key];
       if (['quantity', 'basePrice', 'markupRate', 'finalPrice'].includes(key) && hasPrice(value)) return new Big(value).toString();
       return value == null ? '' : String(value);

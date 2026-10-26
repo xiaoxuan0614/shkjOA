@@ -94,15 +94,15 @@
                   :disabled="uploadBusy || internalLoading || customerLoading || attachmentCount(card.type) >= ACCEPTANCE_REPORT_LIMIT"
                   :before-upload="(file) => onReportUpload(card.type === 'INTERNAL' ? 'internal' : 'customer', file)"
                 >
-                  <a-button
+                  <a-tooltip :title="'图片沿用原规则；文档：' + DOCUMENT_UPLOAD_HINT"><a-button
                     size="small"
                     :loading="uploadingTarget === (card.type === 'INTERNAL' ? 'internal' : 'customer')"
                     :disabled="uploadBusy || internalLoading || customerLoading || attachmentCount(card.type) >= ACCEPTANCE_REPORT_LIMIT"
                     >上传验收文件</a-button
-                  >
+                  ></a-tooltip>
                 </a-upload>
                 <span v-if="canEdit(card.model, card.type)" class="file-field__empty" aria-live="polite">
-                  附件共 {{ attachmentCount(card.type) }}/{{ ACCEPTANCE_REPORT_LIMIT }} 个（每类独立），每次上传一个；支持图片、Word、PDF、Excel
+                  附件共 {{ attachmentCount(card.type) }}/{{ ACCEPTANCE_REPORT_LIMIT }} 个（每类独立），每次上传一个；支持图片、DOCX、PDF、Excel
                 </span>
                 <span v-if="!reportFiles(card.type).length" class="file-field__empty">未上传</span>
                 <div v-for="path in reportFiles(card.type)" :key="path" class="file-field__row">
@@ -268,7 +268,7 @@
   import { completeProjectAcceptance, getAcceptance, getAcceptanceLatestStatus, applyProjectAcceptance } from '../ProjectDetail.api';
   import { readCachedProjectMembership } from '../../projectMembership';
   import { readInternalAcceptanceAccess } from '../../internalAcceptanceAccess';
-  import { isAllowedDocumentFile, uploadProjectDocument } from '/@/utils/documentUpload';
+  import { DOCUMENT_UPLOAD_HINT, isAllowedDocumentFile, uploadProjectDocument } from '/@/utils/documentUpload';
   import { previewFileInModal } from '/@/utils/filePreview';
   import { ACCEPTANCE_REPORT_ACCEPT, ACCEPTANCE_REPORT_LIMIT, acceptanceFilePaths, isAcceptanceReportFile } from '../acceptanceFiles';
   import { useUserStore } from '/@/store/modules/user';
@@ -624,14 +624,14 @@
       return false;
     }
     if (!(isReport ? isAcceptanceReportFile(file) : isAllowedDocumentFile(file))) {
-      createMessage.warning(isReport ? '仅支持图片、Word、PDF、Excel 文件' : '仅支持 PDF、Word、Excel、PPT 文件');
+      createMessage.warning(isReport ? '仅支持图片、DOCX、PDF、Excel 文件' : DOCUMENT_UPLOAD_HINT);
       return false;
     }
     const periodId = props.projectId;
     const recordId = activeRecord(type).id;
     uploadingTarget.value = target;
     try {
-      const { path } = await uploadProjectDocument(file, periodId);
+      const { path } = await uploadProjectDocument(file, periodId, isReport);
       if (periodId !== props.projectId || recordId !== activeRecord(type).id) return false;
       const field: AcceptanceFileField = 'acceptanceFormFileId';
       if (path.includes(',')) throw new Error('上传返回的路径包含英文逗号，无法关联附件，请联系管理员');

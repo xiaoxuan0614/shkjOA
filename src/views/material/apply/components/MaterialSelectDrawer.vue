@@ -31,11 +31,10 @@
               v-model:value="queryParam.brand"
               allowClear
               showSearch
-              placeholder="品牌(输入后模糊搜索)"
+              placeholder="选择品牌，可输入名称搜索"
               style="width: 160px"
               :options="brandOptions"
-              :filter-option="false"
-              @search="onBrandSearch"
+              :filter-option="filterBrandOption"
             />
           </template>
           <a-button type="primary" @click="handleSearch">筛选</a-button>
@@ -126,7 +125,7 @@
   import MaterialIdentityCell from '../../components/MaterialIdentityCell.vue';
   import { selectMaterialList, selectProjectMaterialAccountPage } from '../MaterialApply.api';
   import { initDictOptions } from '/@/utils/dict/index';
-  import { invalidateMaterialMap, loadDictMap } from '../../material.util';
+  import { invalidateMaterialMap } from '../../material.util';
   import { useMessage } from '/@/hooks/web/useMessage';
   import { renderMaterialSpecification } from '../../materialSpecification';
 
@@ -180,6 +179,7 @@
     if (visible === drawerVisible.value) return;
     drawerVisible.value = visible;
     if (visible) {
+      brandMapLoaded = false;
       selectedList.value = [];
       removedExistingIds.value = new Set();
       resetQueryState();
@@ -221,9 +221,8 @@
 
   const tableData = ref<any[]>([]);
   const loading = ref(false);
-  const brandOptions = ref<any[]>([]); // 展示用(输入后过滤)
-  const brandAll = ref<any[]>([]); // 全量池(只读过滤用，来源: 当前列表数据去重)
   const brandMap = ref<Record<string, { text: string; color: string }>>({});
+  const brandOptions = computed(() => Object.entries(brandMap.value).map(([value, item]) => ({ label: item.text, value })));
   let brandMapLoaded = false;
   let brandMapRequest: Promise<void> | null = null;
 
@@ -288,7 +287,6 @@
         pagination.current = params.pageNo;
         pagination.pageSize = params.pageSize;
         pagination.total = Array.isArray(res) ? records.length : Number(res?.total) || 0;
-        collectBrands(tableData.value);
         return;
       }
       if (props.laborOnly && !laborCategory.value) {
@@ -315,7 +313,6 @@
       pagination.current = params.pageNo;
       pagination.pageSize = params.pageSize;
       pagination.total = res?.total ?? 0;
-      collectBrands(tableData.value);
     } catch (error: any) {
       if (requestSequence === loadSequence && drawerVisible.value) {
         tableData.value = [];
@@ -345,7 +342,11 @@
     if (brandMapLoaded) return;
     if (brandMapRequest) return brandMapRequest;
     brandMapRequest = (async () => {
-      brandMap.value = await loadDictMap('material_brand');
+      const items = await initDictOptions('material_brand');
+      if (!Array.isArray(items)) throw new Error('品牌字典加载失败，请重试');
+      brandMap.value = Object.fromEntries(items
+        .filter(item => item.value != null && String(item.value).trim() !== '')
+        .map(item => [String(item.value), { text: String(item.text ?? item.label ?? item.value), color: item.color || '' }]));
       brandMapLoaded = true;
     })();
     try {
@@ -360,24 +361,9 @@
     return brandMap.value[rawValue]?.text || rawValue || '—';
   }
 
-  // 品牌下拉去重(来源: 当前列表数据) → 全量池
-  function collectBrands(list: any[]) {
-    const brands = new Map<string, { label: string; value: string }>();
-    (list || []).forEach((m) => {
-      const value = String(m.brand ?? '');
-      if (value && !brands.has(value)) brands.set(value, { label: formatBrand(value), value });
-    });
-    brandAll.value = Array.from(brands.values());
-  }
-
-  // 品牌下拉：初次点击不展示，输入后模糊查询
-  function onBrandSearch(keyword: string) {
-    if (!keyword) {
-      brandOptions.value = [];
-      return;
-    }
-    const kw = keyword.toLowerCase();
-    brandOptions.value = brandAll.value.filter((o) => String(o.label).toLowerCase().includes(kw));
+  // 候选始终来自完整字典，输入只按名称本地过滤，不受物料分页和分类影响。
+  function filterBrandOption(keyword: string, option: any) {
+    return String(option?.label ?? '').toLowerCase().includes(String(keyword || '').trim().toLowerCase());
   }
 
   // 树选中
@@ -492,6 +478,7 @@
   // 共用维护弹窗已完成保存；这里只刷新，不重复新增。
   async function handleAddMaterialSuccess() {
     invalidateMaterialMap();
+    brandMapLoaded = false;
     // 刷新树和列表
     if (drawerVisible.value) await Promise.all([loadTree(), loadData()]);
   }

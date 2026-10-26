@@ -4,8 +4,8 @@ import { initDictOptions } from '/@/utils/dict/index';
 import { getApprovalStatusMeta } from '/@/utils/approvalStatus';
 import { projectDisplayName } from './projectListFilters';
 
-export const PROJECT_ATTACHMENT_ACCEPT = '.doc,.docx,.xls,.xlsx,.ppt,.pptx,.pdf,image/*';
-const PROJECT_ATTACHMENT_DOCUMENT_EXTENSIONS = new Set(['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'pdf']);
+export const PROJECT_ATTACHMENT_ACCEPT = '.docx,.xls,.xlsx,.pdf,image/*';
+const PROJECT_ATTACHMENT_DOCUMENT_EXTENSIONS = new Set(['docx', 'xls', 'xlsx', 'pdf']);
 const PROJECT_ATTACHMENT_IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg', 'tif', 'tiff', 'heic', 'heif']);
 
 export function isProjectAttachmentFile(file: File) {
@@ -360,7 +360,7 @@ export const projectFormSchema: FormSchema[] = [
     label: '主项目名称',
     field: 'projectName',
     component: 'Input',
-    componentProps: { placeholder: '请输入主项目名称' },
+    componentProps: { placeholder: '请输入主项目名称（如：唐山中远智能闸口项目）' },
     dynamicRules: () => [{ required: true, whitespace: true, message: '请输入主项目名称!' }],
   },
   {
@@ -440,11 +440,11 @@ export const projectFormSchema: FormSchema[] = [
     componentProps: { placeholder: '请输入甲方信息', rows: 3 },
   },
   {
-    label: '附件',
+    label: '需求记录',
     field: 'attachmentFileId',
     component: 'Input',
     slot: 'attachment',
-    helpMessage: '可选择一个 Word、PPT、Excel、PDF 或图片文件，保存项目时一并上传',
+    helpMessage: '可选择一个 DOCX、Excel、PDF 或图片文件，保存项目时一并上传',
   },
   {
     label: '项目需求',

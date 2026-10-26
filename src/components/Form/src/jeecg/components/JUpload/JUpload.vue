@@ -12,15 +12,15 @@
       @preview="onFilePreview"
     >
       <template v-if="isImageMode">
-        <div v-if="!isMaxCount">
+        <a-tooltip title="仅支持图片；文件大小及格式以当前业务限制为准"><div v-if="!isMaxCount">
           <Icon icon="ant-design:plus-outlined" />
           <div class="ant-upload-text">{{ text }}</div>
-        </div>
+        </div></a-tooltip>
       </template>
-      <a-button v-else-if="buttonVisible && !isMaxCount" :disabled="buttonDisabled">
+      <a-tooltip v-else-if="buttonVisible && !isMaxCount" :title="DOCUMENT_UPLOAD_HINT"><a-button :disabled="buttonDisabled">
         <Icon icon="ant-design:upload-outlined" />
         <span>{{ text }}</span>
-      </a-button>
+      </a-button></a-tooltip>
     </a-upload>
   </div>
 </template>
@@ -38,6 +38,7 @@
   import UploadItemActions from './components/UploadItemActions.vue';
   import { split } from '/@/utils/index';
   import { previewFileInModal } from '/@/utils/filePreview';
+  import { DOCUMENT_UPLOAD_ACCEPT, DOCUMENT_UPLOAD_HINT, validateDocumentFile } from '/@/utils/documentUploadPolicy';
 
   const { createMessage, createConfirm } = useMessage();
   const { prefixCls } = useDesign('j-upload');
@@ -104,13 +105,12 @@
     bind.class = [bind.class, { 'upload-disabled': props.disabled }];
     bind.data = { biz: props.bizPath, ...bind.data };
     // 代码逻辑说明: 自定义beforeUpload return false，并不能中断上传过程
-    if (!bind.beforeUpload) {
-      bind.beforeUpload = onBeforeUpload;
-    }
+    bind.beforeUpload = onBeforeUpload;
     // 如果当前是图片上传模式，就只能上传图片
     if (isImageMode.value && !bind.accept) {
       bind.accept = 'image/*';
     }
+    if (!isImageMode.value) bind.accept = DOCUMENT_UPLOAD_ACCEPT;
     return bind;
   });
 
@@ -234,7 +234,7 @@
   }
 
   // 文件上传之前的操作
-  function onBeforeUpload(file) {
+  async function onBeforeUpload(file) {
     uploadGoOn.value = true;
     if (isImageMode.value) {
       if (file.type.indexOf('image') < 0) {
@@ -243,9 +243,14 @@
         return false;
       }
     }
+    if (!isImageMode.value) {
+      try { await validateDocumentFile(file); }
+      catch (error: any) { createMessage.warning(error.message); uploadGoOn.value = false; return false; }
+    }
     // 扩展 beforeUpload 验证
-    if (typeof props.beforeUpload === 'function') {
-      return props.beforeUpload(file);
+    const customBeforeUpload = unref(attrs).beforeUpload || props.beforeUpload;
+    if (typeof customBeforeUpload === 'function') {
+      return customBeforeUpload(file);
     }
     return true;
   }

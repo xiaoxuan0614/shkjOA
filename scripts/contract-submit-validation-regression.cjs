@@ -23,6 +23,18 @@ async function check(submitOnly) {
 (async () => {
   await check(true); await check(false); await check(undefined);
   const contract = read('src/views/project/contract/index.vue');
+  const contractScript = sfc.parse(contract).descriptor.scriptSetup.content;
+  const contractAst = ts.createSourceFile('contract.ts', contractScript, ts.ScriptTarget.Latest, true);
+  const noContractNode = contractAst.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'isNoContractType');
+  const checkType = new Function('contractTypeOptions', ts.transpile(noContractNode.getText(contractAst)) + '\nreturn isNoContractType;');
+  const isOptional = checkType({ value: [{ label: '无合同', value: '7' }, { label: '项目合同', value: '1' }] });
+  assert.equal(isOptional(7), true);
+  assert.equal(isOptional('7'), true);
+  for (const value of [1, '', null, undefined, 'unknown']) assert.equal(isOptional(value), false);
+  assert.equal(checkType({ value: [] })('7'), false, '字典未加载不可免附件');
+  assert(contract.includes('required: !isNoContractType(values.contractType)'));
+  assert(contract.includes("if (!requestedCandidateId) throw new Error('请选择已定价的报价单作为合同清单')"));
+  assert(contract.includes('Number(selectedCandidate.value.priced) !== 1'));
   assert(contract.includes('validateOnSubmitOnly: true'));
   assert(contract.includes('const values = await validate()'));
   const form = read('src/components/Form/src/BasicForm.vue');

@@ -62,7 +62,7 @@ export const projectDetail = (params, quiet = false) =>
 export const addProject = async (data: Recordable, attachment?: File) => {
   const params = { ...data };
   // 新增前尚无分期 ID，使用公共上传接口约定的 project 业务目录。
-  if (attachment) params.attachmentFileId = (await uploadDocument(attachment, 'project')).path;
+  if (attachment) params.attachmentFileId = (await uploadDocument(attachment, 'project', true)).path;
   return defHttp.post({ url: Api.addProjectPeriod, params, headers: { 'Content-Type': ContentTypeEnum.JSON } }, { successMessageMode: 'success' });
 };
 
@@ -71,7 +71,7 @@ export const addProject = async (data: Recordable, attachment?: File) => {
  */
 export const editProject = async (data: Recordable, attachment?: File) => {
   const params = { ...data };
-  if (attachment) params.attachmentFileId = (await uploadProjectDocument(attachment, String(data.periodId))).path;
+  if (attachment) params.attachmentFileId = (await uploadProjectDocument(attachment, String(data.periodId), true)).path;
   return defHttp.post({ url: Api.editProjectPeriod, params, headers: { 'Content-Type': ContentTypeEnum.JSON } }, { successMessageMode: 'success' });
 };
 

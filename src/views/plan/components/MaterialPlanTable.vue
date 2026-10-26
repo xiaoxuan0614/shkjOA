@@ -11,7 +11,7 @@
       </a-button>
       <slot name="toolbar-after-select" />
       <span v-if="editable" class="material-plan-table__hint"> 从物料库选择后会自动带出物料编码，可继续填写{{ quantityText }}、单位和备注。 </span>
-      <span v-else-if="pricingEditable" class="material-plan-table__hint">定价时仅可修改提价比例、终价，其他内容只读。</span>
+      <span v-else-if="pricingEditable" class="material-plan-table__hint">定价时仅可修改加价比例、指导价，其他内容只读。</span>
       <span v-else-if="mode !== 'quotation'" class="material-plan-table__hint">清单已锁定，仅支持查看。</span>
     </div>
 
@@ -38,8 +38,8 @@
           <a-tooltip v-if="column.key === 'quotationPercent'" title="（报价单价－成本单价）÷成本单价×100%" :trigger="['hover', 'focus']">
             <QuestionCircleOutlined tabindex="0" aria-label="报价比例计算公式：（报价单价－成本单价）÷成本单价×100%" style="margin-left: 4px; color: #8c8c8c; cursor: help" />
           </a-tooltip>
-          <a-tooltip v-if="mode === 'quotation' && column.key === 'finalPrice' && !directQuotation" title="指导价=成本价×（1+指导比例÷100），保留两位小数" :trigger="['hover', 'focus']">
-            <QuestionCircleOutlined tabindex="0" aria-label="指导价计算公式：指导价=成本价×（1+指导比例÷100），保留两位小数" style="margin-left: 4px; color: #8c8c8c; cursor: help" />
+          <a-tooltip v-if="mode === 'quotation' && column.key === 'finalPrice' && !directQuotation" title="指导价=成本价×（1+加价比例÷100）；加价比例=（指导价−成本价）÷成本价×100。例：成本20，加价25%，指导价25。保留两位小数。" :trigger="['hover', 'focus']">
+            <QuestionCircleOutlined tabindex="0" aria-label="指导价与加价比例双向换算：成本20，加价25%，指导价25" style="margin-left: 4px; color: #8c8c8c; cursor: help" />
           </a-tooltip>
           <span v-if="column.required" class="material-plan-table__required" aria-hidden="true">*</span>
         </span>
@@ -80,16 +80,15 @@
           <a-input-number
             :value="record[column.key]"
             :disabled="busy || (column.key === 'basePrice' ? !basePriceEditable : !pricingEditable)"
-            :min="0"
+            :min="column.key === 'markupRate' ? -100 : 0"
             :max="9999999999"
             :precision="quantityAndCostPrecision"
             :addon-after="column.key === 'markupRate' ? '%' : undefined"
             string-mode
             :aria-label="`${record.materialName} ${column.title ?? column.customTitle}`"
-            placeholder="请输入"
+            :placeholder="column.key === 'markupRate' ? '—' : '请输入'"
             style="width: 100%"
             @change="(value) => changeQuotePrice(record, column.key, value)"
-            @blur="changeQuotePrice(record, column.key, record[column.key], true)"
           />
           <div v-if="record._priceError?.key === column.key" role="alert" class="material-plan-table__price-error">{{
             record._priceError.message
@@ -160,7 +159,7 @@
   import { Table } from 'ant-design-vue';
   import { QuestionCircleOutlined } from '@ant-design/icons-vue';
   import { BasicTable } from '/@/components/Table';
-  import { hasPrice, decimalPrice, quotationPricePayload, quotationSnapshot, guidancePrice, validateDirectQuotation, quotationPercent, quotationApprovalItems } from '../quotationPricing';
+  import { hasPrice, decimalPrice, quotationPricePayload, quotationSnapshot, guidancePrice, derivedGuidanceRate, validateDirectQuotation, quotationPercent, quotationApprovalItems } from '../quotationPricing';
   import { useDrawer } from '/@/components/Drawer';
   import { useMessage } from '/@/hooks/web/useMessage';
   import MaterialSelectDrawer from '/@/views/material/apply/components/MaterialSelectDrawer.vue';
@@ -294,7 +293,7 @@
       ? [{ title: '成本单价', key: 'basePrice', width: 100, required: props.basePriceEditable }, { title: '成本总价', key: 'costTotal', width: 110, align: 'left' }]
       : []),
     ...(props.mode === 'quotation' && props.quotePricing && !props.directQuotation && (props.rateVisible ?? (props.priceVisible || props.serviceFeePriceVisible))
-      ? [{ title: '指导比例', key: 'markupRate', width: 120 }] : []),
+      ? [{ title: '加价比例（%）', key: 'markupRate', width: 140 }] : []),
     ...(props.mode === 'quotation' && props.quotePricing && (props.priceVisible || props.serviceFeePriceVisible)
       ? [
           { title: props.directQuotation ? '报价单价' : '指导价', key: 'finalPrice', width: 110, required: props.directQuotation && props.pricingEditable },
@@ -447,14 +446,8 @@
     if (requestSequence && requestSequence !== loadSequence) return;
     rows.value = list.map((item: any) => {
       const pricingDefaults: Record<string, any> = {};
-      // 只在市场定价时初始化，不覆盖已经保存的比例或手动指导价。
-      if (props.pricingEditable && !props.directQuotation) {
-        const rate = hasPrice(item.markupRate) ? item.markupRate : item.guideMarkupRate;
-        if (hasPrice(rate)) pricingDefaults.markupRate = rate;
-        if (!hasPrice(item.finalPrice) && hasPrice(item.basePrice) && hasPrice(rate)) {
-          try { pricingDefaults.finalPrice = guidancePrice(item.basePrice, rate); }
-          catch (error: any) { pricingDefaults._priceError = { key: 'markupRate', message: error.message }; }
-        }
+      if (props.mode === 'quotation') {
+        pricingDefaults.markupRate = derivedGuidanceRate(item.basePrice, item.finalPrice);
       }
       const material = materialMap[String(item.materialId || '')] || item;
       const unitOptions = createUnitOptions(material, item.unitId, item.unit);
@@ -634,6 +627,8 @@
   }
 
   function getData() {
+    const invalidPrice = props.pricingEditable && rows.value.find((item) => item._priceError);
+    if (invalidPrice) throw new Error(invalidPrice._priceError.message);
     if (props.contractLoading) throw new Error('合同清单尚未加载完成，请稍后再保存');
     if (loading.value) throw new Error('用料清单仍在加载，请稍后再保存');
     validateContractRows(rows.value);
@@ -675,7 +670,7 @@
         unitId: item._unitValue,
         remark: item.remark,
         ...(props.basePriceEditable ? quotationPricePayload({ basePrice: item.basePrice }) : {}),
-        ...(props.pricingEditable ? quotationPricePayload({ ...(!props.directQuotation ? { markupRate: item.markupRate } : {}), finalPrice: item.finalPrice }) : {}),
+        ...(props.pricingEditable ? quotationPricePayload({ finalPrice: item.finalPrice }) : {}),
       }));
     }
     if (props.mode === 'plan' || props.mode === 'rework') {
@@ -772,20 +767,29 @@
 
   watch(() => [props.periodId, props.candidateId, props.mode], load, { immediate: true });
 
-  function changeQuotePrice(row: any, key: string, value: any, showError = false) {
+  function changeQuotePrice(row: any, key: string, value: any) {
     if (key === 'markupRate' && props.rateVisible === false) return;
     if (key === 'basePrice' ? !props.basePriceEditable : !props.priceVisible || !props.pricingEditable) return;
     row._priceError = undefined;
     row[key] = hasPrice(value) ? value : null;
-    if (!hasPrice(value)) return;
+    if (!hasPrice(value)) {
+      if (key === 'finalPrice') row.markupRate = null;
+      return;
+    }
     try {
-      decimalPrice(value, key === 'basePrice' ? '成本价' : key === 'markupRate' ? '提价比例' : '终价', key === 'markupRate' ? 4 : 2);
-      if (key === 'markupRate' && props.pricingEditable) row.finalPrice = guidancePrice(row.basePrice, value);
+      decimalPrice(value, key === 'basePrice' ? '成本价' : key === 'markupRate' ? '加价比例' : '终价', key === 'markupRate' ? 4 : 2, key === 'markupRate' ? -100 : 0);
+      if (!props.directQuotation && props.pricingEditable) {
+        if (key === 'markupRate') row.finalPrice = guidancePrice(row.basePrice, value);
+        if (key === 'basePrice' && props.rateVisible !== false && hasPrice(row.markupRate)) row.finalPrice = guidancePrice(value, row.markupRate);
+        if (key === 'finalPrice' && props.rateVisible !== false) row.markupRate = derivedGuidanceRate(row.basePrice, value);
+      }
       if (props.directQuotation && hasPrice(row.basePrice) && hasPrice(row.finalPrice)) {
         validateDirectQuotation(row.basePrice, row.finalPrice);
       }
     } catch (error: any) {
-      if (showError || props.directQuotation) row._priceError = { key, message: error.message };
+      if (!props.directQuotation && key === 'finalPrice' && props.rateVisible !== false) row.markupRate = null;
+      if (!props.directQuotation && key === 'markupRate') row.finalPrice = null;
+      row._priceError = { key, message: error.message };
     }
   }
 </script>

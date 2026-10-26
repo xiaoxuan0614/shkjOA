@@ -149,7 +149,7 @@ ref="serviceFeePickerRef" picker-only :model-value="serviceFees" :ready="feesRea
     getQuotationHistory,
   } from '../Plan.api';
   import { noQuotationAccess, quotationDetailCapabilities, quotationDetailFields, quotationVersion, assertQuotationVersion, canEditDraftQuotation } from '../quotationGovernance';
-  import { quotationPricePayload, validateDirectQuotation } from '../quotationPricing';
+  import { quotationPricePayload, validateDirectQuotation, derivedGuidanceRate } from '../quotationPricing';
   import { findQuotationRejection } from '../quotationRejection';
   import { previewQuotationRoute } from '../quotationRoute';
   defineOptions({ name: 'ContractMaterialDraftEditor' });
@@ -219,7 +219,7 @@ ref="serviceFeePickerRef" picker-only :model-value="serviceFees" :ready="feesRea
   const feesReady = ref(false);
   const materialsReady = ref(false);
   function receiveServiceFees(rows: Recordable[]) {
-    serviceFees.value = rows.map((row, i) => ({ ...row, _key: row.id || `saved-${i}` }));
+    serviceFees.value = rows.map((row, i) => ({ ...row, markupRate: derivedGuidanceRate(row.costPrice, row.guidePrice), _key: row.id || `saved-${i}` }));
     feesReady.value = true;
   }
   const materialRowsReady = computed(() => loaded.value && materialsReady.value && !!tableRef.value);
@@ -361,18 +361,18 @@ ref="serviceFeePickerRef" picker-only :model-value="serviceFees" :ready="feesRea
       if (String(record.value.status) === '2') return '报价待市场主管审批，内容只读；提交人可在审批前撤回。';
       return editing.value ? '请填写成本价和最终报价，均保留两位小数；保存后提交市场主管审批。' : '当前报价只读，点击“修改”可调整成本价和报价，保存后可提交市场主管审批。';
     }
-    if (canPrice.value && !canEditPricing.value) return '已确认定价，当前页面只读。需要调整指导比例或指导价，请先点击“解锁”，调整后重新确认定价。';
-    if (canPrice.value) return '技术审批已通过，可维护指导比例和指导价并确认定价，成本价保持只读。';
-    if (reviewMode.value) return '技术审批仅查看报价内容并操作通过或驳回；提价比例和指导价由市场部主管在审批通过后维护。';
+    if (canPrice.value && !canEditPricing.value) return '已确认定价，当前页面只读。需要调整加价比例或指导价，请先点击“解锁”，调整后重新确认定价。';
+    if (canPrice.value) return '技术审批已通过，可维护加价比例和指导价并确认定价，成本价保持只读。';
+    if (reviewMode.value) return '技术审批仅查看报价内容并操作通过或驳回；加价比例和指导价由市场部主管在审批通过后维护。';
     if (pricingMode.value) {
       return canPrice.value
-        ? '技术审批通过后，填写全部明细的提价比例和指导价；确认定价后才可导出。'
-        : '当前账号没有市场定价资格，提价比例和指导价已隐藏。';
+        ? '技术审批通过后，填写全部明细的加价比例和指导价；确认定价后才可导出。'
+        : '当前账号没有市场定价资格，加价比例和指导价已隐藏。';
     }
     if (!editing.value && !reviewMode.value && !pricingMode.value) return '当前为已保存的只读内容。需要调整请点击“修改”，保存后可提交审核。';
     if (String(record.value.status) === '2') return '待审批内容只读，仅原提交人可在审批前撤回。';
     if (Number(record.value.adopted) === 1) return '已采用：成本价、物料、单位、数量及明细增删均锁定。';
-    return '提交前仅维护报价内容；提价比例和指导价在技术审批通过后由市场部主管维护。';
+    return '提交前仅维护报价内容；加价比例和指导价在技术审批通过后由市场部主管维护。';
   });
 
   async function reloadAccess() {
@@ -612,12 +612,12 @@ ref="serviceFeePickerRef" picker-only :model-value="serviceFees" :ready="feesRea
       const records = rows.map((row: any) => {
         if (!row.id) throw new Error('缺少明细 ID，请刷新');
         const values = quotationPricePayload(row, true);
-        return { id: row.id, markupRate: values.markupRate, finalPrice: values.finalPrice };
+        return { id: row.id, finalPrice: values.finalPrice };
       });
       const serviceFeePrices = serviceFees.value.map(row => {
         if (!row.id) throw new Error('服务费缺少明细ID，请刷新');
         const fee = serviceFeePayload(row, { structure: false, cost: false, price: true });
-        return { id: fee.id, guidePrice: fee.guidePrice, markupRate: fee.markupRate };
+        return { id: fee.id, guidePrice: fee.guidePrice };
       });
       await candidateAction('price', record.value, { records, serviceFees: serviceFeePrices });
       pricingUnlocked.value = false;

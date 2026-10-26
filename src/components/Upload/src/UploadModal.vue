@@ -23,9 +23,9 @@
       <Alert :message="getHelpText" type="info" banner class="upload-modal-toolbar__text" />
 
       <Upload :accept="getStringAccept" :multiple="multiple" :before-upload="beforeUpload" class="upload-modal-toolbar__btn">
-        <a-button type="primary">
+        <Tooltip :title="getHelpText"><a-button type="primary">
           {{ t('component.upload.choose') }}
-        </a-button>
+        </a-button></Tooltip>
       </Upload>
     </div>
     <FileList :dataSource="fileListRef" :columns="columns" :actionColumn="actionColumn" />
@@ -33,7 +33,8 @@
 </template>
 <script lang="ts">
   import { defineComponent, reactive, ref, toRefs, unref, computed, PropType } from 'vue';
-  import { Upload, Alert } from 'ant-design-vue';
+  import { Upload, Alert, Tooltip } from 'ant-design-vue';
+  import { validateDocumentFile } from '/@/utils/documentUploadPolicy';
   import { BasicModal, useModalInner } from '/@/components/Modal';
   //   import { BasicTable, useTable } from '/@/components/Table';
   // hooks
@@ -52,7 +53,7 @@
   import { useI18n } from '/@/hooks/web/useI18n';
 
   export default defineComponent({
-    components: { BasicModal, Upload, Alert, FileList },
+    components: { BasicModal, Upload, Alert, Tooltip, FileList },
     props: {
       ...basicProps,
       previewFileList: {
@@ -104,12 +105,12 @@
       });
 
       // 上传前校验
-      function beforeUpload(file: File) {
+      async function beforeUpload(file: File) {
         const { size, name } = file;
         const { maxSize } = props;
         const accept = unref(getAccept);
         // 设置最大值，则判断
-        if (maxSize && file.size / 1024 / 1024 >= maxSize) {
+        if (maxSize && file.size / 1024 / 1024 > maxSize) {
           createMessage.error(t('component.upload.maxSizeMultiple', [maxSize]));
           return false;
         }
@@ -118,6 +119,10 @@
         if (accept.length > 0 && !checkFileType(file, accept)) {
           createMessage.error!(t('component.upload.acceptUpload', [accept.join(',')]));
           return false;
+        }
+        if (/\.(docx?|pdf|xlsx?|pptx?)$/i.test(file.name) || !accept.length) {
+          try { await validateDocumentFile(file); }
+          catch (error: any) { createMessage.error(error.message); return false; }
         }
         const commonItem = {
           uuid: buildUUID(),

@@ -9,13 +9,21 @@ function load(file, imports = {}) {
 const approval = load('src/utils/approvalStatus.ts');
 const { projectMaterialOperations: actions, hasApplicationMenu } = load('src/views/project/detail/materialOperations.ts', { '/@/utils/approvalStatus': approval });
 const menus = [{ path: '/material', children: [{ path: 'pick' }, { path: 'return' }] }];
-const p = { periodId: 'p', status: 'IMPLEMENTING', arrivalStatus: 0 };
+const p = { periodId: 'p', status: 'IMPLEMENTING', planStatus: '1', arrivalStatus: 0 };
 assert.deepEqual(actions(p, true, menus).map(a => a.key), ['pick', 'return']);
 assert.deepEqual(actions({ ...p, projectType: '软件', arrivalStatus: 1 }, true, menus).map(a => a.key), ['pick', 'return']);
 assert.deepEqual(actions(p, false, menus), []);
 assert.deepEqual(actions(p, true, []), []);
-for (const status of ['-1', '0', '2', '3', undefined]) assert.deepEqual(actions({ ...p, planStatus: status, approvalStatus: '1' }, true, menus).map(a => a.key), ['pick', 'return']);
-assert.deepEqual(actions({ ...p, status: 'PREPARING' }, true, menus).map(a => a.key), ['return']);
+for (const status of ['-1', '0', '2', '3', undefined, null, '', 'unknown']) {
+  for (const stage of ['PREPARING', 'IMPLEMENTING', 'REWORKING', 'WARRANTY', 'COMPLETED', 'CLOSED']) {
+    assert.deepEqual(actions({ ...p, status: stage, planStatus: status, approvalStatus: '1' }, true, menus).map(a => a.key), []);
+  }
+}
+assert.deepEqual(actions({ ...p, status: 'PREPARING' }, true, menus).map(a => a.key), ['pick', 'return']);
+assert.deepEqual(actions({ ...p, status: 'PREPARING', planStatus: 1, approvalStatus: '0' }, true, menus).map(a => a.key), ['pick', 'return']);
+assert.deepEqual(actions(p, true, [{ path: '/material/pick' }]).map(a => a.key), ['pick']);
+assert.deepEqual(actions(p, true, [{ path: '/material/return' }]).map(a => a.key), ['return']);
+assert.deepEqual(actions({ ...p, periodId: '' }, true, menus), []);
 for (const status of ['CLOSED', 'COMPLETED', 'WARRANTY']) assert.deepEqual(actions({ ...p, status }, true, menus).map(a => a.key), ['return']);
 for (const status of ['NOT_STARTED', 'PENDING_APPROVAL', 'unknown']) assert.deepEqual(actions({ ...p, status }, true, menus), []);
 assert(hasApplicationMenu([{ path: '/material/pick' }], '/material/pick'));

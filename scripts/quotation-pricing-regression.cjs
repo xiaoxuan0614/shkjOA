@@ -10,6 +10,28 @@ function load(file, overrides = {}) {
   return exports;
 }
 const pricing = load('src/views/plan/quotationPricing.ts');
+assert.equal(pricing.guidanceRate(100, 120), '20.00');
+assert.equal(pricing.guidanceRate(20, 25), '25.00');
+assert.equal(pricing.guidancePrice(20, 25), '25.00');
+assert.equal(pricing.guidanceRate(2, 5), '150.00');
+assert.equal(pricing.guidancePrice(2, 150), '5.00');
+assert.equal(pricing.derivedGuidanceRate(20, 25), '25.00');
+assert.equal(pricing.guidanceRate(3, 4), '33.33');
+assert.equal(pricing.guidanceRate('0.1', '0.12'), '20.00');
+assert.equal(pricing.guidanceRate(100, 100), '0.00');
+assert.equal(pricing.guidanceRate(100, 80), '-20.00');
+assert.equal(pricing.guidanceRate(100, 0), '-100.00');
+assert.equal(pricing.guidancePrice(100, -20), '80.00');
+assert.equal(pricing.guidancePrice(100, -100), '0.00');
+assert.equal('markupRate' in pricing.quotationPricePayload({ basePrice: 100, markupRate: -20, finalPrice: 80 }, true), false);
+assert.equal(pricing.derivedGuidanceRate(100, 80), '-20.00');
+assert.equal(pricing.derivedGuidanceRate(0, 80), null);
+assert.equal(pricing.derivedGuidanceRate(null, 80), null);
+assert.equal(pricing.quotationPricePayload({ basePrice: 0, finalPrice: 80 }, true).finalPrice, 80);
+assert.throws(() => pricing.guidancePrice(100, -100.01));
+for (const [cost, price] of [[0, 0], [0, 1], [100, -1], [null, 1], [1, null]]) {
+  assert.throws(() => pricing.guidanceRate(cost, price));
+}
 assert.equal(pricing.quotationPercent(100, 120), '20.00%');
 assert.equal(pricing.quotationPercent(3, 4), '33.33%');
 assert.equal(pricing.quotationPercent(100, 80), '-20.00%');

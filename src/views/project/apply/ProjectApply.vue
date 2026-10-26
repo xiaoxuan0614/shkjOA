@@ -21,7 +21,7 @@
               @preview="handleAttachmentPreview"
               @remove="handleRemoveAttachment"
             >
-              <a-button v-if="!attachmentFileList.length">选择文件</a-button>
+              <a-tooltip :title="'图片沿用原规则；文档：' + DOCUMENT_UPLOAD_HINT"><a-button v-if="!attachmentFileList.length">选择文件</a-button></a-tooltip>
             </a-upload>
           </div>
         </template>
@@ -48,6 +48,7 @@
   import { addProject, editProject, projectDetail, getCustomerList, getMainProjectList } from '../Project.api';
   import { loadUserOptions } from '/@/views/resource/userOptions';
   import { previewFileInModal } from '/@/utils/filePreview';
+  import { DOCUMENT_UPLOAD_HINT, validateDocumentFile } from '/@/utils/documentUploadPolicy';
   import { projectCreateDraftKey, readProjectCreateDraft, saveProjectCreateDraft, removeProjectCreateDraft } from '/@/utils/projectCreateDraft';
   import { bindTabDraft } from '/@/utils/tabDraftLifetime';
 
@@ -325,10 +326,13 @@
     });
   }
 
-  function handleBeforeAttachmentUpload(file: File & { uid?: string }) {
+  async function handleBeforeAttachmentUpload(file: File & { uid?: string }) {
     if (!isProjectAttachmentFile(file)) {
-      createMessage.warning('只能上传 Word、PPT、Excel、PDF 或图片文件');
+      createMessage.warning('只能上传 DOCX、Excel、PDF 或图片文件');
       return false;
+    }
+    if (!/\.(jpe?g|png|gif|bmp|webp|svg|tiff?|heic|heif)$/i.test(file.name)) {
+      try { await validateDocumentFile(file); } catch (error: any) { createMessage.warning(error.message); return false; }
     }
     selectedAttachment.value = file;
     attachmentReplacementRequired.value = false;

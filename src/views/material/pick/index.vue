@@ -24,9 +24,16 @@
     <div class="pick-apply__card">
       <div class="pick-apply__card-title">
         <span>物料明细</span>
-        <a-button type="primary" preIcon="ant-design:plus-outlined" :disabled="isProjectMode && !selectedPeriodId" @click="handleAddMaterial">
-          {{ isReworkMode ? '补充本轮可申请物料' : isProjectMode ? '添加可申请物料' : '添加物料' }}
-        </a-button>
+        <a-space wrap>
+          <a-tooltip v-if="isProjectMode && !isReworkMode" title="带入全部可申请物料及数量；已选物料及手动数量不变，带入后可继续调整。">
+            <a-button preIcon="ant-design:check-square-outlined" :loading="bulkLoading" :disabled="!pickReady || !selectedPeriodId || submitLoading" @click="handlePickAll">
+              一键带入可领物料
+            </a-button>
+          </a-tooltip>
+          <a-button type="primary" preIcon="ant-design:plus-outlined" :disabled="bulkLoading || submitLoading || (isProjectMode && !selectedPeriodId)" @click="handleAddMaterial">
+            {{ isReworkMode ? '补充本轮可申请物料' : isProjectMode ? '添加可申请物料' : '添加物料' }}
+          </a-button>
+        </a-space>
       </div>
       <a-alert
         v-if="isReworkMode"
@@ -82,7 +89,7 @@
 
     <!-- 底部操作 -->
     <div class="pick-apply__footer">
-      <a-button type="primary" preIcon="ant-design:send-outlined" :loading="submitLoading" @click="handleSubmit">
+      <a-button type="primary" preIcon="ant-design:send-outlined" :disabled="bulkLoading" :loading="submitLoading" @click="handleSubmit">
         {{ editMode ? '重新提交' : '提交领料申请' }}
       </a-button>
       <a-button @click="handleCancel">取消</a-button>
@@ -102,7 +109,7 @@
 
 <script lang="ts" setup>
   import { unifyMaterialColumns } from '/@/views/material/materialTableColumns';
-  import { computed, ref, onMounted } from 'vue';
+  import { computed, ref, onMounted, watch, onBeforeUnmount, onDeactivated } from 'vue';
   import { useRouter, useRoute } from 'vue-router';
   import { useTabs } from '/@/hooks/web/useTabs';
   import { BasicForm, useForm } from '/@/components/Form/index';
@@ -125,6 +132,7 @@
   import { validateEditableRows } from '/@/components/EditableTable';
   import { PageEnum } from '/@/enums/pageEnum';
   import { useSessionDraft } from '/@/hooks/web/useSessionDraft';
+  import { loadPickAllAccounts, missingPickMaterials } from './pickAllMaterials';
 
   const router = useRouter();
   const route = useRoute();
@@ -162,6 +170,13 @@
   const selectedPeriodId = ref('');
   const isProjectMode = computed(() => usageType.value === MATERIAL_USAGE_TYPE.PROJECT);
   const isReworkMode = computed(() => Boolean(reworkId.value));
+  const bulkLoading = ref(false);
+  const pickReady = ref(false);
+  let bulkGeneration = 0;
+  function invalidateBulk() { bulkGeneration++; bulkLoading.value = false; }
+  watch([selectedPeriodId, usageType, reworkId], invalidateBulk, { flush: 'sync' });
+  onBeforeUnmount(invalidateBulk);
+  onDeactivated(invalidateBulk);
   const brandMap = ref<Record<string, { text: string; color: string }>>({});
   const projectMaterialPeriodStatus = [
     'PREPARING',
@@ -350,6 +365,7 @@
         try { await restorePickDraft(); }
         catch (error: any) { createMessage.warning(error?.message || '领料草稿恢复失败，请重新核对'); }
         finally { draft.enable(); }
+        pickReady.value = true;
       }
     } catch (error: any) {
       createMessage.error(error?.message || '领料申请初始化失败，请返回后重试');
@@ -516,7 +532,35 @@
     throw new Error('项目物料数量过多，未能在安全页数内完成回填');
   }
 
-  /** 添加物料：打开抽屉 */
+  /** 普通项目一键带入，不覆盖已经填写的明细。 */
+  async function handlePickAll() {
+    if (bulkLoading.value || submitLoading.value || !pickReady.value || !isProjectMode.value || isReworkMode.value) return;
+    const periodId = selectedPeriodId.value;
+    if (!periodId || !participatedProjectPool.value.some(row => String(row.periodId) === periodId)) {
+      createMessage.warning('请先选择当前可领料的参与项目');
+      return;
+    }
+    const generation = ++bulkGeneration;
+    const isCurrent = () => generation === bulkGeneration && draft.isAlive() && selectedPeriodId.value === periodId && isProjectMode.value && !isReworkMode.value;
+    bulkLoading.value = true;
+    try {
+      const accounts = await loadPickAllAccounts(getProjectMaterialAccountPage, periodId, isCurrent);
+      if (!isCurrent()) return;
+      const missing = missingPickMaterials(accounts, detailList.value);
+      if (!missing.length) {
+        createMessage.info(accounts.some(row => Number(row.availableApplyQty) > 0) ? '可领物料已全部加入，已保留当前数量' : '当前项目暂无可申请的物料');
+        return;
+      }
+      handleDrawerSuccess(missing);
+      createMessage.success(`已带入 ${missing.length} 项物料，可继续调整申请数量`);
+    } catch (error: any) {
+      if (isCurrent()) createMessage.error(error?.message || '可申请物料加载失败，请重试');
+    } finally {
+      if (generation === bulkGeneration) bulkLoading.value = false;
+    }
+  }
+
+  /** 添加物料：打开抽屉；返工沿用本轮额外领料。 */
   function handleAddMaterial() {
     if (isProjectMode.value && !selectedPeriodId.value) {
       createMessage.warning('请先选择分期项目');
@@ -621,10 +665,11 @@
 
   /** 提交领料申请(新增 or 重新提交) */
   async function handleSubmit() {
-    const data = await buildSubmitData().catch(() => null); // 表单校验失败(vben validate reject)静默返回
-    if (!data) return;
+    if (bulkLoading.value || submitLoading.value) return;
     submitLoading.value = true;
     try {
+      const data = await buildSubmitData().catch(() => null); // 表单校验失败(vben validate reject)静默返回
+      if (!data) return;
       if (editMode) {
         await updatePickApply({ ...data, id: applyId });
         createMessage.success('重新提交成功');
@@ -643,6 +688,7 @@
 
   /** 取消 */
   function handleCancel() {
+    invalidateBulk();
     draft.clear();
     void resetFields();
     detailList.value = [];
@@ -672,6 +718,8 @@
         display: flex;
         justify-content: space-between;
         align-items: center;
+        flex-wrap: wrap;
+        gap: 12px;
       }
     }
 

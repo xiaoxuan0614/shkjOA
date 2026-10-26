@@ -123,6 +123,7 @@ v-model:open="formOpen" :title="formReadonly ? '服务费详情' : form.id ? '�
     try {
       const payload = serviceFeePayload({ ...form.value, guidePrice: serviceFeePrice(form.value.costPrice, form.value.markupRate) });
       // 基础库税率仍为markupRate；新增默认比例单独维护，不与报价明细字段混用。
+      payload.markupRate = Number(decimalPrice(form.value.markupRate, '税率', 4));
       if (hasPrice(form.value.guideMarkupRate)) payload.guideMarkupRate = Number(decimalPrice(form.value.guideMarkupRate, '报价指导比例', 4));
       saving.value = true;
       await saveServiceFee(payload);
