@@ -35,9 +35,10 @@
   import { getHeaders } from '/@/utils/common/compUtils';
   import { useGlobSetting } from '/@/hooks/setting';
   import { trustedFileUrl } from '/@/utils/security';
+  import { DOCUMENT_UPLOAD_MAX_BYTES } from '/@/utils/documentUploadPolicy';
 
   const settings = useGlobSetting();
-  const maxBytes = 20 * 1024 * 1024;
+  const maxBytes = DOCUMENT_UPLOAD_MAX_BYTES;
   let controller: AbortController | undefined;
   let sequence = 0;
 

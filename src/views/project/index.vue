@@ -89,6 +89,10 @@
         </a-form-item>
       </div>
     </a-modal>
+    <ArrivalConfirmModal @register="registerArrival" @success="handleOperationSuccess" />
+    <ProcessCompletionDrawer @register="registerProcess" @success="handleOperationSuccess" />
+    <MaterialSupplementDrawer @register="registerSupplement" @success="handleOperationSuccess" />
+    <AcceptanceModal @register="registerAcceptance" @success="handleOperationSuccess" />
   </div>
 </template>
 
@@ -98,7 +102,20 @@
   import { BasicTable, TableAction } from '/@/components/Table';
   import { useListPage } from '/@/hooks/system/useListPage';
   import { columns, searchFormSchema, projectStatusMap, statusColorMap, loadProjectStatusMap, loadProjectTypeMap, loadDictOptions } from './Project.data';
-  import { projectList, searchPeriod, deleteProject } from './Project.api';
+  import { projectList, searchPeriod, deleteProject, projectDetail, changePeriodStatus, getCurrentParticipatedProjects } from './Project.api';
+  import { useUserStore } from '/@/store/modules/user';
+  import { useModal } from '/@/components/Modal';
+  import { useDrawer } from '/@/components/Drawer';
+  import { resolvePeriodDetailActions, type PeriodDetailAction } from './periodDetailActions';
+  import { resolvePeriodOperations, canApplySupplement } from './detail/periodOperations';
+  import { readCachedProjectMembership } from './projectMembership';
+  import { contractProjectContext } from './contract/projectContext';
+  import { useAcceptanceAccess } from './useAcceptanceAccess';
+  import { refreshTodos } from '/@/views/todo/useTodoCenter';
+  import ArrivalConfirmModal from './components/ArrivalConfirmModal.vue';
+  import ProcessCompletionDrawer from './components/ProcessCompletionDrawer.vue';
+  import MaterialSupplementDrawer from './components/MaterialSupplementDrawer.vue';
+  import AcceptanceModal from './components/AcceptanceModal.vue';
   import { useMainProjectSearch } from './mainProjectSearch';
   import { projectActionLayout } from './projectActionLayout';
   import { useMessage } from '/@/hooks/web/useMessage';
@@ -111,6 +128,22 @@
   const router = useRouter();
   const { createMessage } = useMessage();
   const { hasPermission } = usePermission();
+  const userStore = useUserStore();
+  const { canViewAcceptanceEntry } = useAcceptanceAccess();
+  const [registerArrival, { openModal: openArrival }] = useModal();
+  const [registerProcess, { openDrawer: openProcess }] = useDrawer();
+  const [registerSupplement, { openDrawer: openSupplement }] = useDrawer();
+  const [registerAcceptance, { openModal: openAcceptance }] = useModal();
+  const busyPeriods = new Set<string>();
+  const currentUserId = () => String(userStore.getUserInfo?.id || '');
+  const isManager = (record: Recordable) => record._managerSession === userStore.getToken && record._managerUserId === currentUserId() && record._isManager === true;
+  const asPeriod = (record: Recordable) => ({ ...record, periodId: String(record.periodId || record.id || '') });
+  const detailActions = (record: Recordable) => resolvePeriodDetailActions(asPeriod(record), {
+    userId: currentUserId(), admin: !!userStore.getIdentity.roleCodes?.includes('admin'), manager: isManager(record), hasPermission,
+  });
+  const operationActions = (record: Recordable) => resolvePeriodOperations(asPeriod(record), {
+    manager: isManager(record), hasPermission, typeNames: projectTypeMeta.value,
+  }).filter(action => action.key !== 'acceptance' || canViewAcceptanceEntry());
   // 状态字典映射(数据源 project_period_status, 加载失败回退 projectStatusMap)
   const statusMeta = ref<Recordable>({});
   // 项目类型字典映射(数据源 project_type)
@@ -174,11 +207,31 @@
         fieldMapToTime: [],
       },
       actionColumn: {
-        width: 160,
+        width: 340,
         fixed: 'right',
       },
       beforeFetch: (params) => {
         return Object.assign(params, queryParam);
+      },
+      afterFetch: async (rows: Recordable[]) => {
+        const userId = currentUserId(), session = userStore.getToken;
+        const result = rows.map(row => ({ ...row, _managerUserId: userId, _managerSession: session, _isManager: false }));
+        if (!userId || !session || !rows.length) return result;
+        try {
+          if (userStore.getIdentity.roleCodes?.includes('admin')) {
+            // 管理员参与项目接口不返回成员身份，不能把管理员直接当作项目经理。
+            await Promise.all(result.filter(row => ['PREPARING', 'IMPLEMENTING', 'DEBUGGING', 'DEBUG_COMPLETED'].includes(row.status)).map(async row => {
+              const membership = await readCachedProjectMembership(String(row.periodId || row.id), userId, session);
+              row._isManager = membership.manager;
+            }));
+          } else {
+            const memberships = await getCurrentParticipatedProjects();
+            if (!Array.isArray(memberships)) throw new Error('参与项目数据格式异常');
+            const managed = new Set(memberships.filter(row => String(row.userId) === userId && String(row.memberRole || '').split(',').map(role => role.trim()).includes('2')).map(row => String(row.periodId)));
+            result.forEach(row => { row._isManager = managed.has(String(row.periodId || row.id)); });
+          }
+        } catch { /* 身份查询失败时不开放经理专属操作。 */ }
+        return result;
       },
 
     },
@@ -244,7 +297,54 @@
   }
 
   function getTableAction(record: Recordable) {
-    return [{ label: '详情', onClick: handleDetail.bind(null, record) }];
+    return [
+      ...detailActions(record).map(action => ({ label: action.label, onClick: () => handleBusinessAction(record, action) })),
+      ...operationActions(record).map(action => ['close', 'complete'].includes(action.key)
+        ? { label: action.label, color: action.key === 'close' ? 'error' : undefined, popConfirm: {
+            title: action.key === 'close' ? '确认关闭该分期？未完成领料将同步终止，关闭后无法重新开启。' : '确认完结该分期？',
+            confirm: () => finishPeriod(record, action.key), placement: 'topLeft',
+          } }
+        : { label: action.label, onClick: () => openOperation(record, action.key) }),
+      { label: '详情', onClick: handleDetail.bind(null, record) },
+    ];
+  }
+
+  function handleBusinessAction(record: Recordable, action: PeriodDetailAction) {
+    if (!detailActions(record).some(item => item.key === action.key)) return;
+    const periodId = asPeriod(record).periodId;
+    if (action.tab === 'contract') {
+      router.push({ path: '/project/contract', query: { periodId, projectId: record.projectId, mode: action.mode }, state: { contractProjectContext: contractProjectContext(record, currentUserId()) } });
+    } else {
+      router.push({ path: '/project/plan', query: { periodId, ...(action.mode === 'audit' ? { mode: 'view', audit: '1' } : action.mode === 'view' ? { mode: 'view' } : {}) } });
+    }
+  }
+
+  function openOperation(record: Recordable, key: string) {
+    if (!operationActions(record).some(action => action.key === key)) return;
+    const project = asPeriod(record);
+    if (key === 'arrival') openArrival(true, { record: project });
+    if (key === 'process') openProcess(true, { record: project, periodId: project.periodId });
+    if (key === 'supplement') openSupplement(true, { record: project, allowCreate: canApplySupplement(project.status, isManager(record)), initialTab: isManager(record) ? 'mine' : 'pending' });
+    if (key === 'acceptance') openAcceptance(true, { periodId: project.periodId, project });
+  }
+
+  async function finishPeriod(record: Recordable, key: string) {
+    const periodId = asPeriod(record).periodId;
+    if (busyPeriods.has(periodId) || !operationActions(record).some(action => action.key === key)) return;
+    busyPeriods.add(periodId);
+    try {
+      const latest = await projectDetail({ periodId }, true);
+      if (String(latest?.periodId) !== periodId || !operationActions(latest).some(action => action.key === key)) throw new Error('项目状态或权限已变化，请刷新后重试');
+      await changePeriodStatus({ periodId, status: key === 'close' ? 'CLOSED' : 'COMPLETED' });
+      createMessage.success(key === 'close' ? '项目已关闭' : '项目已完结');
+      handleOperationSuccess();
+    } catch (error: any) { createMessage.error(error?.message || '操作失败，请重试'); }
+    finally { busyPeriods.delete(periodId); }
+  }
+
+  function handleOperationSuccess() {
+    reload();
+    refreshTodos(true).catch(() => undefined);
   }
 
   /** 下拉操作栏：详情、业务辅助操作、关闭与删除。 */

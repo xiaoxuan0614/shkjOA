@@ -113,7 +113,7 @@
                 show-search
                 :filter-option="filterQuotationByName"
                 allow-clear
-                placeholder="请选择已定价的原报价单（选填）"
+                placeholder="请选择已定价的原报价单（必填）"
                 style="min-width: 240px"
               />
               <a-button :disabled="!materialCandidateId || candidatesLoading || candidatesFailed || submitting || quotationSaving" :loading="quotationPreviewLoading" @click="openQuotationPreview">查看报价预览</a-button>
@@ -143,15 +143,15 @@
                 :disabled="submitting || attachmentUploading || contractAttachments.length >= CONTRACT_ATTACHMENT_LIMIT"
                 @change="handleContractAttachmentSelection"
               />
-                <a-button
+                <a-tooltip :title="DOCUMENT_UPLOAD_HINT"><a-button
                   :loading="attachmentUploading"
                   :disabled="submitting || attachmentUploading || contractAttachments.length >= CONTRACT_ATTACHMENT_LIMIT"
                   @click="openContractAttachmentPicker"
                 >
                   <Icon icon="ant-design:cloud-upload-outlined" />
                   上传合同附件（{{ contractAttachments.length }}/{{ CONTRACT_ATTACHMENT_LIMIT }}）
-                </a-button>
-              <div class="contract-page__attachment-hint">请逐个上传，至少 1 个、最多 3 个；上传成功后可立即预览。</div>
+                </a-button></a-tooltip>
+              <div class="contract-page__attachment-hint">无合同类型可不上传，其他类型至少上传 1 个；最多 3 个，上传成功后可立即预览。</div>
               <div v-if="contractAttachments.length" class="contract-page__attachment-list">
                 <div v-for="file in contractAttachments" :key="file.uid" class="contract-page__attachment-item">
                   <span class="contract-page__attachment-name" :title="file.fileName">{{ file.fileName }}</span>
@@ -414,7 +414,7 @@
   import { usePermission } from '/@/hooks/web/usePermission';
   import { useUserStore } from '/@/store/modules/user';
   import { useSessionDraft } from '/@/hooks/web/useSessionDraft';
-  import { DOCUMENT_UPLOAD_ACCEPT, isAllowedDocumentFile, uploadProjectDocument } from '/@/utils/documentUpload';
+  import { DOCUMENT_UPLOAD_ACCEPT, DOCUMENT_UPLOAD_HINT, isAllowedDocumentFile, uploadProjectDocument } from '/@/utils/documentUpload';
   import { previewFileInModal } from '/@/utils/filePreview';
   import InstanceDrawer from '/@/views/workflow/components/InstanceDrawer.vue';
   import InstanceRounds from '/@/views/workflow/components/InstanceRounds.vue';
@@ -1054,12 +1054,16 @@
         field: 'contractAttachment',
         component: 'Input',
         slot: 'contractAttachment',
-        rules: [{ required: true, validator: async () => {
-          if (!contractAttachments.value.length) throw new Error('请上传合同附件');
+        dynamicRules: ({ values }) => [{ required: !isNoContractType(values.contractType), validator: async () => {
+          if (!isNoContractType(values.contractType) && !contractAttachments.value.length) throw new Error('请上传至少一个合同附件');
         } }],
         colProps: { span: 24 },
       },
-      { label: '合同清单', field: 'quotation', component: 'Input', slot: 'quotation', colProps: { span: 24 } },
+      { label: '合同清单', field: 'quotation', component: 'Input', slot: 'quotation', colProps: { span: 24 },
+        rules: [{ required: true, validator: async () => {
+          if (!materialCandidateId.value) throw new Error('请选择已定价的报价单作为合同清单');
+        } }],
+      },
       {
         label: '备注',
         field: 'remark',
@@ -1077,6 +1081,10 @@
     baseColProps: { xs: 24, sm: 24, md: 12 },
     rowProps: { gutter: 24 },
   });
+
+  function isNoContractType(value: unknown) {
+    return contractTypeOptions.value.some((option) => option.label.trim() === '无合同' && String(option.value) === String(value));
+  }
 
   async function initializeContract() {
     resetQuotationAccess();
@@ -1360,7 +1368,7 @@
 
   async function handleContractAttachmentUpload(file: File) {
     if (!isAllowedDocumentFile(file)) {
-      createMessage.warning('仅支持 PDF、Word、Excel、PPT 文件');
+      createMessage.warning(DOCUMENT_UPLOAD_HINT);
       return;
     }
     if (attachmentUploading.value) return;
@@ -1703,10 +1711,11 @@
       delete values.quotation;
       if (quotationOpen.value || quotationSaving.value) throw new Error('请先完成报价调整');
       if (attachmentUploading.value) throw new Error('合同附件正在上传，请等待上传完成');
-      if (contractAttachments.value.length < 1 || contractAttachments.value.length > CONTRACT_ATTACHMENT_LIMIT) {
-        throw new Error(`合同附件至少上传 1 个、最多 ${CONTRACT_ATTACHMENT_LIMIT} 个`);
+      if ((!isNoContractType(values.contractType) && contractAttachments.value.length < 1) || contractAttachments.value.length > CONTRACT_ATTACHMENT_LIMIT) {
+        throw new Error(`无合同类型附件可选，其他类型至少上传 1 个，最多 ${CONTRACT_ATTACHMENT_LIMIT} 个`);
       }
       const requestedCandidateId = materialCandidateId.value;
+      if (!requestedCandidateId) throw new Error('请选择已定价的报价单作为合同清单');
       if (requestedCandidateId) {
         if (candidatesLoading.value) throw new Error('请等待报价加载完成');
         await loadContractCandidates();

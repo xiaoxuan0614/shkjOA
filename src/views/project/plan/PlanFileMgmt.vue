@@ -43,9 +43,9 @@
             @preview="(file) => previewFileInModal(file, record._fileText)"
             @remove="() => handleRemoveFile(record)"
           >
-            <a-button v-if="!record._uploadFileList.length && editable" :disabled="!canWrite" preIcon="ant-design:cloud-upload-outlined">
+            <a-tooltip :title="DOCUMENT_UPLOAD_HINT"><a-button v-if="!record._uploadFileList.length && editable" :disabled="!canWrite" preIcon="ant-design:cloud-upload-outlined">
               选择文件
-            </a-button>
+            </a-button></a-tooltip>
           </a-upload>
         </template>
         <template v-else-if="column.key === 'remark'">
@@ -67,7 +67,7 @@
   import { computed, ref, onMounted, watch } from 'vue';
   import { Upload } from 'ant-design-vue';
   import { useMessage } from '/@/hooks/web/useMessage';
-  import { DOCUMENT_UPLOAD_ACCEPT, isAllowedDocumentFile, uploadProjectDocument } from '/@/utils/documentUpload';
+  import { DOCUMENT_UPLOAD_ACCEPT, DOCUMENT_UPLOAD_HINT, validateDocumentFile, uploadProjectDocument } from '/@/utils/documentUpload';
   import { getFileAccessHttpUrl } from '/@/utils/common/compUtils';
   import { previewFileInModal } from '/@/utils/filePreview';
   import { loadDictOptions } from '../Project.data';
@@ -230,10 +230,10 @@
     { immediate: true }
   );
 
-  function handleBeforeUpload(file: File) {
+  async function handleBeforeUpload(file: File) {
     if (!canWrite.value) return Upload.LIST_IGNORE;
-    if (!isAllowedDocumentFile(file)) {
-      createMessage.warning('仅支持 PDF、Word、Excel、PPT 文件');
+    try { await validateDocumentFile(file); } catch (error: any) {
+      createMessage.warning(error.message);
       return Upload.LIST_IGNORE;
     }
     return false;

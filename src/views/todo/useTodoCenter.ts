@@ -38,6 +38,7 @@ const TODO_TYPE_FALLBACKS: Record<string, TodoTypeMeta> = {
   PROJECT_PERIOD_APPROVAL: { text: '分期计划审批', color: '#1677ff' },
   PROJECT_PLAN_APPROVAL: { text: '历史方案审批', color: '#1677ff' },
   PROJECT_CANDIDATE_APPROVAL: { text: '报价审批', color: '#722ed1' },
+  PROJECT_CANDIDATE_PRICE: { text: '报价单待定价', color: '#fa8c16' },
   PROJECT_CONTRACT_APPROVAL: { text: '项目合同审批', color: '#722ed1' },
   PROJECT_MATERIAL_APPLY_APPROVAL: { text: '项目用料申请审批', color: '#fa8c16' },
   PROJECT_DELAY_APPROVAL: { text: '项目延期审批', color: '#faad14' },

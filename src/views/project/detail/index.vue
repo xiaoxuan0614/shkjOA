@@ -22,7 +22,7 @@
         </div>
       </a-card>
 
-      <PeriodOperations v-if="detailReady" :key="projectId" :project="project" :manager="manager" :type-names="projectTypeMeta" :acceptance-visible="visibleTabs.includes('acceptance')" :has-primary="!!(businessActions.length || membershipError || canCreateQuotation || quotationApprovalVisible || quotationPricingVisible || quotationGrantVisible)" @changed="handleBusinessChanged" @acceptance="activeKey = 'acceptance'">
+      <PeriodOperations v-if="detailReady" :key="projectId" :project="project" :manager="manager" :participant="participant" :type-names="projectTypeMeta" :material-visible="visibleTabs.includes('material')" :acceptance-visible="visibleTabs.includes('acceptance')" :has-primary="!!(businessActions.length || membershipError || canCreateQuotation || quotationApprovalVisible || quotationPricingVisible || quotationGrantVisible)" @changed="handleBusinessChanged" @acceptance="activeKey = 'acceptance'" @material="activeKey = 'material'">
         <a-space wrap>
           <a-button v-if="canCreateQuotation" type="primary" preIcon="ant-design:plus-outlined" @click="quotationCreate?.open()">新增报价</a-button>
           <a-button v-if="quotationApprovalVisible" :type="quotationApprovalError ? 'default' : 'primary'" :danger="!!quotationApprovalError" preIcon="ant-design:audit-outlined" :loading="quotationApprovalLoading || quotationApprovalNavigating" @click="openQuotationApproval">{{ quotationApprovalError ? '报价审批加载失败，重试' : '报价审批' }}</a-button>
@@ -134,6 +134,7 @@
   import DetailPlanHistory from './components/DetailPlanHistory.vue';
   import { DETAIL_TAB_KEYS, resolveDetailTabs, type DetailTabKey } from './detailTabs';
   import { readClosedPeriodTabs } from './closedPeriodTabs';
+  import { getPeriodApprovalHistory } from '../plan/PeriodApproval.api';
   import { useQuotationDepartment } from './useQuotationDepartment';
   import { useRoute, useRouter } from 'vue-router';
   import { getProjectBasic, getActivities } from './ProjectDetail.api';
@@ -165,6 +166,7 @@
   const userStore = useUserStore();
   const { hasPermission } = usePermission();
   const manager = ref(false);
+  const participant = ref(false);
   const membershipError = ref(false);
   let membershipSequence = 0;
   const canViewQuotation = useQuotationDepartment();
@@ -187,7 +189,6 @@
     DETAIL_TAB_KEYS.filter((key) => (key !== 'quotation' || canViewQuotation.value) &&
       (key !== 'contract' || hasPermission('project:contract:view') ||
         (isApprovalPending(project.value.contractStatus) && hasPermission('project:contract:approve'))) &&
-      (key !== 'plan' || project.value.status !== 'NOT_STARTED') &&
       (key !== 'payment' || canViewPayment.value) &&
       resolveDetailTabs(project.value, historyTabs.value).includes(key))
   );
@@ -236,12 +237,14 @@
     const id = projectId.value;
     const userId = currentUserId.value;
     manager.value = false;
+    participant.value = false;
     membershipError.value = false;
     if (!id || !userId) return;
     try {
       const membership = await readProjectMembership(id, userId);
       if (sequence !== membershipSequence || id !== projectId.value || userId !== currentUserId.value) return;
       manager.value = membership.manager;
+      participant.value = membership.participant;
     } catch { if (sequence === membershipSequence) membershipError.value = true; }
   }
   function handleContractEdit() {
@@ -301,6 +304,18 @@
         if (sequence !== loadSequence) return;
         historyTabs.value = history.tabs;
         historyTabsError.value = history.failed;
+      }
+      // 早期/未知状态仅核实历史；筹备及后续按项目阶段开放，关闭由上方统一查询。
+      if (data.status !== 'CLOSED' && !resolveDetailTabs(data).includes('plan')) {
+        historyTabs.value = historyTabs.value.filter(key => key !== 'plan');
+        try {
+          const rows = await getPeriodApprovalHistory(id);
+          if (sequence !== loadSequence) return;
+          if (rows.length) historyTabs.value.push('plan');
+        } catch {
+          if (sequence !== loadSequence) return;
+          historyTabsError.value = true;
+        }
       }
       const firstLoad = !detailReady.value;
       detailReady.value = true;

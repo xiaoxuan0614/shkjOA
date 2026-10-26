@@ -13,17 +13,23 @@ function loadTs(path, imports = {}) {
 }
 const policy = loadTs('src/views/project/plan/periodApproval.ts');
 const pending = { id: '900719925474099399', periodId: 'p', approvalStatus: '2', submitUserId: 'u', roundNo: 1 };
-const period = { id: 'p', status: 'PENDING_APPROVAL', approvalStatus: '2', currentApprovalId: pending.id };
+const period = { id: 'p', status: 'PENDING_APPROVAL', planStatus: '2', currentApprovalId: pending.id };
 assert.equal(policy.resolvePeriodApproval(period, [pending]).waiting, true);
 assert.equal(policy.resolvePeriodApproval(period, [pending]).canSubmit, false);
-assert.equal(policy.resolvePeriodApproval({status:'PENDING_APPROVAL'}, []).legacy, true);
-for (const status of ['-1', '0', '3']) assert.equal(policy.resolvePeriodApproval({status:'NOT_STARTED',approvalStatus:status}, []).canSubmit, true);
+assert.equal(policy.resolvePeriodApproval({status:'PENDING_APPROVAL',planStatus:'2'}, []).legacy, true);
+assert.equal(policy.resolvePeriodApproval({status:'PENDING_APPROVAL',planStatus:'2'}, []).canSubmit, false);
+for (const status of ['-1', '0', '3']) assert.equal(policy.resolvePeriodApproval({status:'PREPARING',planStatus:status}, []).canSubmit, true);
 const approved = {...pending, approvalStatus:'1'};
-assert.equal(policy.resolvePeriodApproval({status:'PREPARING',approvalStatus:'1'}, [approved]).canSubmit, false);
-assert.equal(policy.resolvePeriodApproval({status:'NOT_STARTED',approvalStatus:'-1',currentApprovalId:approved.id}, [approved]).canSubmit, true);
+assert.equal(policy.resolvePeriodApproval({status:'IMPLEMENTING',planStatus:'1'}, [approved]).canSubmit, false);
+assert.equal(policy.resolvePeriodApproval({status:'NOT_STARTED',planStatus:'-1',currentApprovalId:approved.id}, [approved]).canSubmit, false);
+assert.equal(policy.resolvePeriodApproval({...period,planStatus:undefined}, [pending]).waiting, true);
+assert.equal(policy.resolvePeriodApproval({...period,status:'PREPARING'}, [pending]).waiting, false);
 assert.equal(policy.resolvePeriodApproval({...period,currentApprovalId:'old'}, [pending]).waiting, false);
 assert.equal(policy.canEditPeriodPlan({status:'IMPLEMENTING'}), false);
 assert.equal(policy.canEditPeriodPlan({status:'PENDING_APPROVAL'}), false);
+assert.equal(policy.canEditPeriodPlan({status:'PREPARING',planStatus:'1'}), true);
+assert.equal(policy.canEditPeriodPlan({status:'NOT_STARTED',planStatus:'1'}), false);
+for (const planStatus of ['-1','0','1','2','3',undefined]) assert.equal(policy.canEditPeriodPlan({status:'NOT_STARTED',planStatus}), false);
 assert.equal(policy.parseApprovalSnapshot('{bad'), null);
 assert.equal(policy.parseApprovalSnapshot('{"period":{},"plans":[],"processes":[]}'), null);
 assert.ok(policy.parseApprovalSnapshot('{"period":[],"plans":[],"processes":[]}'));
@@ -67,18 +73,22 @@ function actionHarness(overrides = {}) {
   h.setLive({...period,currentApprovalId:'new'},[{...pending,id:'new'}]); await h.api.execute(); assert.equal(h.requests.length,0);
   h = actionHarness(); await h.api.refresh(); await h.api.openAction('withdraw'); h.api.reason.value='调整'; await h.api.execute();
   assert.equal(h.requests[0][0],'withdraw'); assert.equal(h.requests[0][1].approvalReason,'调整');
-  h = actionHarness({beforeSubmit:async()=> '请先保存'}); h.setLive({id:'p',status:'NOT_STARTED',approvalStatus:'-1'},[]);
+  h = actionHarness({beforeSubmit:async()=> '请先保存'}); h.setLive({id:'p',status:'PREPARING'},[]);
   await h.api.refresh(); await h.api.openAction('submit'); assert.equal(h.api.confirmOpen.value,false); assert.equal(h.requests.length,0);
-  h = actionHarness(); h.setLive({id:'p',status:'NOT_STARTED',approvalStatus:'-1'},[]); await h.api.refresh();
+  h = actionHarness(); h.setLive({id:'p',status:'PREPARING'},[]); await h.api.refresh();
   await h.api.openAction('submit'); await Promise.all([h.api.execute(),h.api.execute()]); assert.equal(h.requests.length,1);
   h = actionHarness(); await h.api.refresh(); await h.api.openAction('approve'); h.ctx.approvePeriodPlan = async () => { h.requests.push('failed'); throw Error('业务拒绝'); };
   await h.api.execute(); assert.equal(h.requests.length,1); assert.ok(h.messages.includes('业务拒绝')); assert.equal(h.emitted.filter(x=>x[0]==='changed').at(-1)[1].succeeded,false);
 
   const calls=[]; let response={success:true,code:200,result:pending};
-  const api=loadTs('src/views/project/plan/PeriodApproval.api.ts', {'/@/utils/http/axios':{defHttp:{post:async(config)=>{calls.push(config);return response;},get:async()=>response}}});
+  const api=loadTs('src/views/project/plan/PeriodApproval.api.ts', {'/@/utils/http/axios':{defHttp:{post:async(config)=>{calls.push(config);return response;},get:async(config)=>{calls.push(config);return response;}}}});
   await api.approvePeriodPlan({periodId:'p',approvalId:pending.id,approvalStatus:'1'});
   assert.equal(calls[0].url,'/project/period/approval/approve'); assert.equal(calls[0].data.approvalId,pending.id); assert.equal(calls[0].params,undefined);
   response={success:false,code:200,message:'拒绝'}; await assert.rejects(()=>api.submitPeriodApproval('p'),/拒绝/);
+  response={success:true,code:200,result:{periodId:'p',planStatus:'0',approvalStatus:'1'}};
+  assert.equal((await api.getPeriodApprovalState('p')).planStatus,'0');
+  assert.equal(calls.at(-1).url,'/project/project/projectPeriodDetail');
+  assert.equal(calls.at(-1).params.periodId,'p');
   response={success:true,code:200,result:{records:[{id:'wrong'}],total:1}}; await assert.rejects(()=>api.getPeriodApprovalState('p'),/不匹配/);
   for(const path of ['src/views/project/plan/PeriodApprovalActions.vue','src/views/project/plan/ProjectPlan.vue','src/views/project/components/PlanAuditModal.vue','src/views/todo/components/TodoActionHost.vue']) {
     const source=fs.readFileSync(path,'utf8'), d=sfc.parse(source).descriptor;

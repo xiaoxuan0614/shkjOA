@@ -31,7 +31,7 @@
         <a-tag v-else-if="permissionLoaded && !isAuditView" color="default">{{ readonlyHint }}</a-tag>
         <PeriodApprovalActions
           ref="approvalRef" :period-id="periodId" :approval-id="String(route.query.approvalId || '')"
-          :allow-submit="route.query.mode !== 'view' || periodStatus === 'PENDING_APPROVAL'"
+          :allow-submit="route.query.mode !== 'view'"
           :allow-approve="isAuditView" :disabled="tabSaveBusy || !contextReady" :before-submit="validateBeforeSubmit"
           @busy="submitting = $event" @changed="handleApprovalChanged" @summary="approvalSummary = $event" />
       </div>
@@ -41,7 +41,6 @@
       <span v-if="approvalSummary.loading">正在加载最新审批结果…</span>
       <span v-else-if="approvalSummary.error">{{ approvalSummary.error }}</span>
       <template v-else>
-        <span>当前计划：</span><a-tag :color="getApprovalStatusMeta(approvalSummary.status).color">{{ getApprovalStatusMeta(approvalSummary.status).text }}</a-tag>
         <template v-if="approvalSummary.latest">
           <span>最近第 {{ approvalSummary.latest.roundNo }} 轮：{{ getApprovalStatusMeta(approvalSummary.latest.approvalStatus).text }}</span>
           <span v-if="approvalSummary.latest.approvalUserName">审批人：{{ approvalSummary.latest.approvalUserName }}</span>
@@ -183,7 +182,7 @@
     if (contextLoadFailed.value) return '项目或合同信息加载失败';
     if (!isAuditView.value && periodStatus.value === 'PENDING_APPROVAL') return '计划已提交审批，当前仅可查看';
     if (route.query.mode === 'view' && !isAuditView.value) return '当前为只读查看';
-    if (route.query.mode !== 'view' && !canEditPeriodPlan({ status: periodStatus.value })) return '当前阶段不可修改原计划';
+    if (route.query.mode !== 'view' && !canEditPeriodPlan(projectRecord.value)) return '当前计划状态不可修改原计划';
     if (!isAuditView.value) return '仅本项目项目经理或管理员可编辑';
     if (periodStatus.value !== 'PENDING_APPROVAL') return '当前项目不在计划待审批状态';
     return '计划状态加载失败，暂无法审批';
@@ -213,6 +212,7 @@
     if (succeeded) { void loadContext(); return; }
     // 失败只更新门禁，保留各页未保存内容；状态回查失败时禁止继续写入。
     periodStatus.value = String(period?.status || '');
+    projectRecord.value = { ...projectRecord.value, status: periodStatus.value };
   }
 
   // 子组件引用

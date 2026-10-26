@@ -1,4 +1,5 @@
 import { defHttp } from '/@/utils/http/axios';
+import { isLogoutSessionInvalid } from '/@/utils/auth/logoutResult';
 import { LoginParams, LoginResultModel, GetUserInfoModel } from './model/userModel';
 
 import { ErrorMessageMode } from '/#/axios';
@@ -93,11 +94,19 @@ export function getPermCode() {
 
 export async function doLogout(token: string) {
   // 固定注销旧会话；异步拦截器不能读取稍后登录的新 Token。
-  const response = await defHttp.get(
-    { url: Api.Logout, timeout: 5000, headers: { 'X-Access-Token': token, Authorization: token } },
-    { withToken: false, isTransformResponse: false, errorMessageMode: 'none', successMessageMode: 'none' }
-  );
-  if (response?.success !== true) throw new Error(response?.message || '退出登录失败，请重试');
+  let response;
+  try {
+    response = await defHttp.get(
+      { url: Api.Logout, timeout: 5000, headers: { 'X-Access-Token': token, Authorization: token } },
+      { withToken: false, isTransformResponse: false, errorMessageMode: 'none', successMessageMode: 'none' }
+    );
+  } catch (error) {
+    if (isLogoutSessionInvalid(undefined, (error as { response?: { status?: number } })?.response?.status)) return;
+    throw error;
+  }
+  if (response?.success !== true && !isLogoutSessionInvalid(response)) {
+    throw new Error(response?.message || '退出登录失败，请重试');
+  }
 }
 
 export function getCodeInfo(currdatetime) {

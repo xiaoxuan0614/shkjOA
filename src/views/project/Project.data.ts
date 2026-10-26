@@ -4,8 +4,8 @@ import { initDictOptions } from '/@/utils/dict/index';
 import { getApprovalStatusMeta } from '/@/utils/approvalStatus';
 import { projectDisplayName } from './projectListFilters';
 
-export const PROJECT_ATTACHMENT_ACCEPT = '.doc,.docx,.xls,.xlsx,.ppt,.pptx,.pdf,image/*';
-const PROJECT_ATTACHMENT_DOCUMENT_EXTENSIONS = new Set(['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'pdf']);
+export const PROJECT_ATTACHMENT_ACCEPT = '.docx,.xls,.xlsx,.pdf,image/*';
+const PROJECT_ATTACHMENT_DOCUMENT_EXTENSIONS = new Set(['docx', 'xls', 'xlsx', 'pdf']);
 const PROJECT_ATTACHMENT_IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg', 'tif', 'tiff', 'heic', 'heif']);
 
 export function isProjectAttachmentFile(file: File) {
@@ -143,8 +143,8 @@ export const loadProductOptions = () => loadDictOptions('project_products');
  * 验收提交和返工执行由各自专用接口处理。
  * - 普通 action: { label, status, auth } → 调状态流转接口
  * - act='contractSign': 跳转「合同信息」页面，合同审批不再由前端推进分期阶段
- * - act='planAudit': 专用分期审批接口(通过→筹备中, 驳回/撤回→未开始)
- * 生命周期: 未开始 →(计划提交审批)→ 待审批 →(计划审批通过)→ 筹备中 → 后续实施流程
+ * - act='planAudit': 专用分期审批接口(通过→实施中, 驳回→筹备中；撤回返回阶段由服务端确定)
+ * 生命周期: 未开始 → 合同通过 → 筹备中 → 计划待审批 → 实施中
  *   → 逐道工序完成 → 待验收 → 验收(内/外并行) → 质保 → 完结；失败验收可进入返工后复验
  * ⚠️ status 为前端约定, 后端提供 status 接口后需对齐状态码
  */
@@ -360,7 +360,7 @@ export const projectFormSchema: FormSchema[] = [
     label: '主项目名称',
     field: 'projectName',
     component: 'Input',
-    componentProps: { placeholder: '请输入主项目名称' },
+    componentProps: { placeholder: '请输入主项目名称（如：唐山中远智能闸口项目）' },
     dynamicRules: () => [{ required: true, whitespace: true, message: '请输入主项目名称!' }],
   },
   {
@@ -440,11 +440,11 @@ export const projectFormSchema: FormSchema[] = [
     componentProps: { placeholder: '请输入甲方信息', rows: 3 },
   },
   {
-    label: '附件',
+    label: '需求记录',
     field: 'attachmentFileId',
     component: 'Input',
     slot: 'attachment',
-    helpMessage: '可选择一个 Word、PPT、Excel、PDF 或图片文件，保存项目时一并上传',
+    helpMessage: '可选择一个 DOCX、Excel、PDF 或图片文件，保存项目时一并上传',
   },
   {
     label: '项目需求',

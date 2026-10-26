@@ -20,7 +20,7 @@
           <a-input-number v-model:value="record.costPrice" :disabled="!costEditable || busy" :min="0" :max="9999999999" :precision="2" :aria-label="`${record.name}成本价`" aria-required="true" @change="recalculate(record)" />
         </template>
         <template v-else-if="column.key === 'markupRate'">
-          <a-input-number v-model:value="record.markupRate" :disabled="!priceEditable || busy" :min="0" :max="9999999999" :precision="2" addon-after="%" :aria-label="`${record.name}指导比例`" @change="recalculate(record)" />
+          <a-input-number v-model:value="record.markupRate" :disabled="!priceEditable || busy" :min="-100" :max="9999999999" :precision="2" addon-after="%" :aria-label="`${record.name}加价比例`" @change="recalculate(record)" />
         </template>
         <template v-else-if="column.key === 'guidePrice'">
           <a-input-number v-model:value="record.guidePrice" :disabled="!priceEditable || busy" :min="0" :max="9999999999" :precision="2" :aria-label="`${record.name}指导价`" />
@@ -75,12 +75,12 @@
     { title: '费用名称', key: 'name', width: 100 },
     { title: '单位', key: 'unit', width: 90 }, { title: '数量', key: 'quantity', width: 110 },
     { title: '成本价（元）', key: 'costPrice', width: 120 },
-    ...(props.priceVisible ? [{ title: '指导比例', key: 'markupRate', width: 130 }, { title: '指导价（元）', key: 'guidePrice', width: 120 }] : []),
+    ...(props.priceVisible ? [{ title: '加价比例（%）', key: 'markupRate', width: 140 }, { title: '指导价（元）', key: 'guidePrice', width: 120 }] : []),
     { title: '备注', key: 'remark', width: 220 }, ...(props.structureEditable ? [{ title: '操作', key: 'action', width: 80 }] : []),
   ]);
   const pickerColumns = computed(() => [{ title: '费用名称', dataIndex: 'name' }, { title: '单位', key: 'unit', dataIndex: 'unit', width: 90, ellipsis: true },
     { title: '税率', key: 'taxRate', width: 90 },
-    ...(props.priceVisible ? [{ title: '指导比例', key: 'guideMarkupRate', width: 100 }] : []),
+    ...(props.priceVisible ? [{ title: '加价比例（%）', key: 'guideMarkupRate', width: 140 }] : []),
     ...(props.costVisible !== false ? [{ title: '成本价', dataIndex: 'costPrice', width: 110 }] : []), { title: '描述', dataIndex: 'description', ellipsis: true },
     { title: '操作', key: 'action', width: 110, fixed: 'right' as const }]);
   const pickerOpen = ref(false), keyword = ref(''), page = ref(1), optionTotal = ref(0), loading = ref(false), error = ref('');

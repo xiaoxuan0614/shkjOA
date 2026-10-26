@@ -33,7 +33,10 @@
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'index'">{{ record._index }}</template>
           <template v-else-if="column.key === 'memberRole'">
-            <DictValue v-for="role in record.memberRoles" :key="role" :options="roleOptions" :value="role" :fallback="memberRoleText(role)" />
+            <template v-for="(role, roleIndex) in record.memberRoles" :key="role">
+              <span v-if="roleIndex > 0">、</span>
+              <DictValue :options="roleOptions" :value="role" :fallback="memberRoleText(role)" />
+            </template>
           </template>
           <template v-else-if="column.key === 'inviteStatus'">
             <a-tag v-for="status in record.inviteStatuses" :key="status" :color="inviteStatusMeta(status).color">

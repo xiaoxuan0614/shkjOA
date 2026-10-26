@@ -3,7 +3,7 @@
     <div class="material-supplement__header">
       <div>
         <div class="material-supplement__project">{{ projectTitle }}</div>
-        <div class="material-supplement__hint">补料申请、审批和处理记录统一在当前页面办理。</div>
+        <div class="material-supplement__hint">{{ readOnly ? '当前为补料记录查看，不可新增或审批。' : '补料申请、审批和处理记录统一在当前页面办理。' }}</div>
       </div>
       <a-button v-if="allowCreate && !creating" type="primary" preIcon="ant-design:plus-outlined" @click="startCreate">新增补料申请</a-button>
     </div>
@@ -45,7 +45,7 @@
             <a-badge :count="pendingCount" :overflow-count="99" :offset="[8, -2]">待我审批</a-badge>
           </template>
         </a-tab-pane>
-        <a-tab-pane v-if="canApprove" key="history" tab="审批记录" />
+        <a-tab-pane v-if="hasApprovalAccess" key="history" tab="审批记录" />
       </a-tabs>
 
       <div v-if="activeTab === 'pending' && canApprove" class="material-supplement__batch-actions">
@@ -180,7 +180,9 @@
   const emit = defineEmits(['register', 'success']);
   const { createMessage } = useMessage();
   const { hasPermission } = usePermission();
-  const canApprove = computed(() => hasPermission(APPROVE_PERMISSION));
+  const readOnly = ref(false);
+  const hasApprovalAccess = computed(() => hasPermission(APPROVE_PERMISSION));
+  const canApprove = computed(() => !readOnly.value && hasApprovalAccess.value);
   const currentUserId = computed(() => getCurrentUser().applyUserId);
 
   const periodId = ref('');
@@ -193,11 +195,11 @@
     const sequence = ++createAccessSequence;
     const id = periodId.value, userId = currentUserId.value;
     allowCreate.value = false;
-    if (!id || !userId) return false;
+    if (readOnly.value || !id || !userId) return false;
     try {
       const [project, membership] = await Promise.all([projectDetail({ periodId: id }, true), readProjectMembership(id, userId)]);
       if (sequence !== createAccessSequence || id !== periodId.value || userId !== currentUserId.value) return false;
-      allowCreate.value = String(project?.periodId) === id && canApplySupplement(project.status, membership.manager);
+      allowCreate.value = !readOnly.value && String(project?.periodId) === id && canApplySupplement(project.status, membership.manager);
     } catch { if (sequence === createAccessSequence) createMessage.warning('补料申请资格读取失败，请重新打开重试'); }
     return sequence === createAccessSequence && id === periodId.value && userId === currentUserId.value && allowCreate.value;
   }
@@ -235,7 +237,7 @@
   const displayOrders = computed(() => {
     if (targetOnly.value) return orders.value;
     if (activeTab.value === 'pending' && canApprove.value) return pendingApprovalOrders.value;
-    if (activeTab.value === 'history' && canApprove.value) return approvalHistoryOrders.value;
+    if (activeTab.value === 'history' && hasApprovalAccess.value) return approvalHistoryOrders.value;
     return myOrders.value;
   });
   const emptyDescription = computed(() => {
@@ -280,6 +282,8 @@
   ], { source: 'detail', nameField: 'materialName' });
 
   const [register] = useDrawerInner(async (data) => {
+    ++createAccessSequence;
+    readOnly.value = data?.readOnly === true;
     const record = data?.record || data || {};
     periodId.value = String(data?.periodId || record.periodId || record.id || record.actionParams?.periodId || '');
     projectName.value = data?.projectName || record.projectName || record.title || '';
@@ -288,7 +292,7 @@
     targetOnly.value = Boolean(data?.targetOnly && targetBizId.value);
     allowCreate.value = false;
     const requestedTab = String(data?.initialTab || (targetBizId.value ? 'pending' : 'mine')) as SupplementTab;
-    activeTab.value = canApprove.value && ['pending', 'history'].includes(requestedTab) ? requestedTab : 'mine';
+    activeTab.value = requestedTab === 'history' && hasApprovalAccess.value ? 'history' : requestedTab === 'pending' && canApprove.value ? 'pending' : 'mine';
     creating.value = false;
     supplementReason.value = '';
     previewPeriodId.value = '';
@@ -303,7 +307,7 @@
       return;
     }
     // 入口参数只能收紧权限，不能授予申请资格；待办只读/审批入口不额外探测。
-    if (data?.allowCreate !== false && !targetOnly.value) await checkCreateAccess();
+    if (!readOnly.value && data?.allowCreate !== false && !targetOnly.value) await checkCreateAccess();
     creating.value = Boolean(data?.initialCreate && allowCreate.value);
     await Promise.all([loadOrders(), loadBrandMap(), allowCreate.value ? loadPlanRecords() : Promise.resolve()]);
     if (targetBizId.value && (canApprove.value || targetOnly.value)) await locateTargetOrder();
@@ -360,7 +364,7 @@
       ]);
       const records: Recordable[] = Array.isArray(result) ? result : result?.records || [];
       records.forEach((record) => enrichMaterialInfo(record.items, materialMap));
-      const visibleRecords = canApprove.value ? records : records.filter((record) => isCurrentUserApplication(record));
+      const visibleRecords = hasApprovalAccess.value ? records : records.filter((record) => isCurrentUserApplication(record));
       orders.value = visibleRecords.filter((record) => record.id).map(toOrder);
     } catch (error: any) {
       orders.value = [];

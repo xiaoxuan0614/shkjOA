@@ -23,6 +23,8 @@ for (const filename of files) {
 const display = fs.readFileSync(files[0], 'utf8');
 const member = fs.readFileSync('src/views/project/detail/components/DetailMember.vue', 'utf8');
 assert.match(member, /:options="roleOptions" :value="role"/);
+assert.match(member, /v-for="\(role, roleIndex\) in record.memberRoles"/);
+assert.match(member, /<span v-if="roleIndex > 0">、<\/span>/);
 assert.match(member, /color: item.color \|\| undefined/);
 assert.match(member, /ajaxGetDictItems\('member_role', undefined, \{ joinTime: false \}\).then\(normalizeRoleOptions\)/);
 assert.match(display, /v-if="item.color" :color="item.color"/);

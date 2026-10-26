@@ -1,4 +1,5 @@
 import { serviceFeePayload } from '/@/views/plan/serviceFee';
+import { derivedGuidanceRate } from '/@/views/plan/quotationPricing';
 
 /** 合同调整仅提交服务内容，不能借新增服务费修改价格。 */
 export function contractServiceFeePayload(rows: Recordable[]) {
@@ -10,7 +11,7 @@ export function contractServiceFeePayload(rows: Recordable[]) {
 
 /** 新增行价格未由暂存接口回显，预览不使用基础库价格冒充调整稿价格。 */
 export function contractServiceFeeRows(rows: Recordable[]) {
-  return rows.map((row, index) => ({ ...row, _key: row._key || row.id || `contract-fee:${index}`,
+  return rows.map((row, index) => ({ ...row, markupRate: derivedGuidanceRate(row.costPrice, row.guidePrice), _key: row._key || row.id || `contract-fee:${index}`,
     ...(!row.id ? { costPrice: null, markupRate: null, guidePrice: null, costAmount: null, guideAmount: null } : {}),
   }));
 }

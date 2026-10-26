@@ -96,7 +96,7 @@
       createMessage.error('计划审批待办缺少项目分期 ID，无法打开');
       return;
     }
-    router.push({ path: `/project/detail/${periodId}`, query: { tab: 'plan', ...(approvalId ? { approvalId } : {}) } });
+    router.push({ path: '/project/plan', query: { periodId, mode: 'view', audit: '1', ...(approvalId ? { approvalId } : {}) } });
   }
 
   async function openTodo(todo: SystemTodo) {
@@ -166,6 +166,12 @@
       }
       return;
     }
+    if ([todo.todoType, todo.actionKey].includes('PROJECT_CANDIDATE_PRICE')) {
+      const candidateId = String(params.candidateId || '').trim();
+      if (!periodId || !candidateId) return createMessage.error('报价待定价待办缺少分期或报价 ID，请刷新待办');
+      router.push({ path: '/plan/material-draft/editor', query: { mode: 'price', periodId, candidateId } });
+      return;
+    }
     if ([todo.todoType, todo.actionKey].includes('PROJECT_CANDIDATE_APPROVAL')) {
       const candidateId = String(params.candidateId || todo.bizId || '');
       if (!periodId || !candidateId) return createMessage.error('报价审批待办缺少分期或报价 ID');
@@ -227,7 +233,7 @@
       return;
     }
     if (/PLAN.*APPROVAL/i.test(actionIdentity) || matchesTodo(todo, /计划审批/i)) {
-      openPlanApproval(periodId);
+      openPlanApproval(periodId, String(params.approvalId || ''));
       return;
     }
     const targetPath = params.path || params.routePath || params.url;

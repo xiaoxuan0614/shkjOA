@@ -1,7 +1,7 @@
 <template>
   <a-spin :spinning="loading">
     <BasicForm @register="registerForm" >
-      <template #depPostParentId="{ model, field }">
+      <template #depPostParentId>
         <a-tree-select v-model:value="depPostValue" :treeData="treeData" allowClear treeCheckable @select="treeSelect">
           <template #title="{ orgCategory, title }">
             <TreeIcon :orgCategory="orgCategory" :title="title"></TreeIcon>
@@ -22,7 +22,7 @@
 </template>
 
 <script lang="ts" setup>
-  import { watch, computed, inject, ref, unref, onMounted } from 'vue';
+  import { watch, computed, ref, unref, onMounted } from 'vue';
   import { BasicForm, useForm } from '/@/components/Form/index';
   import { saveOrUpdateDepart } from '../depart.api';
   import { useBasicFormSchema, orgCategoryOptions, positionChange } from '../depart.data';
@@ -67,6 +67,7 @@
     updateSchema([
       { field: 'parentId', componentProps: { disabled: true } },
       { field: 'orgCode', componentProps: { disabled: true } },
+      { field: 'orgCategory', componentProps: { disabled: true } },
     ]);
     // data 变化，重填表单
     watch(
@@ -107,7 +108,7 @@
         updateSchema([
           {
             field: 'orgCategory',
-            componentProps: { options: categoryOptions.value },
+            componentProps: { options: categoryOptions.value, disabled: true },
           },
         ]);
       },
@@ -127,6 +128,10 @@
       loading.value = true;
       let values = await validate();
       values = Object.assign({}, model.value, values);
+      // 不允许通过基本信息编辑改变既有层级、组织类型或编码。
+      values.parentId = props.data.parentId;
+      values.orgCategory = props.data.orgCategory;
+      values.orgCode = props.data.orgCode;
       if (depPostValue.value && depPostValue.value.length > 0) {
         values.depPostParentId = depPostValue.value[0];
       } else {

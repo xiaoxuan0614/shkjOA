@@ -11,7 +11,7 @@ export function resolvePeriodOperations(project: Record<string, any>, access: {
   const actions: { key: string; label: string; dangerous?: boolean }[] = [];
   if (!project.periodId) return actions;
   const has = access.hasPermission;
-  if (access.manager && isArrivalStage(project) && isPhysicalProject(project, access.typeNames) && has('project:arrival:confirm')) {
+  if (String(project.arrivalStatus) === '0' && access.manager && isArrivalStage(project) && isPhysicalProject(project, access.typeNames) && has('project:arrival:confirm')) {
     actions.push({ key: 'arrival', label: '确认到货' });
   }
   if ([...SUPPLEMENT_STAGES, 'REWORKING'].includes(project.status) && has('project:implement')) {

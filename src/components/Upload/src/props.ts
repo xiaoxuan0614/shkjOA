@@ -9,7 +9,7 @@ export const basicProps = {
   // 文件最大多少MB
   maxSize: {
     type: Number as PropType<number>,
-    default: 2,
+    default: 20,
   },
   // 最大数量的文件，Infinity不限制
   maxNumber: {
@@ -19,7 +19,7 @@ export const basicProps = {
   // 根据后缀，或者其他
   accept: {
     type: Array as PropType<string[]>,
-    default: () => [],
+    default: () => ['.docx', '.pdf', '.xls', '.xlsx'],
   },
   multiple: {
     type: Boolean as PropType<boolean>,

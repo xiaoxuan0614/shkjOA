@@ -1,11 +1,7 @@
 <template>
   <a-card :bordered="false" style="height: 100%">
-    <div class="j-table-operator" style="width: 100%;display: flex;align-items: center">
-      <a-button type="primary" preIcon="ant-design:plus-outlined" @click="onAddDepart">新增</a-button>
-      <a-button type="primary" preIcon="ant-design:plus-outlined" @click="onAddChildDepart()">添加下级</a-button>
-      <a-upload name="file" :showUploadList="false" :customRequest="onImportXls">
-        <a-button type="primary" preIcon="ant-design:import-outlined">导入</a-button>
-      </a-upload>
+    <div class="j-table-operator" style="width: 100%;display: flex;align-items: center;flex-wrap: wrap;gap: 8px">
+      <a-button type="primary" preIcon="ant-design:plus-outlined" @click="onAddDepart">新增部门</a-button>
       <a-button type="primary" preIcon="ant-design:export-outlined" @click="onExportXls">导出</a-button>
       <template v-if="checkedKeys.length > 0">
         <a-dropdown>
@@ -53,12 +49,9 @@
           v-model:expandedKeys="expandedKeys"
           @check="onCheck"
           @select="onSelect"
-          draggable
-          @drop="onDrop"
-          @dragstart="onDragStart"
           style="overflow-y: auto;height: calc(100vh - 330px);"
         >
-          <template #title="{ key: treeKey, title, dataRef, data }">
+          <template #title="{ key: treeKey, title, dataRef }">
             <a-dropdown :trigger="['contextmenu']">
               <Popconfirm
                 :open="visibleTreeKey === treeKey"
@@ -67,14 +60,13 @@
                 cancel-text="取消"
                 placement="rightTop"
                 @confirm="onDelete(dataRef)"
-                @openChange="onVisibleChange"
+                @open-change="onVisibleChange"
               >
                 <TreeIcon :orgCategory="dataRef.orgCategory" :title="title"></TreeIcon>
               </Popconfirm>
 
               <template #overlay>
-                <a-menu @click="">
-                  <a-menu-item key="1" @click="onAddChildDepart(dataRef)" v-if="data.orgCategory !== '3'">添加下级</a-menu-item>
+                <a-menu>
                   <a-menu-item key="2" @click="visibleTreeKey = treeKey">
                     <span style="color: red">删除</span>
                   </a-menu-item>
@@ -86,42 +78,31 @@
       </template>
       <a-empty v-else description="暂无数据" />
     </a-spin>
-    <DepartFormModal :rootTreeData="treeData" @register="registerModal" @success="loadRootTreeData" />
+    <DepartmentCreateModal @register="registerModal" @success="loadRootTreeData" />
   </a-card>
   <a-modal v-model:open="tipShow" :footer="null" title="部门规则说明" :width="800">
       <ul class="departmentalRulesTip">
-        <li>当前部门机构设置支持集团组织架构，第一级默认为公司，下级可创建子公司、部门和岗位。</li>
-        <li><br/></li>
-        <li>1、岗位下不能添加下级。</li>
-        <li>2、部门下不能直接添加子公司。</li>
-        <li>3、子公司下可继续添加子公司。</li>
-        <li>4、岗位需配置职务级别，岗位的级别高低和上下级关系均以职务级别及上级岗位设置为准。</li>
-        <li>5、董事长岗位仅可选择上级公司（子公司或总公司）各部门的所有岗位为上级岗位。</li>
-        <li>6、非董事长岗位仅可选择当前父级部门及本部门内级别更高的岗位为上级岗位。</li>
-        <li><br/></li>
-        <li><b>特别说明：</b>董事长相关逻辑为固定写死，职务等级“董事长”的表述请勿修改。</li>
+        <li>组织结构统一为：公司 → 部门 → 成员；新增部门自动归属现有公司。</li>
+        <li>不再新增公司、子公司、下级部门或组织岗位，也不通过导入、拖拽改变层级。</li>
+        <li>菜单和按钮请到角色管理配置；已存在的部门授权不会因入口隐藏而自动撤销。</li>
+        <li>已有历史组织保留，不自动迁移或删除人员及业务数据。</li>
       </ul>
     <div style="height: 10px"></div>
   </a-modal>
 </template>
 
 <script lang="ts" setup>
-  import { inject, nextTick, ref, unref, defineEmits, h } from 'vue';
+  import { nextTick, ref, unref, defineEmits } from 'vue';
   import { useModal } from '/@/components/Modal';
-  import { useMessage } from '/@/hooks/web/useMessage';
   import { useMethods } from '/@/hooks/system/useMethods';
-  import { Api, deleteBatchDepart, queryDepartAndPostTreeSync, updateChangeDepart } from '../depart.api';
+  import { Api, deleteBatchDepart, queryDepartAndPostTreeSync } from '../depart.api';
   import { searchByKeywords } from '/@/views/system/departUser/depart.user.api';
-  import DepartFormModal from '/@/views/system/depart/components/DepartFormModal.vue';
-  import { Modal, Popconfirm } from 'ant-design-vue';
+  import DepartmentCreateModal from './DepartmentCreateModal.vue';
+  import { Popconfirm } from 'ant-design-vue';
   import TreeIcon from "@/components/Form/src/jeecg/components/TreeIcon/TreeIcon.vue";
 
-  const prefixCls = inject('prefixCls');
   const emit = defineEmits(['select', 'rootTreeData']);
-  const { createMessage } = useMessage();
-  const { handleImportXls, handleExportXls } = useMethods();
-  const props = defineProps({
-  })
+  const { handleExportXls } = useMethods();
 
   const loading = ref<boolean>(false);
   // 部门树列表数据
@@ -243,23 +224,9 @@
     }
   }
 
-  // 添加一级部门
+  // 新增始终挂到唯一公司，不能依赖当前选择或搜索结果。
   function onAddDepart() {
-    openModal(true, { isUpdate: false, isChild: false });
-  }
-
-  // 添加子级部门
-  function onAddChildDepart(data = currentDepart.value) {
-    if (data == null) {
-      createMessage.warning('请先选择一个部门');
-      return;
-    }
-    if(data.orgCategory === '3'){
-      createMessage.warning('岗位下无法添加子级！');
-      return;
-    }
-    const record = { parentId: data.id, orgCategory: data.orgCategory };
-    openModal(true, { isUpdate: false, isChild: true, record });
+    openModal(true, {});
   }
 
   // 搜索事件
@@ -343,12 +310,6 @@
     }
   }
 
-  function onImportXls(d) {
-    handleImportXls(d, Api.importExcelUrl, () => {
-      loadRootTreeData();
-    });
-  }
-
   function onExportXls() {
     // 代码逻辑说明: 【TV360X-1671】部门管理不支持选中的记录导出---
     let params = {}
@@ -358,101 +319,6 @@
     handleExportXls('部门信息', Api.exportXlsUrl,params);
   }
 
-  /**
-   * 拖拽开始时，只关闭被拖拽的当前节点
-   * 
-   * @param info
-   */
-  function onDragStart(info: any) {
-    const dragKey = info.node?.key;
-    if (!dragKey){
-      return;
-    }
-    // 只关闭被拖拽的当前节点，不关闭其子节点
-    if (expandedKeys.value.includes(dragKey)) {
-      expandedKeys.value = expandedKeys.value.filter(key => key !== dragKey);
-    }
-  }
-  
-  /**
-   * 拖拽结束
-   * @param info
-   */
-  function onDrop (info){
-    const dropKey = info.node.key;
-    const dragKey = info.dragNode.key;
-    const dropPos = info.node.pos.split('-');
-    const dropPosition = info.dropPosition - Number(dropPos[dropPos.length - 1]);
-    const dropTitle = info.node.title;
-    const dragTitle = info.dragNode.title;
-    //禁止拖拽到子节点
-    if (isDescendant(info.dragNode, info.node.key)) {
-      createMessage.warning('不能拖拽到自身后代');
-      return;
-    }
-    if(dropKey === dragKey){
-      createMessage.warning('不能自身拖拽到自身');
-      return;
-    }
-    let pos = "中";
-    if(dropPosition === -1){
-      pos = "上方";
-    }else if (dropPosition === 1){
-      pos = "下方";
-    }
-    let text = "将【" + dragTitle + "】移动到【" + dropTitle + "】" + pos + "？";
-    Modal.confirm({
-      title: '确认移动',
-      content: h('div', {}, [
-        h('p', { style: { marginBottom: '12px', fontSize: '14px' } }, text),
-        h('p', { 
-          style: { 
-            color: '#ff4d4f', 
-            fontSize: '13px',
-            margin: '0'
-          } 
-        }, '移动后：机构编码会改变，历史业务数据保留原机构编码，此操作不可撤销！')
-      ]),
-      okText: '确认',
-      cancelText: '取消',
-      onOk: () => {
-        updateChangeDepart({ dragId: dragKey, dropId: dropKey, dropPosition: dropPosition, sort: info.dropPosition }).then(res=>{
-          if(res.success){
-            createMessage.success('部门顺序调整成功');
-            //重新加载树
-            treeData.value = [];
-            selectedKeys.value = [];
-            loadRootTreeData();
-          } else {
-            createMessage.error(res.message);
-          }
-        }).catch(e=>{
-          createMessage.error(e.message);
-        })
-      }
-    })
-  }
-
-  /**
-   * 判断目标节点是否在拖拽节点的子树中（避免循环引用）
-   * 
-   * @param dragNode
-   * @param targetKey
-   */
-  function isDescendant(dragNode, targetKey) {
-    const stack = [...(dragNode.children ?? [])];
-    while (stack.length) {
-      const node = stack.pop()!;
-      if (node.key === targetKey){
-        return true;
-      }
-      if (node.children){
-        stack.push(...node.children);
-      }
-    }
-    return false;
-  }
-  
   defineExpose({
     loadRootTreeData,
   });

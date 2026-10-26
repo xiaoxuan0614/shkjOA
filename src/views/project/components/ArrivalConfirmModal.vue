@@ -142,7 +142,7 @@
         loadProjectTypeMap(),
         readProjectMembership(periodId.value, String(userStore.getUserInfo?.id || '')),
       ]);
-      if (!isArrivalStage(latest || {}) || !isPhysicalProject(latest || {}, typeNames) || !membership.manager) {
+      if (String(latest?.arrivalStatus) !== '0' || !isArrivalStage(latest || {}) || !isPhysicalProject(latest || {}, typeNames) || !membership.manager) {
         createMessage.warning('当前项目阶段、类型或项目经理身份不符合确认到货条件，请刷新后操作');
         closeModal();
         emit('success');

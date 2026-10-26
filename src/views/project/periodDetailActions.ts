@@ -1,4 +1,5 @@
 import { isApprovalPending } from '/@/utils/approvalStatus';
+import { canEditPeriodPlan } from './plan/periodApproval';
 
 export type PeriodDetailAction = { key: string; label: string; tab: 'contract' | 'plan'; mode: 'create' | 'view' | 'edit' | 'audit' };
 
@@ -16,9 +17,12 @@ export function resolvePeriodDetailActions(project: Record<string, any>, access:
       actions.push({ key: 'contractAudit', label: '合同审批', tab: 'contract', mode: 'view' });
     }
   }
-  const editable = ['NOT_STARTED', 'PREPARING'].includes(project.status) && (access.admin || access.manager);
+  const editable = canEditPeriodPlan(project) && (access.admin || access.manager);
   if (project.status === 'PENDING_APPROVAL' && (access.admin || access.hasPermission('project:period:approve'))) {
     actions.push({ key: 'planAudit', label: '计划审批', tab: 'plan', mode: 'audit' });
+  } else if (project.status === 'PENDING_APPROVAL' && access.manager) {
+    // 进入只读办理页；撤回仍由最新轮次的原提交人身份校验，不授予审批权限。
+    actions.push({ key: 'planProgress', label: '查看计划审批', tab: 'plan', mode: 'view' });
   } else if (editable) {
     actions.push({ key: 'plan', label: '填写/编辑计划方案', tab: 'plan', mode: 'edit' });
   }

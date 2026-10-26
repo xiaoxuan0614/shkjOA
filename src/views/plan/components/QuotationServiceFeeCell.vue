@@ -10,7 +10,7 @@
   <span v-else-if="columnKey === 'guideTotal'">{{ quotationAmount([record], 'guidePrice', 'quantity') ?? '—' }}</span>
   <span v-else-if="columnKey === 'quotationPercent'">{{ quotationPercentText }}</span>
   <template v-else-if="columnKey === 'markupRate' && rateVisible !== false">
-    <a-input-number v-if="priceVisible" :value="record.markupRate" :disabled="!priceEditable || busy" :min="0" :max="9999999999" :precision="2" addon-after="%" :aria-label="`${record.name}指导比例`" @change="update('markupRate', $event)" />
+    <a-input-number v-if="priceVisible" :value="record.markupRate" placeholder="—" :disabled="!priceEditable || busy" :min="-100" :max="9999999999" :precision="2" addon-after="%" :aria-label="`${record.name}加价比例`" @change="update('markupRate', $event)" />
     <span v-else>—</span>
   </template>
   <template v-else-if="columnKey === 'finalPrice'">
@@ -36,7 +36,7 @@
   import { computed } from 'vue';
   import QuotationOpinionButton from './QuotationOpinionButton.vue';
   import { serviceFeePrice, quotationAmount, serviceFeeTaxText } from '../serviceFee';
-  import { quotationPercent } from '../quotationPricing';
+  import { quotationPercent, derivedGuidanceRate } from '../quotationPricing';
   import ServiceFeeUnitSelect from './ServiceFeeUnitSelect.vue';
   const props = defineProps<{
     record: Recordable;
@@ -51,7 +51,7 @@
     directQuotation?: boolean;
     busy: boolean;
   }>();
-  // 使用本单输入框绑定的两个单价，不读取基础库、税率或指导比例。
+  // 使用本单输入框绑定的两个单价，不读取基础库、税率或加价比例。
   const quotationPercentText = computed(() => props.priceVisible && props.rateVisible !== false
     ? quotationPercent(props.record.costPrice, props.record.guidePrice) : '—');
   const emit = defineEmits<{ remove: [row: Recordable]; change: [row: Recordable, patch: Recordable] }>();
@@ -70,6 +70,10 @@
       const row = { ...props.record, ...patch };
       try { patch.guidePrice = serviceFeePrice(row.costPrice, row.markupRate); patch._error = ''; }
       catch (error: any) { patch.guidePrice = null; patch._error = error.message; }
+    }
+    if (!props.directQuotation && field === 'guidePrice' && props.rateVisible !== false) {
+      patch.markupRate = derivedGuidanceRate(props.record.costPrice, value);
+      patch._error = '';
     }
     emit('change', props.record, patch);
   }

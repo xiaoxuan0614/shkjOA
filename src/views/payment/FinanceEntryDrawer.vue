@@ -27,7 +27,7 @@
         </div>
         <a-form-item :label="kind === 'receipt' ? '回款说明' : '备注'"><a-textarea v-model:value="form.remark" :rows="4" :maxlength="2000" show-count /></a-form-item>
         <a-form-item v-if="kind === 'invoice'" label="发票附件（最多1个，确认时上传）">
-          <input :key="fileKey" type="file" aria-label="发票附件" :disabled="saving || attempted" @change="chooseFiles" />
+          <a-tooltip :title="DOCUMENT_UPLOAD_HINT"><input :key="fileKey" type="file" :accept="DOCUMENT_UPLOAD_ACCEPT" aria-label="发票附件" :disabled="saving || attempted" @change="chooseFiles" /></a-tooltip>
           <div v-for="(file, index) in files" :key="index"><a-button type="link" class="file-preview" @click="previewFileInModal(file)">{{ file.name }}（预览）</a-button></div>
         </a-form-item>
       </a-form>
@@ -38,6 +38,7 @@
   </a-drawer>
 </template>
 <script setup lang="ts">
+  import { DOCUMENT_UPLOAD_ACCEPT, DOCUMENT_UPLOAD_HINT, validateDocumentFile } from '/@/utils/documentUploadPolicy';
   import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue';
   import { useUserStore } from '/@/store/modules/user';
   import { useMessage } from '/@/hooks/web/useMessage';
@@ -88,10 +89,14 @@
     await nextTick(); formRef.value?.clearValidate(); await load();
   }
   function close() { if (saving.value) return; visible.value = false; sequence++; files.value = []; uploaded.clear(); }
-  function chooseFiles(e: Event) {
+  async function chooseFiles(e: Event) {
     if (kind.value !== 'invoice' || saving.value || attempted.value) return;
     const chosen = Array.from((e.target as HTMLInputElement).files || []);
-    if (chosen.length > 1 || chosen.some(f => f.size >= 419430400)) { error.value = '发票最多上传1个附件，文件须小于400MB'; files.value = []; fileKey.value++; return; }
+    if (chosen.length > 1) { error.value = '发票最多上传1个附件'; files.value = []; fileKey.value++; return; }
+    const current = sequence;
+    try { for (const file of chosen) await validateDocumentFile(file); }
+    catch (reason: any) { if (current === sequence) { error.value = reason.message; files.value = []; fileKey.value++; } return; }
+    if (current !== sequence || saving.value || attempted.value) return;
     error.value = ''; files.value = chosen;
   }
   async function save() {

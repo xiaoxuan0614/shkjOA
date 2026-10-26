@@ -1,4 +1,5 @@
 import { defHttp } from '/@/utils/http/axios';
+import { validateDocumentFile } from '/@/utils/documentUploadPolicy';
 
 export interface ReceiptPlan {
   id: string; paymentNode: string; plannedAmount: number; actualAmount: number;
@@ -35,6 +36,7 @@ export async function addFinanceEntry(kind: 'receipt' | 'invoice', payload: Reco
   return response.result as FinanceEntry;
 }
 export async function uploadFinanceFile(file: File) {
+  await validateDocumentFile(file);
   const response: any = await defHttp.uploadFile({ url: '/sys/common/upload' }, { file, name: 'file', data: { biz: 'project/finance' } }, { isReturnResponse: true });
   if (response?.success !== true || ![0, 200].includes(response.code) || !response.message) throw new Error(response?.message || '附件上传失败');
   return String(response.message);

@@ -3,47 +3,71 @@
     <div class="period-operations__toolbar">
       <div class="period-operations__actions">
       <slot />
-      <template v-for="action in actions.filter(item => !item.dangerous)" :key="action.key">
+      <template v-for="action in primaryActions" :key="action.key">
         <a-popconfirm v-if="action.key === 'complete'" title="确认完结当前分期？" @confirm="finish('complete')">
           <a-button preIcon="ant-design:check-circle-outlined" :loading="busy">{{ action.label }}</a-button>
         </a-popconfirm>
         <a-button v-else :preIcon="actionIcons[action.key]" @click="open(action.key)">{{ action.label }}</a-button>
       </template>
       </div>
-      <a-dropdown v-if="actions.some(item => item.dangerous)" :trigger="['click']">
+      <a-dropdown v-if="moreActions.length" :trigger="['click']">
         <a-button class="period-operations__more" preIcon="ant-design:more-outlined">更多操作</a-button>
-        <template #overlay><a-menu><a-menu-item key="close" danger @click="confirmClose">关闭项目</a-menu-item></a-menu></template>
+        <template #overlay><a-menu><a-menu-item v-for="action in moreActions" :key="action.key" :danger="action.dangerous" @click="action.key === 'close' ? confirmClose() : open(action.key)">{{ action.label }}</a-menu-item></a-menu></template>
       </a-dropdown>
     </div>
   </a-card>
   <ArrivalConfirmModal @register="registerArrival" @success="changed" />
   <ProcessCompletionDrawer @register="registerProcess" @success="changed" />
   <MaterialSupplementDrawer @register="registerSupplement" @success="changed" />
+  <ProjectDelayApply v-model:open="delayOpen" :project="project" :allowed="manager" @success="changed" />
 </template>
 <script setup lang="ts">
   import { computed, ref } from 'vue';
+  import { useRoute, useRouter } from 'vue-router';
+  import { usePermissionStore } from '/@/store/modules/permission';
+  import { projectMaterialOperations } from '../materialOperations';
+  import ProjectDelayApply from './ProjectDelayApply.vue';
   import { useModal } from '/@/components/Modal';
   import { useDrawer } from '/@/components/Drawer';
   import { usePermission } from '/@/hooks/web/usePermission';
   import { useMessage } from '/@/hooks/web/useMessage';
   import { projectDetail, changePeriodStatus } from '../../Project.api';
   import { refreshTodos } from '/@/views/todo/useTodoCenter';
-  import { canApplySupplement, resolvePeriodOperations } from '../periodOperations';
+  import { resolvePeriodOperations } from '../periodOperations';
+  import { resolveSupplementEntries, supplementEntryOptions } from '../supplementEntries';
   import ArrivalConfirmModal from '../../components/ArrivalConfirmModal.vue';
   import ProcessCompletionDrawer from '../../components/ProcessCompletionDrawer.vue';
   import MaterialSupplementDrawer from '../../components/MaterialSupplementDrawer.vue';
-  const props = defineProps<{ project: Record<string, any>; manager: boolean; typeNames: Record<string, string>; hasPrimary: boolean; acceptanceVisible: boolean }>();
-  const emit = defineEmits(['changed', 'acceptance']);
+  const props = defineProps<{ project: Record<string, any>; manager: boolean; participant: boolean; materialVisible: boolean; typeNames: Record<string, string>; hasPrimary: boolean; acceptanceVisible: boolean }>();
+  const emit = defineEmits(['changed', 'acceptance', 'material']);
+  const router = useRouter(), route = useRoute(), permissions = usePermissionStore();
+  const delayOpen = ref(false);
   const { hasPermission } = usePermission();
   const { createMessage, createConfirm } = useMessage();
   const busy = ref(false);
   const actionIcons: Record<string, string> = {
     arrival: 'ant-design:inbox-outlined',
     process: 'ant-design:solution-outlined',
-    supplement: 'ant-design:appstore-add-outlined',
+    supplementApply: 'ant-design:appstore-add-outlined',
+    supplementApprove: 'ant-design:audit-outlined',
     acceptance: 'ant-design:check-square-outlined',
+    pick: 'ant-design:export-outlined',
+    return: 'ant-design:import-outlined',
   };
-  const actions = computed(() => resolvePeriodOperations(props.project, { manager: props.manager, typeNames: props.typeNames, hasPermission }).filter(action => action.key !== 'acceptance' || props.acceptanceVisible));
+  const actions = computed(() => {
+    const result = resolvePeriodOperations(props.project, { manager: props.manager, typeNames: props.typeNames, hasPermission })
+      .filter(action => action.key !== 'supplement' && (action.key !== 'acceptance' || props.acceptanceVisible));
+    result.push(...resolveSupplementEntries(props.project, props.manager, hasPermission('project:materialApply:approve')));
+    result.push(...projectMaterialOperations(props.project, props.participant, permissions.getBackMenuList));
+    if (props.materialVisible) result.push({ key: 'material', label: '用料记录' });
+    if (props.manager && ['IMPLEMENTING', 'DEBUGGING', 'DEBUG_COMPLETED', 'REWORKING'].includes(props.project.status)) result.push({ key: 'delay', label: '申请延期' });
+    return result;
+  });
+  function isMoreAction(item: { key: string; dangerous?: boolean }) {
+    return !!item.dangerous || ['material', 'delay', 'supplementHistory'].includes(item.key);
+  }
+  const primaryActions = computed(() => actions.value.filter(item => !isMoreAction(item)));
+  const moreActions = computed(() => actions.value.filter(isMoreAction));
   const [registerArrival, { openModal: openArrival }] = useModal();
   const [registerProcess, { openDrawer: openProcess }] = useDrawer();
   const [registerSupplement, { openDrawer: openSupplement }] = useDrawer();
@@ -52,8 +76,13 @@
     const record = props.project;
     if (key === 'arrival') openArrival(true, { record });
     if (key === 'process') openProcess(true, { record, periodId: record.periodId });
-    if (key === 'supplement') openSupplement(true, { record, allowCreate: canApplySupplement(record.status, props.manager), initialTab: props.manager ? 'mine' : 'pending' });
+    const supplementOptions = supplementEntryOptions(key, hasPermission('project:materialApply:approve'));
+    if (supplementOptions) openSupplement(true, { record, ...supplementOptions });
     if (key === 'acceptance') emit('acceptance');
+    if (key === 'material') emit('material');
+    if (key === 'delay') delayOpen.value = true;
+    if (key === 'pick' || key === 'return') void router.push({ path: `/material/${key}`, query: { periodId: String(record.periodId), from: route.fullPath,
+      ...(key === 'pick' && record.status === 'REWORKING' && record.currentReworkId ? { reworkId: String(record.currentReworkId) } : {}) } });
   }
   function confirmClose() {
     const id = String(props.project.periodId);
