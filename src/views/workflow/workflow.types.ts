@@ -154,6 +154,8 @@ export interface WorkflowInstance {
   tasks: {
     id: string;
     name: string;
+    departmentId?: string;
+    departmentName?: string;
     nodeKey: string;
     instanceId: string;
     canHandle: boolean;

@@ -1,5 +1,6 @@
 <template>
-  <InstanceDrawer :open="workflowOpen" :instance-id="workflowId" @close="workflowOpen = false" @processed="handleProcessed" @resubmitted="id => workflowId = id" />
+  <RepairAssignmentModal ref="repairAssignmentModal" @processed="handleProcessed" />
+  <InstanceDrawer :open="workflowOpen" :instance-id="workflowId" :initial-detail="workflowInitialDetail" @close="workflowOpen = false; workflowInitialDetail = undefined" @processed="handleProcessed" @resubmitted="id => { workflowInitialDetail = undefined; workflowId = id; }" />
   <MaterialSupplementDrawer @register="registerSupplementDrawer" @success="handleProcessed" />
   <ProjectBasicDrawer @register="registerProjectDrawer" @invitation-processed="handleProcessed" />
   <ApproveModal @register="registerStockApproveModal" @success="handleProcessed" />
@@ -26,10 +27,16 @@
 </template>
 
 <script lang="ts" setup>
-  import { ref } from 'vue';
+  import { ref, shallowRef } from 'vue';
+  import type { WorkflowInstance } from '/@/views/workflow/workflow.types';
+  import RepairAssignmentModal from './RepairAssignmentModal.vue';
+  import { repairAssignmentTarget } from '../repairAssignment';
+  const repairAssignmentModal = ref<InstanceType<typeof RepairAssignmentModal>>();
   import { instanceDetail } from '/@/views/workflow/Workflow.api';
   import InstanceDrawer from '/@/views/workflow/components/InstanceDrawer.vue';
   const workflowOpen = ref(false), workflowId = ref('');
+  const workflowInitialDetail = shallowRef<WorkflowInstance>();
+  let workflowOpening = false;
   import { usePermission } from '/@/hooks/web/usePermission';
   import AcceptanceModal from '/@/views/project/components/AcceptanceModal.vue';
   import { getAcceptanceById } from '/@/views/project/detail/ProjectDetail.api';
@@ -105,9 +112,13 @@
       return;
     }
     const params = parseTodoActionParams(todo.actionParams);
+    const assignmentTarget = repairAssignmentTarget(todo, params);
+    if (assignmentTarget) { repairAssignmentModal.value?.open(assignmentTarget); return; }
     if ([todo.todoType, todo.actionKey].includes('WORKFLOW_APPROVAL')) {
       const id = params.instanceId || todo.bizSubId;
       if (!id) { createMessage.error('待办缺少审批实例编号'); return; }
+      if (workflowOpening || (workflowOpen.value && workflowId.value === String(id))) return;
+      workflowOpening = true;
       try {
         // 旧待办缺业务类型时读取实例识别，不根据标题猜测。
         const instance = await instanceDetail(String(id));
@@ -115,8 +126,13 @@
         if (instance.businessType === 'PROJECT_CONTRACT') {
           if (params.contractId && String(params.contractId) !== instance.businessId) throw new Error('待办合同编号与审批实例不匹配');
           await router.push({ path: '/project/contract', query: { mode: 'view', instanceId: instance.id, contractId: instance.businessId, ...(params.taskId ? { taskId: String(params.taskId) } : {}) } });
-        } else { workflowId.value = String(id); workflowOpen.value = true; }
+        } else {
+          workflowInitialDetail.value = instance;
+          workflowId.value = String(id);
+          workflowOpen.value = true;
+        }
       } catch (error: any) { createMessage.error(error?.message || '审批待办读取失败'); }
+      finally { workflowOpening = false; }
       return;
     }
     if ([todo.todoType, todo.actionKey].includes('PROJECT_ADD_MATERIAL_APPLY_APPROVAL')) {

@@ -10,8 +10,13 @@
       <template #renderItem="{ item }">
         <a-list-item>
           <div class="todo-center-card__row">
-            <a-tag class="todo-center-card__type" :color="todoTypeColor(item.todoType)">{{ todoTypeText(item.todoType) }}</a-tag>
-            <span class="todo-center-card__summary">{{ item.summary || '—' }}</span>
+            <div class="todo-center-card__content">
+              <div class="todo-center-card__heading">
+              <a-tag class="todo-center-card__type" :color="todoTypeColor(item.todoType)">{{ todoTypeText(item.todoType) }}</a-tag>
+              <div class="todo-center-card__name">{{ item.title?.trim() || '未命名待办' }}</div>
+              </div>
+              <div v-if="item.summary?.trim()" class="todo-center-card__summary">{{ item.summary }}</div>
+            </div>
             <span class="todo-center-card__applicant"
               >申请人：{{ item.applyUserName?.trim() || item.realName?.trim() || item.createBy?.trim() || '—' }}</span
             >
@@ -46,12 +51,36 @@
       align-items: center;
       gap: 10px;
     }
-    &__summary {
+    &__content {
       min-width: 0;
       flex: 1;
+      overflow-wrap: anywhere;
+    }
+    &__heading {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+    &__type {
+      flex: 0 0 auto;
+      margin-inline-end: 0;
+      white-space: nowrap;
+    }
+    &__name {
+      min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+      font-size: 14px;
+      font-weight: 500;
+      line-height: 22px;
+    }
+    &__summary {
+      margin-top: 4px;
+      font-size: 12px;
+      line-height: 20px;
+      color: #595959;
     }
 
     &__list {
@@ -65,12 +94,6 @@
       flex: 1;
       align-items: center;
       gap: 12px;
-    }
-
-    &__type {
-      flex: 0 0 auto;
-      margin-inline-end: 0;
-      white-space: nowrap;
     }
 
     &__time {
@@ -93,8 +116,8 @@
       gap: 6px 8px;
     }
 
-    .todo-center-card__summary {
-      flex-basis: calc(100% - 100px);
+    .todo-center-card__content {
+      flex-basis: 100%;
     }
 
     .todo-center-card__time {

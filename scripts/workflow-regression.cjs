@@ -15,11 +15,42 @@ function load(file, mocks = {}) {
 const structure = load('src/views/workflow/structure.ts');
 const workflow = load('src/views/workflow/workflow.ts', { './structure': structure, './starterScope': load('src/views/workflow/starterScope.ts') });
 const metadata = load('src/views/workflow/businessMetadata.ts');
+const editorSource = fs.readFileSync('src/views/workflow/components/WorkflowEditor.vue', 'utf8');
+for (const entry of ['src/views/workflow/index.vue', 'src/views/workflow/components/WorkflowEditor.vue']) {
+  assert.ok(!/RepairInternalMock|localMockEnabled|mockOpen/.test(fs.readFileSync(entry, 'utf8')), 'retired approval Mock must not have an entry');
+}
+assert.ok(!fs.existsSync('src/views/workflow/designer/RepairInternalMock.vue'));
+assert.ok(!fs.existsSync('src/views/workflow/designer/departmentMock.ts'));
+assert.ok(editorSource.includes('label="关联业务" required'));
+assert.ok(editorSource.includes('function assertBusinessSelection()'));
+assert.ok(editorSource.includes("throw new Error('请选择有效的关联业务')"));
+assert.ok(editorSource.includes("throw new Error('流程已发布，禁止修改关联业务或流程标识')"));
+assert.ok(editorSource.includes("const isBusiness = computed(() => definition.value.businessType !== 'WORKFLOW_FORM')"));
+assert.ok(editorSource.includes('editorSteps(isBusiness.value)'));
+assert.ok(editorSource.includes('JSON.parse(JSON.stringify(currentBusiness.value.fields))'));
+assert.ok(editorSource.includes('v-if="designReady" class="flow-steps"'));
 assert.equal(metadata.businessLabel('REPAIR_OPS_APPLICATION','repair_ops_collaboration'),'维修内协邀请');
 assert.equal(metadata.businessLabel('REPAIR_OPS_APPLICATION','repair_ops_close'),'维修事项审批');
-assert.equal(metadata.businessLabel('REPAIR_OPS_APPLICATION','repair_ops_close',[{businessType:'REPAIR_OPS_APPLICATION',scenes:[{processKey:'repair_ops_close',name:'维修关闭审批'}]}]),'维修关闭审批');
+assert.equal(metadata.businessLabel('REPAIR_OPS_APPLICATION','repair_ops_close',[{businessType:'REPAIR_OPS_APPLICATION',processKey:'repair_ops_close',name:'维修关闭审批'}]),'维修关闭审批');
 assert.equal(metadata.businessLabel('NEW_BUSINESS'),'NEW_BUSINESS');
-assert.equal(metadata.businessLabel('REPAIR_OPS_APPLICATION','repair_ops_collaboration',[{businessType:'REPAIR_OPS_APPLICATION',businessType_text:'接口业务名称'}]),'接口业务名称');
+{
+  const catalog = [{businessType:'A',optionKey:'A',name:'父级甲',processKey:null},{businessType:'B',optionKey:'s1',sceneKey:'s1',name:'场景一',processKey:'p1'},{businessType:'B',optionKey:'s2',sceneKey:'s2',name:'场景二',processKey:'p2'}];
+  const options = metadata.businessSelectOptions(catalog);
+  assert.equal(options.map(o=>o.label).join(','),'父级甲,场景一,场景二');
+  assert.equal(options[2].businessType,'B'); assert.equal(options[2].sceneKey,'s2'); assert.equal(options[2].processKey,'p2');
+  assert.equal(new Set(options.map(o=>o.value)).size,3);
+  assert.equal(metadata.businessLabel('B','p2',catalog),'场景二');
+  assert.equal(options[2].value,'s2');
+  assert.equal(metadata.findBusinessOption(catalog,'B','unknown'),undefined);
+  assert.equal(metadata.findBusinessOption(catalog,'A','generated-key').optionKey,'A');
+  assert.equal(metadata.findBusinessOption(catalog,'B','p1').optionKey,'s1');
+  const availability = metadata.businessSelectOptions(catalog.map((item, i) => ({...item, used: i === 0 ? true : i === 1 ? false : undefined})));
+  assert.deepEqual(Array.from(availability, item => item.disabled), [true, false, false]);
+  assert.equal(availability[0].label, '父级甲');
+  assert.equal(metadata.findBusinessOption([{...catalog[0], used:true}], 'A', 'existing-key').optionKey, 'A', 'used items still resolve for existing models');
+  assert.ok(editorSource.includes('!option || option.disabled ||'));
+}
+assert.equal(metadata.businessLabel('REPAIR_OPS_APPLICATION','repair_ops_collaboration',[{businessType:'REPAIR_OPS_APPLICATION',processKey:'repair_ops_collaboration',name:'接口业务名称'}]),'接口业务名称');
 const definition = workflow.newDefinition();
 definition.name = '通用申请';
 definition.formFields = [{ key: 'note', name: '说明', type: 'string' }];

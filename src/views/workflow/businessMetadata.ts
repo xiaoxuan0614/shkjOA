@@ -2,10 +2,24 @@ import type { FormField, WorkflowDefinition, WorkflowPredicate, WorkflowStage } 
 
 export interface BusinessMetadata {
   businessType: string;
-  businessType_text?: string;
+  optionKey: string;
+  name: string;
+  used?: boolean;
+  sceneKey: string | null;
+  processKey: string | null;
+  customForm: boolean;
+  formMode: 'BUSINESS_LINKED' | 'CUSTOM_FORM';
+  configuration: Record<string, unknown>;
   fields: FormField[];
   conditionFields: string[];
-  scenes?: { sceneKey: string; name: string; processKey: string; customForm?: boolean; [key: string]: unknown }[];
+}
+export function businessSelectOptions(catalog: BusinessMetadata[]) {
+  return catalog.map(option => ({ ...option, value: option.optionKey, label: option.name, disabled: option.used === true }));
+}
+export function findBusinessOption(catalog: BusinessMetadata[], businessType: string, processKey?: string) {
+  const candidates = catalog.filter(item => item.businessType === businessType);
+  return candidates.find(item => !!item.processKey && item.processKey === processKey)
+    ?? (candidates.length === 1 && !candidates[0].processKey ? candidates[0] : undefined);
 }
 export const businessTypeLabels: Record<string, string> = { WORKFLOW_FORM: '自定义表单', PROJECT_CONTRACT: '项目管理－合同签订', REPAIR_OPS_APPLICATION: '维修事项审批', STOCK_PROJECT_REQUISITION: '项目领料审批' };
 
@@ -38,10 +52,8 @@ export function validateBusinessDefinition(definition: WorkflowDefinition, metad
 
 /** Resolve the scene by process key: multiple repair processes share one business type. */
 export function businessLabel(businessType: string, processKey?: string, catalog: BusinessMetadata[] = []): string {
-  const business = catalog.find(item => item.businessType === businessType);
-  if (business?.businessType_text?.trim()) return business.businessType_text.trim();
-  const scene = business?.scenes?.find(item => item.processKey === processKey);
-  if (scene?.name) return scene.name;
+  const business = findBusinessOption(catalog, businessType, processKey);
+  if (business?.name) return business.name;
   if (businessType === 'REPAIR_OPS_APPLICATION' && processKey === 'repair_ops_collaboration') return '维修内协邀请';
   return businessTypeLabels[businessType] || businessType || '未关联业务';
 }

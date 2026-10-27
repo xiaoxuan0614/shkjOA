@@ -15,7 +15,7 @@ assert.ok(drawer.includes("detail.value?.processKey === 'repair_ops_collaboratio
 assert.ok(drawer.includes('key="application" tab="申请内容"'));
 assert.ok(drawer.includes('key="progress" tab="审批进程"'));
 assert.ok(drawer.includes('<ApprovalProgress :instance="detail" compact />'));
-assert.ok(drawer.includes("task.canHandle && task.kind !== 'WORK'"));
+assert.ok(drawer.includes('visibleTaskButtons(taskButtons, task, taskAction(task.id), detail.value?.businessType)'));
 assert.ok(drawer.includes("tasks.length === 1 ? tasks[0].id : undefined"), 'multiple tasks require explicit selection');
-assert.ok(drawer.includes("chooseAction(selectedApprovalTask!.id, action)"), 'footer submits selected task identity');
+assert.ok(drawer.includes("chooseAction(selectedApprovalTask!.id, action.value)"), 'footer submits selected task identity');
 console.log('PASS repair application summary');

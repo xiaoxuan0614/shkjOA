@@ -2,7 +2,7 @@
   <section class="workflow-editor" :class="{ 'flow-view': step === 2 }">
     <header class="editor-header prototype-header">
       <a-button type="text" @click="close"><ArrowLeftOutlined />{{ model ? '编辑流程' : '创建新流程' }}</a-button>
-      <nav class="flow-steps" aria-label="流程配置步骤"
+      <nav v-if="designReady" class="flow-steps" aria-label="流程配置步骤"
         ><button v-for="(title, index) in steps" :key="title" :class="{ current: step === stepIds[index] }" @click="step = stepIds[index]"
           >{{ index + 1 }}.{{ title }}</button
         ></nav
@@ -12,13 +12,12 @@
           localSaved ? (dirty ? '本地暂存有修改' : '本地暂存 · 未保存到服务器') : dirty ? '未保存' : `${savedKind}已保存到服务器`
         }}</a-tag
         ><a-button :disabled="readOnly || busy || !designReady || localOnly" @click="saveServerDesign">保存设计草稿</a-button
-        ><a-button v-if="localMockEnabled" @click="mockOpen = true">内协审批 Mock</a-button
         ><a-button v-if="step === 2" :disabled="readOnly" @click="saveDesign">本地暂存</a-button
         ><a-button v-if="step === 2 && localSaved" type="text" @click="clearDesign">清除会话稿</a-button
         ><a-button v-if="step === 3" :disabled="busy" @click="permissionsOpen = true">权限范围</a-button
-        ><a-button :disabled="step === 0 || busy" @click="previousStep">上一步</a-button
-        ><a-button :loading="busy" :disabled="readOnly || !!designBlockers.length" @click="save">保存完整草稿</a-button
-        ><a-button type="primary" :disabled="busy || step === 4" @click="nextStep">下一步</a-button></a-space
+        ><a-button :disabled="!designReady || step === 0 || busy" @click="previousStep">上一步</a-button
+        ><a-button :loading="busy" :disabled="!designReady || readOnly || !!designBlockers.length" @click="save">保存完整草稿</a-button
+        ><a-button type="primary" :disabled="!designReady || busy || step === 4" @click="nextStep">下一步</a-button></a-space
       >
     </header>
     <a-alert v-if="localOnly" type="warning" show-icon :message="relatedDepartmentPending" />
@@ -46,9 +45,9 @@
                 >自动生成，可在首次保存前修改；保存后不可更改。</div
               ></a-form-item
             >
-            <a-form-item label="关联业务">
+            <a-form-item label="关联业务" required>
               <a-input v-if="savedModel || designRevision != null" :value="currentBusinessLabel" readonly />
-              <a-select v-else :value="repairInternal ? repairInternalChoice : definition.businessType" :options="businessOptions" :disabled="!!savedModel || designRevision != null" @change="changeBusinessType" />
+              <a-select v-else :value="selectedBusinessOption" :options="businessOptions" :disabled="!!savedModel || designRevision != null" @change="changeBusinessType" />
               <p v-if="repairInternal" class="hint">申请人在维修详情填写部门及协助原因。此处只配置审批流程，不创建业务表单；全部审批通过后，再由受邀部门主管独立指定成员。</p>
               <p v-else-if="definition.businessType === 'PROJECT_CONTRACT'" class="hint">使用项目管理－合同签订的原有页面，保留回款计划表格和附件，无需重新搭建表单。</p>
               <p v-else-if="isBusiness" class="hint">沿用对应业务页面填写和提交申请。</p>
@@ -173,7 +172,6 @@ v-if="definition.businessType === 'PROJECT_CONTRACT'" type="info" show-icon mess
         </div>
       </fieldset></a-config-provider
     >
-    <RepairInternalMock v-if="localMockEnabled && mockOpen" @close="mockOpen = false" />
     <a-drawer v-model:open="permissionsOpen" title="权限范围" width="min(820px, 96vw)" :mask-closable="!busy">
       <a-config-provider :component-disabled="readOnly || busy">
         <div class="policy-page">
@@ -224,10 +222,7 @@ v-if="definition.businessType === 'PROJECT_CONTRACT'" type="info" show-icon mess
   </section>
 </template>
 <script setup lang="ts">
-  import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, provide, ref } from 'vue';
-  const localMockEnabled = import.meta.env.DEV;
-  const RepairInternalMock = defineAsyncComponent(() => import('../designer/RepairInternalMock.vue'));
-  const mockOpen = ref(false);
+  import { computed, onBeforeUnmount, onMounted, provide, ref } from 'vue';
   import MoreSettings from './MoreSettings.vue';
   const permissionsOpen = ref(false);
   import { onBeforeRouteLeave, useRoute } from 'vue-router';
@@ -238,11 +233,11 @@ v-if="definition.businessType === 'PROJECT_CONTRACT'" type="info" show-icon mess
   import AudienceEditor from './AudienceEditor.vue';
   import WorkflowCanvas from '../designer/WorkflowCanvas.vue';
   import { fromDefinition, executableGraph, executionBlockers, flatten } from '../designer/graph';
-  import { repairInternalChoice, isRepairInternal, editorSteps } from '../designer/businessPresets';
+  import { isRepairInternal, editorSteps } from '../designer/businessPresets';
   import { relatedDepartmentPending } from '../designer/relatedDepartment';
   import { useUserStore } from '/@/store/modules/user';
   import { businessTypes, designerCapabilities, designerList, designerDetail, saveDesigner, saveModel, publishModel, repairInternalTemplate } from '../Workflow.api';
-  import { businessLabel, businessFormInstructions, validateBusinessDefinition, type BusinessMetadata } from '../businessMetadata';
+  import { businessLabel, businessSelectOptions, findBusinessOption, businessFormInstructions, validateBusinessDefinition, type BusinessMetadata } from '../businessMetadata';
   import {
     canEditDefinition,
     fieldTypes,
@@ -269,39 +264,40 @@ v-if="definition.businessType === 'PROJECT_CONTRACT'" type="info" show-icon mess
   const isBusiness = computed(() => definition.value.businessType !== 'WORKFLOW_FORM');
   const repairInternal = computed(() => isRepairInternal(definition.value));
   const localOnly = computed(() => flatten(designNodes.value).some(node => node.config.source === 'relatedDepartment') && capabilities.value?.relatedDepartmentHeads?.supported !== true);
-  const currentBusiness = computed(() => businessCatalog.value.find((b) => b.businessType === definition.value.businessType));
+  const currentBusiness = computed(() => findBusinessOption(businessCatalog.value, definition.value.businessType, definition.value.key));
   const businessInstructions = computed(() => businessFormInstructions(definition.value.businessType));
   const currentBusinessLabel = computed(() => businessLabel(definition.value.businessType, definition.value.key, businessCatalog.value));
-  const businessOptions = computed(() => {
-    const options = businessCatalog.value.map(b => ({
-      value: b.businessType, label: businessLabel(b.businessType, undefined, businessCatalog.value),
-      disabled: !['WORKFLOW_FORM', 'PROJECT_CONTRACT'].includes(b.businessType),
-    }));
-    if (businessCatalog.value.some(b => b.businessType === 'REPAIR_OPS_APPLICATION'))
-      options.push({value:repairInternalChoice,label:'维修内协邀请',disabled:false});
-    return options;
-  });
+  const businessOptions = computed(() => businessSelectOptions(businessCatalog.value));
+  const selectedBusinessOption = computed(() => currentBusiness.value?.optionKey);
   const allowedPermissionOptions = computed(() => permissionOptions.filter((p) => !isBusiness.value || p.value !== 'EDITABLE'));
   provide('workflowBusinessFieldsLocked', isBusiness);
   provide('workflowRepairInternal', repairInternal);
   provide('workflowConditionFields', computed(() => isBusiness.value ? currentBusiness.value?.conditionFields || [] : undefined));
   function applyBusinessFields() {
+    assertBusinessSelection();
     if (savedModel.value && definition.value.businessType !== savedModel.value.business_type) throw new Error('已保存流程不可更换业务类型');
-    if (!isBusiness.value) return;
     if (!currentBusiness.value) throw new Error('服务尚未提供此业务类型，请加载后端后重试');
+    if (!isBusiness.value) return;
     definition.value.formFields = JSON.parse(JSON.stringify(currentBusiness.value.fields));
   }
+  function assertBusinessSelection() {
+    if (!definition.value.businessType || !selectedBusinessOption.value || !currentBusiness.value) throw new Error('请选择有效的关联业务');
+    if (savedModel.value?.published_version && (definition.value.businessType !== savedModel.value.business_type || definition.value.key !== savedModel.value.process_key)) {
+      throw new Error('流程已发布，禁止修改关联业务或流程标识');
+    }
+  }
   function changeBusinessType(type: string) {
-    if (savedModel.value || designRevision.value != null || !businessOptions.value.some((b) => b.value === type && !b.disabled)) return;
-    if (type === definition.value.businessType) return;
-    Modal.confirm({ title: '切换关联业务？', content: type === repairInternalChoice ? '将替换为维修内协邀请后端模板，重置名称、标识和节点。不会修改服务器流程。' : '将清空当前字段和流程节点配置；离开业务模板时重新生成流程标识。', onOk: async () => {
-      if (type === repairInternalChoice) {
+    const option = businessOptions.value.find(b => b.value === type);
+    if (savedModel.value || designRevision.value != null || !option || option.disabled || type === selectedBusinessOption.value) return;
+    const internal = option.businessType === 'REPAIR_OPS_APPLICATION' && option.processKey === 'repair_ops_collaboration';
+    Modal.confirm({ title: '切换关联业务？', content: internal ? '将替换为维修内协邀请后端模板，重置名称、标识和节点。不会修改服务器流程。' : '将清空当前字段和流程节点配置，并使用所选业务场景的流程标识。', onOk: async () => {
+      if (internal) {
         const template = await repairInternalTemplate();
         definition.value = template; applyBusinessFields(); designNodes.value = fromDefinition(template); selectedField.value = -1; step.value = 0;
         return;
       }
       const fresh = newDefinition();
-      definition.value = { ...fresh, key: repairInternal.value ? fresh.key : definition.value.key, name: definition.value.name, businessType: type };
+      definition.value = { ...fresh, key: option.processKey || (currentBusiness.value?.processKey ? fresh.key : definition.value.key), name: option.label, businessType: option.businessType };
       applyBusinessFields();
       designNodes.value = fromDefinition(definition.value);
       selectedField.value = -1;
@@ -417,7 +413,7 @@ v-if="definition.businessType === 'PROJECT_CONTRACT'" type="info" show-icon mess
     }
     designNodes.value = JSON.parse(JSON.stringify(doc.nodes));
     step.value = Number.isInteger(doc.step) && doc.step! >= 0 && doc.step! <= 4 ? doc.step! : 0;
-    if (repairInternal.value && step.value === 1) step.value = 2;
+    if (isBusiness.value && step.value === 1) step.value = 2;
     designRevision.value = draft.revision;
     availableDraft.value = undefined;
     savedKind.value = '设计草稿';
@@ -432,7 +428,7 @@ v-if="definition.businessType === 'PROJECT_CONTRACT'" type="info" show-icon mess
     try {
       const [caps, catalog] = await Promise.all([designerCapabilities(), businessTypes()]);
       capabilities.value = caps;
-      if (!Array.isArray(catalog) || catalog.some((b) => !Array.isArray(b.fields) || !Array.isArray(b.conditionFields))) throw new Error('业务字段目录不完整');
+      if (!Array.isArray(catalog) || catalog.some((b) => !b.optionKey || !b.name || !b.businessType || !Array.isArray(b.fields) || !Array.isArray(b.conditionFields)) || new Set(catalog.map(b => b.optionKey)).size !== catalog.length) throw new Error('业务字段目录不完整');
       businessCatalog.value = catalog;
       applyBusinessFields();
       if (!Array.isArray(capabilities.value?.nodeKinds) || !capabilities.value.designerMaxChars || !capabilities.value.definitionMaxChars)
@@ -467,6 +463,7 @@ v-if="definition.businessType === 'PROJECT_CONTRACT'" type="info" show-icon mess
     error.value = '';
     try {
       if (!definition.value.name.trim() || !/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(definition.value.key)) throw new Error('请先填写流程名称和有效标识');
+      assertBusinessSelection();
       const document = JSON.parse(
         JSON.stringify({
           schemaVersion: 1,
@@ -501,6 +498,7 @@ v-if="definition.businessType === 'PROJECT_CONTRACT'" type="info" show-icon mess
   onMounted(initializeDesigner);
   function nextStep() {
     error.value = '';
+    try { assertBusinessSelection(); } catch (e) { error.value = (e as Error).message; return; }
     if (step.value === 0 && (!definition.value.name.trim() || !/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(definition.value.key))) {
       error.value = '请填写流程名称和有效标识';
       return;
@@ -524,7 +522,7 @@ v-if="definition.businessType === 'PROJECT_CONTRACT'" type="info" show-icon mess
     selectedField = ref(-1),
     busy = ref(false),
     error = ref('');
-  const stepIds = computed(() => editorSteps(repairInternal.value));
+  const stepIds = computed(() => editorSteps(isBusiness.value));
   const steps = computed(() => stepIds.value.map(index => ['基础信息', isBusiness.value ? '业务表单' : '表单配置', '流程设计', '更多配置', '完成发布'][index]));
   const issues = computed(() => {
     if (designBlockers.value.length) return designBlockers.value;

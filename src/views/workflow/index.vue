@@ -6,7 +6,7 @@
       <header
         ><div><h1>审批流程配置</h1><p>统一维护审批表单、人员和规则，发布后用于新的申请。</p></div
         ><a-space
-          ><a-button v-if="localMockEnabled" @click="mockOpen = true">内协审批 Mock</a-button><a-button @click="load">刷新</a-button><a-button type="primary" @click="create"><PlusOutlined />新建流程</a-button></a-space
+          ><a-button @click="load">刷新</a-button><a-button type="primary" @click="create"><PlusOutlined />新建流程</a-button></a-space
         ></header
       >
       <a-alert v-if="error" type="error" show-icon :message="error"
@@ -95,7 +95,6 @@
         >
       </a-table>
     </section>
-    <RepairInternalMock v-if="localMockEnabled && canManage && mockOpen" @close="mockOpen = false" />
     <a-drawer v-model:open="versionsOpen" title="发布版本历史" width="min(760px, 96vw)">
       <a-alert type="info" show-icon message="回退会创建新的发布版本，不覆盖历史，不改变运行中的申请。" />
       <a-alert v-if="versionError" type="error" :message="versionError" show-icon />
@@ -114,10 +113,7 @@
 <script setup lang="ts" name="WorkflowModelList">
   import { withPagination } from '/@/components/Pagination/config';
   defineOptions({ name: 'WorkflowModelList' });
-  import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref } from 'vue';
-  const localMockEnabled = import.meta.env.DEV;
-  const RepairInternalMock = defineAsyncComponent(() => import('./designer/RepairInternalMock.vue'));
-  const mockOpen = ref(false);
+  import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
   import { Modal, message } from 'ant-design-vue';
   import { DownOutlined, PlusOutlined } from '@ant-design/icons-vue';
   import { usePermission } from '/@/hooks/web/usePermission';

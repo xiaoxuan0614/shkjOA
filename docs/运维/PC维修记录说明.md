@@ -1,5 +1,19 @@
 # PC 维修记录（一期）
 
+### 2026-10-27 PC维修转单待办审批
+
+维修转单沿用申请人填写的转单原因，接收人必选。通用审批抽屉识别 repair_ops_transfer，点击同意先通过 GET /repair/options?type=internal 读取候选，默认选择申请中的 form.targetUserId，主管可更换；候选缺失或不合法时禁止通过。准备期间仅按钮loading，准备成功才弹确认框。通过/驳回统一 POST /repair/application/review，传 applicationId（申请业务ID）、instanceId、taskId、approve、comment、requestId；更换接收人时传 transferTargetUserId，不更换省略，驳回不传人员字段且意见必填。后端最终校验人员并完成负责人及待办流转，前端不单独调用指派接口。网络失败保留原始载荷重试，成功清理提交锁。
+
+专项组件回归、既有内协/工作流回归及定向ESLint通过；未提交真实审批，未完成浏览器联调验收。菜单配置已检查，无新增菜单或授权；本次修改PC审批端，不改变移动端提交表单。
+
+2026-10-27 内协申请、外协申请、内协审批选人及独立指定人员中的原因标签统一为“需要协助原因：”；原因原文不加前缀入库，转单原因/关闭原因不变。无API或菜单权限调整。
+
+2026-10-27 范围扩展：此前维修关闭审批的查看工单入口，现在覆盖通用审批中所有维修事项（REPAIR_OPS_APPLICATION），包括内协、外协、转单等；工单标识来源、权限、错误处理、关闭后返回审批的行为不变。非维修审批不提供入口。
+
+验证：当前首页维修关闭待办已实际打开对应工单详情，工单编号与待办一致；关闭详情后返回原审批。未提交同意/驳回。专项回归、通用审批回归、SFC、定向ESLint和类型检查通过；菜单文档已检查无需改动。
+
+2026-10-27 首页维修关闭审批申请内容新增“查看维修单详情”入口，复用本模块只读RepairDetail抽屉；使用审批版本表单可见orderId调用既有GET /repair/order/detail?id=，禁止使用关闭申请ID代替。关闭详情返回原审批，审批意见及办理权限不变；缺少可见工单编号时禁用入口。不新增菜单或更改角色授权。
+
 内协审批布局：申请内容与审批进程分为两个Tab，进程只读显示流转信息，不含操作按钮或技术性描述。同意/驳回放底部固定区，单任务自动选中，多任务需先选择具体节点/部门；只展示后端允许且canHandle的动作，提交仍保留二次确认及任务ID，不改变后端鉴权或接口契约。真实页面只读验证通过，未代用户审批。
 
 2026-10-23 内协审批申请内容：通用审批详情仅对 `REPAIR_OPS_APPLICATION / repair_ops_collaboration` 精简为部门名及对应协助原因，不重复显示内部ID、原始JSON、部门计数。数据只取 instance/form 字段权限过滤后的投影，不额外读取隐藏快照字段；无可见数据时显示空状态。审批进度及办理控制保持原样，外协和其他审批不受影响。PC真实待办已验证，未提交审批。
@@ -33,3 +47,13 @@ PC 用于查询与记录，现场作业及业务申请在移动端办理。保�
 ## 2026-10-23 报价状态字典
 
 列表 quotationStatus、详情整单报价状态及 quotations[].stage 读取 repair_quotation_status。字典缺项展示原值，空值显示 —；不使用通用审批状态映射覆盖报价状态。菜单和权限无需调整。
+
+
+## PC内协人员指定待办（2026-10-27）
+2026-10-27 PC内协指定待办修复：TodoActionHost按REPAIR_COLLABORATION_ASSIGN打开RepairAssignmentModal，使用actionParams.applicationId/departmentId读取本部门候选，支持搜索多选1至20人并调用assign。成功刷新待办；网络不确定重试保持requestId/名单，后端拒绝显示真实原因。不需要新增菜单或角色权限。
+
+GET /repair/collaboration/assignmentOptions?applicationId=申请ID&departmentId=部门ID；POST /repair/collaboration/assign提交applicationId、departmentId、requestId、assignedUserIds。按用户确认的实际服务规则，不在前端要求所有受邀部门全部通过。入口位于首页待办，不增加维修日志或打卡操作。菜单配置文档已检查，复用当前待办访问，不新增菜单按钮或扩大角色授权。
+
+实际页面验证：PC首页REPAIR_COLLABORATION_ASSIGN已打开指定人员弹窗；候选接口返回NoClassDefFoundError: org/jeecg/modules/repair/RepairOpsDepartmentCollaboration，需后端修复运行时类加载。未提交真实指派。scripts/repair-assignment-regression.cjs覆盖类型路由、部门匹配、请求体、幂等重试及成功刷新，已通过。
+
+2026-10-27 双端待办展示修正：title作为待办名称，summary仅作下方小字描述，空描述不占位；title为空显示未命名待办。PC保留前置彩色todoType标签，title独立作为主标题；移动端保留原彩色标识，首页及完整列表共享修正。办理逻辑、查询参数及权限不变，菜单配置已检查无需调整。
