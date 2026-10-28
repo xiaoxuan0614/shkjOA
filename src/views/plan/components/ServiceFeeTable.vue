@@ -17,13 +17,13 @@
           <a-input-number v-model:value="record.quantity" :disabled="!structureEditable || busy" :min="0.01" :max="9999999999" :precision="2" :aria-label="`${record.name}数量`" aria-required="true" />
         </template>
         <template v-else-if="column.key === 'costPrice'">
-          <a-input-number v-model:value="record.costPrice" :disabled="!costEditable || busy" :min="0" :max="9999999999" :precision="2" :aria-label="`${record.name}成本价`" aria-required="true" @change="recalculate(record)" />
+          <a-input-number v-model:value="record.costPrice" :disabled="!costEditable || busy" :min="0" :max="9999999999" :precision="2" :aria-label="`${record.name}成本价`" aria-required="true" @change="deriveRate(record)" />
         </template>
         <template v-else-if="column.key === 'markupRate'">
           <a-input-number v-model:value="record.markupRate" :disabled="!priceEditable || busy" :min="-100" :max="9999999999" :precision="2" addon-after="%" :aria-label="`${record.name}加价比例`" @change="recalculate(record)" />
         </template>
         <template v-else-if="column.key === 'guidePrice'">
-          <a-input-number v-model:value="record.guidePrice" :disabled="!priceEditable || busy" :min="0" :max="9999999999" :precision="2" :aria-label="`${record.name}指导价`" />
+          <a-input-number v-model:value="record.guidePrice" :disabled="!priceEditable || busy" :min="0" :max="9999999999" :precision="2" :aria-label="`${record.name}指导价`" @change="deriveRate(record)" />
         </template>
         <template v-else-if="column.key === 'remark'"><a-input v-model:value="record.remark" :disabled="!editable || busy" :maxlength="500" :aria-label="`${record.name}备注`" placeholder="选填" /></template>
         <template v-else-if="column.key === 'action'"><a-popconfirm title="从本报价移除该服务费？" @confirm="remove(record)"><a-button type="link" danger :disabled="busy || !structureEditable">删除</a-button></a-popconfirm></template>
@@ -44,7 +44,7 @@
           <template v-else>{{ column.title }}</template>
         </template>
         <template #bodyCell="{ column, record }">
-          <template v-if="column.key === 'guideMarkupRate'">{{ record.guideMarkupRate ?? 0 }}%</template>
+          <template v-if="column.key === 'guidePrice'">{{ Number(record.guidePrice ?? 0).toFixed(2) }}</template>
           <template v-else-if="column.key === 'unit'">{{ record.unit || '—' }}</template>
           <template v-else-if="column.key === 'taxRate'">{{ serviceFeeTaxText(record.taxRate ?? record.markupRate) }}</template>
           <template v-else-if="column.key === 'action'">
@@ -62,6 +62,7 @@
   import { computed, onBeforeUnmount, ref } from 'vue';
   import { serviceFeeList } from '../service-fee/ServiceFee.api';
   import { serviceFeeCopy, serviceFeePrice, serviceFeeTaxText } from '../serviceFee';
+  import { derivedGuidanceRate } from '../quotationPricing';
   import ServiceFeeMaintenance from '../service-fee/index.vue';
   import { usePermission } from '/@/hooks/web/usePermission';
   import ServiceFeeUnitSelect from './ServiceFeeUnitSelect.vue';
@@ -80,7 +81,7 @@
   ]);
   const pickerColumns = computed(() => [{ title: '费用名称', dataIndex: 'name' }, { title: '单位', key: 'unit', dataIndex: 'unit', width: 90, ellipsis: true },
     { title: '税率', key: 'taxRate', width: 90 },
-    ...(props.priceVisible ? [{ title: '加价比例（%）', key: 'guideMarkupRate', width: 140 }] : []),
+    ...(props.priceVisible ? [{ title: '指导价格', key: 'guidePrice', width: 140 }] : []),
     ...(props.costVisible !== false ? [{ title: '成本价', dataIndex: 'costPrice', width: 110 }] : []), { title: '描述', dataIndex: 'description', ellipsis: true },
     { title: '操作', key: 'action', width: 110, fixed: 'right' as const }]);
   const pickerOpen = ref(false), keyword = ref(''), page = ref(1), optionTotal = ref(0), loading = ref(false), error = ref('');
@@ -151,6 +152,10 @@
     if (props.busy || (!props.priceEditable && !(props.costEditable && !row.id && row.serviceFeeId))) return;
     try { row.guidePrice = serviceFeePrice(row.costPrice, row.markupRate); row._error = ''; }
     catch (e: any) { row.guidePrice = null; row._error = e.message; }
+  }
+  function deriveRate(row: Recordable) {
+    if (props.busy || !props.priceVisible) return;
+    row.markupRate = derivedGuidanceRate(row.costPrice, row.guidePrice ?? 0);
   }
 </script>
 <style scoped>

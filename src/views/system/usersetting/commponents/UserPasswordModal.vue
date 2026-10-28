@@ -11,11 +11,10 @@
         <CountdownInput v-model:value="formState.smscode" placeholder="请输入6位验证码" :sendCodeApi="sendCodeApi" />
       </a-form-item>
       <a-form-item name="password">
-        <span class="black font-size-13">新密码</span>
+        <span class="black font-size-13"><BasicHelp :text="NEW_PASSWORD_HINT" placement="top" style="margin: 0 6px 0 0" />新密码</span>
         <div class="pass-padding">
           <a-input-password v-model:value="formState.password" placeholder="新密码" autocomplete="new-password" />
         </div>
-        <span class="gray-9e font-size-13">密码至少6位</span>
       </a-form-item>
     </a-form>
   </BasicModal>
@@ -31,7 +30,8 @@
   import { SmsEnum } from '@/views/sys/login/useLogin';
   import { CountdownInput } from '/@/components/CountDown';
   import { defHttp } from '@/utils/http/axios';
-  import { createPasswordLengthRule } from '@/utils/password';
+  import { createNewPasswordRule, NEW_PASSWORD_HINT } from '@/utils/newPassword';
+  import { BasicHelp } from '/@/components/Basic';
 
   const { createMessage, createErrorModal } = useMessage();
   //用户名
@@ -53,7 +53,7 @@
   });
   const userStore = useUserStore();
   const validatorRules: Record<string, Rule[]> = {
-    password: [{ required: true, validator: checkPassword }, createPasswordLengthRule()],
+    password: [{ required: true, validator: checkPassword }, createNewPasswordRule()],
     phone: [{ required: true, message: '请输入手机号' }],
     smscode: [{ required: true, message: '请输入6位验证码' }],
   };

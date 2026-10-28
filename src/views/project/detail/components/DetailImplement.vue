@@ -46,12 +46,6 @@
     { title: '工时', dataIndex: 'hours', customRender: ({ record }) => formatLogHours(record), width: 180 },
     { title: '实施位置', dataIndex: 'implementLocationName', ellipsis: true },
     { title: '车辆', dataIndex: 'vehicleNo', width: 100 },
-    {
-      title: '公里数',
-      dataIndex: 'mileage',
-      width: 90,
-      customRender: ({ text }) => (text === null || text === undefined || text === '' ? '—' : `${text}km`),
-    },
     { title: '操作', key: 'action', width: 90, align: 'center' },
   ];
 

@@ -12,7 +12,8 @@ row-key="id" bordered :columns="columns" :data-source="rows" :loading="loading" 
       :pagination="withPagination({ current: page, pageSize: 10, total, showSizeChanger: false, showTotal: n => `共 ${n} 条` })" @change="changePage">
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'markupRate'">{{ record.markupRate ?? '—' }}%</template>
-        <template v-else-if="column.key === 'guideMarkupRate'">{{ serviceFeeTaxText(record.guideMarkupRate) }}</template>
+        <template v-else-if="column.key === '_guideRate'">{{ derivedGuidanceRate(record.costPrice ?? 0, record.guidePrice ?? 0) }}%</template>
+        <template v-else-if="column.key === 'guidePrice'">{{ Number(record.guidePrice ?? 0).toFixed(2) }}</template>
         <template v-else-if="column.key === 'unit'">{{ record.unit || '—' }}</template>
         <template v-else-if="column.key === 'costPrice'">{{ record.costPrice == null ? '—' : Number(record.costPrice).toFixed(2) }}</template>
         <template v-else-if="column.key === 'action'">
@@ -38,8 +39,9 @@ v-model:open="formOpen" :title="formReadonly ? '服务费详情' : form.id ? '�
             <div v-if="unitError" role="alert">{{ unitError }} <a-button type="link" size="small" :disabled="unitLoading" @click="loadUnits">重试</a-button></div>
           </a-form-item>
           <a-form-item label="税率" required><a-input-number v-model:value="form.markupRate" :precision="2" :min="0" :max="9999999999" addon-after="%" /></a-form-item>
-          <a-form-item label="成本价（元）" required><a-input-number v-model:value="form.costPrice" :precision="2" :min="0" :max="9999999999" /></a-form-item>
-          <a-form-item label="报价指导比例"><a-input-number v-model:value="form.guideMarkupRate" :precision="2" :min="0" :max="9999999999" addon-after="%" placeholder="未配置时选入报价默认0" /></a-form-item>
+          <a-form-item label="成本价（元）" required><a-input-number v-model:value="form.costPrice" :precision="2" :min="0" :max="9999999999" @change="syncGuide('costPrice')" /></a-form-item>
+          <a-form-item label="加价比例"><a-input-number v-model:value="form._guideRate" :precision="2" :min="-100" :max="9999999999" addon-after="%" placeholder="0.00" @change="syncGuide('_guideRate')" /></a-form-item>
+          <a-form-item label="指导价格（元）"><a-input-number v-model:value="form.guidePrice" :precision="2" :min="0" :max="9999999999" placeholder="0.00" @change="syncGuide('guidePrice')" /></a-form-item>
           <a-form-item label="描述"><a-textarea v-model:value="form.description" :rows="3" :maxlength="1000" show-count /></a-form-item>
         </a-form>
       </a-spin>
@@ -52,8 +54,8 @@ v-model:open="formOpen" :title="formReadonly ? '服务费详情' : form.id ? '�
   import { usePermission } from '/@/hooks/web/usePermission';
   import { useMessage } from '/@/hooks/web/useMessage';
   import { serviceFeeList, serviceFeeDetail, saveServiceFee, deleteServiceFee } from './ServiceFee.api';
-  import { serviceFeePayload, serviceFeePrice, serviceFeeTaxText } from '../serviceFee';
-  import { decimalPrice, hasPrice } from '../quotationPricing';
+  import { serviceFeePayload, serviceFeePrice } from '../serviceFee';
+  import { decimalPrice, derivedGuidanceRate } from '../quotationPricing';
   import { initDictOptions } from '/@/utils/dict';
   defineOptions({ name: 'ServiceFeeMaintenance' });
   const props = defineProps<{ embedded?: boolean; formOnly?: boolean }>();
@@ -82,7 +84,8 @@ v-model:open="formOpen" :title="formReadonly ? '服务费详情' : form.id ? '�
   const columns = [
     { title: '费用名称', dataIndex: 'name', width: 160 }, { title: '单位', key: 'unit', dataIndex: 'unit', width: 100, ellipsis: true },
     { title: '税率', key: 'markupRate', width: 90 },
-    { title: '报价指导比例', key: 'guideMarkupRate', width: 120 },
+    { title: '加价比例', key: '_guideRate', width: 120 },
+    { title: '指导价格（元）', key: 'guidePrice', width: 140 },
     { title: '成本价（元）', key: 'costPrice', width: 160 }, { title: '描述', dataIndex: 'description', ellipsis: true },
     { title: '操作', key: 'action', width: 230 },
   ];
@@ -103,7 +106,7 @@ v-model:open="formOpen" :title="formReadonly ? '服务费详情' : form.id ? '�
     if (saving.value || (!readonly && !hasPermission(id ? 'mtl:serviceFee:edit' : 'mtl:serviceFee:add'))) return;
     const request = ++formSequence;
     formReadonly.value = readonly; formError.value = ''; formLoadError.value = '';
-    form.value = { name: '', markupRate: 0, guideMarkupRate: 0, costPrice: 0, description: '', unit: undefined, quantity: 1, remark: '' };
+    form.value = { name: '', markupRate: 0, _guideRate: '0.00', guidePrice: '0.00', costPrice: 0, description: '', unit: undefined, quantity: 1, remark: '' };
     formOpen.value = true;
     void loadUnits();
     if (!id) return;
@@ -112,19 +115,26 @@ v-model:open="formOpen" :title="formReadonly ? '服务费详情' : form.id ? '�
       const result = await serviceFeeDetail(id);
       if (request !== formSequence) return;
       if (!result?.id) throw new Error('服务费详情不存在');
-      form.value = { ...result };
+      form.value = { ...result, guidePrice: Number(result.guidePrice ?? 0).toFixed(2), _guideRate: derivedGuidanceRate(result.costPrice ?? 0, result.guidePrice ?? 0) };
     } catch (e: any) { if (request === formSequence) formLoadError.value = e?.message || '详情加载失败，请关闭后重试'; }
     finally { if (request === formSequence) formLoading.value = false; }
+  }
+  function syncGuide(field: string) {
+    try {
+      if (field === '_guideRate') form.value.guidePrice = serviceFeePrice(form.value.costPrice, form.value._guideRate);
+      else form.value._guideRate = derivedGuidanceRate(form.value.costPrice ?? 0, form.value.guidePrice ?? 0);
+      formError.value = '';
+    } catch (e: any) { formError.value = e.message; }
   }
   async function save() {
     if (saving.value || formLoading.value || formReadonly.value || formLoadError.value) return;
     if (!hasPermission(form.value.id ? 'mtl:serviceFee:edit' : 'mtl:serviceFee:add')) return;
     formError.value = '';
     try {
-      const payload = serviceFeePayload({ ...form.value, guidePrice: serviceFeePrice(form.value.costPrice, form.value.markupRate) });
-      // 基础库税率仍为markupRate；新增默认比例单独维护，不与报价明细字段混用。
+      decimalPrice(form.value._guideRate ?? 0, '加价比例', 2, -100);
+      const payload = serviceFeePayload(form.value);
+      // 基础库markupRate是税率，保留；加价比例仅前端派生，不提交。
       payload.markupRate = Number(decimalPrice(form.value.markupRate, '税率', 4));
-      if (hasPrice(form.value.guideMarkupRate)) payload.guideMarkupRate = Number(decimalPrice(form.value.guideMarkupRate, '报价指导比例', 4));
       saving.value = true;
       await saveServiceFee(payload);
       formOpen.value = false; createMessage.success('服务费已保存'); emit('saved');

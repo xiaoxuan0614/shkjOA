@@ -21,7 +21,8 @@
 </template>
 
 <script lang="ts" setup>
-  import { ref, computed } from 'vue';
+  import { ref, computed, h } from 'vue';
+  import { BasicHelp } from '/@/components/Basic';
   import { BasicModal, useModalInner } from '/@/components/Modal';
   import { BasicForm, useForm } from '/@/components/Form';
   import { useMessage } from '/@/hooks/web/useMessage';
@@ -29,7 +30,7 @@
   import { rules } from '@/utils/helper/validator';
   import { defHttp } from '@/utils/http/axios';
   import { useUserStore } from '@/store/modules/user';
-  import { createPasswordLengthRule } from '@/utils/password';
+  import { createNewPasswordRule, NEW_PASSWORD_HINT } from '@/utils/newPassword';
 
   const emit = defineEmits(['success', 'register']);
 
@@ -43,7 +44,7 @@
     labelWidth: 100,
     schemas: [
       {
-        label: t('layout.changePassword.newPassword'),
+        label: () => h('span', [h(BasicHelp, { text: NEW_PASSWORD_HINT, placement: 'top', style: { marginLeft: '0', marginRight: '6px' } }), t('layout.changePassword.newPassword')]),
         field: 'password',
         component: 'StrengthMeter',
         componentProps: {
@@ -66,7 +67,7 @@
               return Promise.resolve();
             },
           },
-          createPasswordLengthRule(),
+          createNewPasswordRule(() => oldPassword.value),
         ],
       },
       {

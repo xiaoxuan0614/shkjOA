@@ -15,6 +15,7 @@
   import { usePermission } from '/@/hooks/web/usePermission';
   import { useMessage } from '/@/hooks/web/useMessage';
   import { MATERIAL_PRICE_PERMISSION, queryById, saveMaterialPrices } from '../Goods.api';
+  import { guidancePrice, derivedGuidanceRate } from '/@/views/plan/quotationPricing';
 
   const emit = defineEmits(['register', 'success']);
   const { hasPermission } = usePermission();
@@ -42,41 +43,55 @@
   const schemas: FormSchema[] = [
     { label: '成本价', field: 'costPrice', digits: 2, integerDigits: 16 },
     { label: '基准单价', field: 'unitPrice', digits: 2, integerDigits: 16 },
-    { label: '指导比例', field: 'guideMarkupRate', digits: 2, integerDigits: 14 },
+    { label: '加价比例', field: '_guideRate', digits: 2, integerDigits: 14 },
+    { label: '指导价格', field: 'guidePrice', digits: 2, integerDigits: 16 },
   ].map(({ digits, integerDigits, ...field }) => ({
     ...field,
     component: 'InputNumber',
     componentProps: {
-      min: 0,
+      min: field.field === '_guideRate' ? -100 : 0,
       precision: digits,
       stringMode: true,
       formatter: formatPrice,
       inputmode: 'decimal',
-      addonAfter: field.field === 'guideMarkupRate' ? '%' : undefined,
-      onBeforeinput: guardNumericInput,
-      onPaste: guardNumericPaste,
+      addonAfter: field.field === '_guideRate' ? '%' : undefined,
+      onChange: (value) => syncPricing(field.field, value),
+      onBeforeinput: field.field === '_guideRate' ? undefined : guardNumericInput,
+      onPaste: field.field === '_guideRate' ? undefined : guardNumericPaste,
       style: { width: '100%' },
     },
     helpMessage:
       field.field === 'unitPrice'
         ? '留空不修改，填写 0 可保存为零。'
-        : '未维护时默认 0.00，保留两位小数；手动清空不修改原值。',
+        : '未填写按 0.00；比例仅前端换算，保存指导价格。成本为零时比例显示0.00%。',
     rules: [
       {
         validator: async (_rule, value) => {
           if (value == null || value === '') return;
+          if (field.field === '_guideRate') {
+            if (!/^-?\d{1,14}(\.\d{1,2})?$/.test(String(value)) || Number(value) < -100) throw new Error('加价比例不能低于-100%，最多两位小数');
+            return;
+          }
           if (!new RegExp(`^\\d{1,${integerDigits}}(\\.\\d{1,${digits}})?$`).test(String(value)))
             throw new Error(`请输入非负数，最多 ${integerDigits} 位整数和 ${digits} 位小数`);
         },
       },
     ],
   }));
-  const [registerForm, { resetFields, setFieldsValue, validate, setProps }] = useForm({
+  const [registerForm, { resetFields, setFieldsValue, getFieldsValue, validate, setProps }] = useForm({
     schemas,
     labelWidth: 100,
     baseColProps: { span: 24 },
     showActionButtonGroup: false,
   });
+  function syncPricing(field: string, value: unknown) {
+    if (!ready.value || saving.value || field === 'unitPrice') return;
+    const values = { ...getFieldsValue(), [field]: value };
+    try {
+      if (field === '_guideRate') void setFieldsValue({ guidePrice: guidancePrice(values.costPrice, value) });
+      else void setFieldsValue({ _guideRate: derivedGuidanceRate(defaultPrice(values.costPrice), defaultPrice(values.guidePrice)) });
+    } catch { /* 输入中间态交由表单校验，保留用户输入。 */ }
+  }
   const [register, { closeModal, setModalProps }] = useModalInner(async (data) => {
     ready.value = false;
     materialId.value = '';
@@ -96,7 +111,7 @@
       materialId.value = String(detail.id || data.id);
       materialName.value = detail.materialName || '';
       unit.value = detail.unit || '';
-      await setFieldsValue({ costPrice: defaultPrice(detail.costPrice), unitPrice: detail.unitPrice, guideMarkupRate: defaultPrice(detail.guideMarkupRate) });
+      await setFieldsValue({ costPrice: defaultPrice(detail.costPrice), unitPrice: detail.unitPrice, guidePrice: defaultPrice(detail.guidePrice), _guideRate: derivedGuidanceRate(defaultPrice(detail.costPrice), defaultPrice(detail.guidePrice)) });
       ready.value = true;
       setProps({ disabled: false });
       setModalProps({ okButtonProps: { disabled: false } });
@@ -119,7 +134,7 @@
       }
       saving.value = true;
       setModalProps({ confirmLoading: true });
-      await saveMaterialPrices({ ...prices, id: materialId.value });
+      await saveMaterialPrices({ id: materialId.value, costPrice: defaultPrice(values.costPrice), guidePrice: defaultPrice(values.guidePrice), unitPrice: prices.unitPrice as string | number | undefined });
       createMessage.success('价格已保存');
       emit('success');
       closeModal();

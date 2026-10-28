@@ -1,5 +1,5 @@
 import Big from 'big.js';
-import { decimalPrice, hasPrice } from './quotationPricing';
+import { decimalPrice, hasPrice, guidancePrice, derivedGuidanceRate } from './quotationPricing';
 
 /** 仅合并展示，保留原行引用，保存/审批仍读取各自数组。 */
 export function quotationDisplayRows(materials: Record<string, any>[], fees: Record<string, any>[]) {
@@ -8,8 +8,7 @@ export function quotationDisplayRows(materials: Record<string, any>[], fees: Rec
 
 /** 加价比例使用百分数原值；税率 taxRate 仅展示，不参与计算。 */
 export function serviceFeePrice(cost: unknown, rate: unknown) {
-  const price = decimalPrice(cost, '服务费成本价').times(decimalPrice(rate, '加价比例', 4, -100).div(100).plus(1)).round(2, Big.roundHalfUp);
-  return decimalPrice(price.toFixed(2), '服务费指导价').toFixed(2);
+  return guidancePrice(cost, rate);
 }
 
 export function serviceFeeTaxText(value: unknown) {
@@ -17,15 +16,17 @@ export function serviceFeeTaxText(value: unknown) {
   try { return `${new Big(String(value)).toString()}%`; } catch { return '—'; }
 }
 
-export function serviceFeeCopy(source: Record<string, any>, directQuotation = false) {
+export function serviceFeeCopy(source: Record<string, any>, _directQuotation = false) {
   const costPrice = source.costPrice ?? null;
-  const markupRate = source.guideMarkupRate ?? 0;
+  const guidePrice = decimalPrice(source.guidePrice ?? 0, '服务费指导价').toFixed(2);
+  const markupRate = derivedGuidanceRate(costPrice, guidePrice);
   return { serviceFeeId: source.id, name: source.name, description: source.description || '', remark: '',
     unit: String(source.unit || '').trim() || '项', quantity: 1, costPrice, markupRate, taxRate: source.taxRate ?? source.markupRate ?? null,
-    guidePrice: directQuotation ? '0.00' : hasPrice(costPrice) && hasPrice(markupRate) ? serviceFeePrice(costPrice, markupRate) : null };
+    guidePrice };
 }
 
 export function serviceFeePayload(row: Record<string, any>, options = { structure: true, cost: true, price: true }, _directQuotation = false) {
+  if (options.price && row._error) throw new Error(row._error);
   const name = String(row.name || '').trim();
   const unit = String(row.unit || '').trim();
   if (!name || name.length > 100) throw new Error('服务费名称必填且最多100字');
@@ -42,7 +43,7 @@ export function serviceFeePayload(row: Record<string, any>, options = { structur
   // 已有明细仍严格遵守价格编辑权限，不借保存备注覆盖价格。
   if (options.price || (!row.id && options.structure && row.serviceFeeId)) {
     // 新行默认价在选择/输入时计算，保存时不再反复舍入。
-    const guidePrice = row.guidePrice;
+    const guidePrice = hasPrice(row.guidePrice) ? row.guidePrice : 0;
     result.guidePrice = Number(decimalPrice(guidePrice, '服务费指导价'));
   }
   return result;

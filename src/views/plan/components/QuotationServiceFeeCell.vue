@@ -64,15 +64,15 @@
       : field === 'costPrice' ? props.costEditable : field === 'remark' ? props.editable
       : ['markupRate', 'guidePrice'].includes(field) && props.priceVisible && props.priceEditable;
     if (!allowed || props.busy) return;
+    if (['markupRate', 'guidePrice'].includes(field) && (value == null || value === '')) value = 0;
     const patch: Recordable = { [field]: value };
-    const newSourceCost = field === 'costPrice' && !props.record.id && !!props.record.serviceFeeId;
-    if (!props.directQuotation && (newSourceCost || (props.priceVisible && props.priceEditable)) && ['costPrice', 'markupRate'].includes(field)) {
+    if (!props.directQuotation && props.priceVisible && props.priceEditable && field === 'markupRate') {
       const row = { ...props.record, ...patch };
       try { patch.guidePrice = serviceFeePrice(row.costPrice, row.markupRate); patch._error = ''; }
       catch (error: any) { patch.guidePrice = null; patch._error = error.message; }
     }
-    if (!props.directQuotation && field === 'guidePrice' && props.rateVisible !== false) {
-      patch.markupRate = derivedGuidanceRate(props.record.costPrice, value);
+    if (!props.directQuotation && props.priceVisible && ['guidePrice', 'costPrice'].includes(field) && props.rateVisible !== false) {
+      patch.markupRate = derivedGuidanceRate(field === 'costPrice' ? value : props.record.costPrice, field === 'guidePrice' ? value : props.record.guidePrice);
       patch._error = '';
     }
     emit('change', props.record, patch);

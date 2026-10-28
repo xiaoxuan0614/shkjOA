@@ -8,7 +8,7 @@ export function quotationPercent(cost: any, price: any): string {
   try {
     const base = decimalPrice(cost, '成本价');
     const final = decimalPrice(price, '报价');
-    return base.eq(0) ? '—' : `${final.minus(base).div(base).times(100).round(2, Big.roundHalfUp).toFixed(2)}%`;
+    return base.eq(0) ? '0.00%' : `${final.minus(base).div(base).times(100).round(2, Big.roundHalfUp).toFixed(2)}%`;
   } catch {
     return '—';
   }
@@ -34,18 +34,18 @@ export function validateDirectQuotation(basePrice: any, finalPrice: any) {
 
 /** 加价比例使用百分数原值：成本20、比例25%得到指导价25，不是成本倍数或毛利率。 */
 export function guidancePrice(cost: any, percent: any) {
-  return decimalPrice(cost, '成本价').times(decimalPrice(percent, '加价比例', 4, -100).div(100).plus(1)).round(2, Big.roundHalfUp).toFixed(2);
+  return decimalPrice(cost, '成本价').times(decimalPrice(hasPrice(percent) ? percent : 0, '加价比例', 2, -100).div(100).plus(1)).round(2, Big.roundHalfUp).toFixed(2);
 }
 
 /** 反算百分数，保留最后编辑的指导价，不再用舍入后的比例覆盖它。 */
 export function guidanceRate(cost: any, price: any) {
   const base = decimalPrice(cost, '成本价');
   const final = decimalPrice(price, '指导价');
-  if (base.eq(0)) throw new Error('成本价为 0，无法反算加价比例');
+  if (base.eq(0)) return '0.00';
   return decimalPrice(final.minus(base).div(base).times(100).round(2, Big.roundHalfUp).toFixed(2), '加价比例', 2, -100).toFixed(2);
 }
 
-/** 价格缺失、脱敏或零成本时没有可回显的比例，不能使用后端旧比例兜底。 */
+/** 缺失或脱敏不转零；有效零成本按界面约定显示0%，不使用后端旧比例。 */
 export function derivedGuidanceRate(cost: any, price: any): string | null {
   try { return guidanceRate(cost, price); } catch { return null; }
 }
@@ -89,7 +89,7 @@ export function quotationPricePayload(row: any, required = false) {
     ['basePrice', '成本价', 2],
     ['finalPrice', '终价', 2],
   ] as const) {
-    if (required || hasPrice(row[key])) result[key] = Number(decimalPrice(row[key], label, precision));
+    if (required || hasPrice(row[key])) result[key] = Number(decimalPrice(key === 'finalPrice' && !hasPrice(row[key]) ? 0 : row[key], label, precision));
   }
   return result;
 }

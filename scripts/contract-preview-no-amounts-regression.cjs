@@ -24,6 +24,12 @@ async function render(props) {
   assert((await render({ quotation: { items: [], serviceFees: [] }, hideAmounts: true })).includes('colspan="8"'));
   const normal = await render({ quotation });
   assert(normal.includes('单价') && normal.includes('小计') && normal.includes('合计'));
+  const cost = await render({ quotation, amountLabel: '成本' });
+  assert(cost.includes('成本单价（元）') && cost.includes('成本小计（元）') && cost.includes('成本合计'));
+  const quote = await render({ quotation, amountLabel: '报价' });
+  assert(quote.includes('报价单价（元）') && quote.includes('报价小计（元）') && quote.includes('报价合计'));
+  const hiddenCost = await render({ quotation, amountLabel: '成本', hideAmounts: true });
+  assert(!hiddenCost.includes('成本合计') && !hiddenCost.includes('成本单价'));
   assert(fs.readFileSync('src/views/project/contract/index.vue', 'utf8').includes(':quotation="quotationPreviewData" live hide-amounts'));
   assert(fs.readFileSync('src/views/project/contract/ContractApproval.vue', 'utf8').includes(':quotation="snapshot.quotation" hide-amounts'));
   assert(!fs.readFileSync('src/views/plan/material-draft/editor.vue', 'utf8').includes('hide-amounts'));

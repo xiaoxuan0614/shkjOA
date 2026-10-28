@@ -25,19 +25,19 @@ assert.equal(pricing.guidancePrice(100, -20), '80.00');
 assert.equal(pricing.guidancePrice(100, -100), '0.00');
 assert.equal('markupRate' in pricing.quotationPricePayload({ basePrice: 100, markupRate: -20, finalPrice: 80 }, true), false);
 assert.equal(pricing.derivedGuidanceRate(100, 80), '-20.00');
-assert.equal(pricing.derivedGuidanceRate(0, 80), null);
+assert.equal(pricing.derivedGuidanceRate(0, 80), '0.00');
 assert.equal(pricing.derivedGuidanceRate(null, 80), null);
 assert.equal(pricing.quotationPricePayload({ basePrice: 0, finalPrice: 80 }, true).finalPrice, 80);
 assert.throws(() => pricing.guidancePrice(100, -100.01));
-for (const [cost, price] of [[0, 0], [0, 1], [100, -1], [null, 1], [1, null]]) {
+for (const [cost, price] of [[100, -1], [null, 1], [1, null]]) {
   assert.throws(() => pricing.guidanceRate(cost, price));
 }
 assert.equal(pricing.quotationPercent(100, 120), '20.00%');
 assert.equal(pricing.quotationPercent(3, 4), '33.33%');
 assert.equal(pricing.quotationPercent(100, 80), '-20.00%');
 assert.equal(pricing.quotationPercent(100, 0), '-100.00%');
-assert.equal(pricing.quotationPercent(0, 120), '—');
-assert.equal(pricing.quotationPercent(0, 0), '—');
+assert.equal(pricing.quotationPercent(0, 120), '0.00%');
+assert.equal(pricing.quotationPercent(0, 0), '0.00%');
 assert.equal(pricing.quotationPercent(null, 120), '—');
 assert.equal(pricing.quotationPercent(100, null), '—');
 assert.equal(pricing.quotationPercent('NaN', 120), '—');
@@ -60,7 +60,7 @@ assert.equal(pricing.guidancePrice(100,20),'120.00');
 assert.equal(pricing.guidancePrice('1.01',50),'1.52');
 assert.equal(pricing.guidancePrice(0,20),'0.00');
 assert.equal(pricing.guidancePrice(100,0),'100.00');
-assert.throws(()=>pricing.guidancePrice(100,null));
+assert.equal(pricing.guidancePrice(100,null), '100.00');
 assert.throws(()=>pricing.guidancePrice(null,20));
 assert.equal(pricing.finalFromRate(100, 0.2), '120.00');
 assert.equal(pricing.rateFromFinal(100, 120), '0.2000');

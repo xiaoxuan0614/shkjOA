@@ -98,7 +98,6 @@
             <div class="implement-detail__section-title">行车记录</div>
             <a-descriptions :column="2" bordered size="middle">
               <a-descriptions-item label="使用车辆">{{ log.vehicleNo || log.vehicle || '—' }}</a-descriptions-item>
-              <a-descriptions-item label="公里数">{{ formatMileage(log.mileage ?? log.vehicleKm) }}</a-descriptions-item>
             </a-descriptions>
           </div>
 
@@ -269,10 +268,6 @@
 
   function formatPeople(value: unknown) {
     return value === null || value === undefined || value === '' ? '—' : `${value}人`;
-  }
-
-  function formatMileage(value: unknown) {
-    return value === null || value === undefined || value === '' ? '—' : `${value}km`;
   }
 
   function getPhotos(): string[] {

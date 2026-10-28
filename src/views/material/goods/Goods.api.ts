@@ -71,6 +71,7 @@ export const saveOrUpdate = (params, isUpdate, showTip = true) => {
   delete basic.costPrice;
   delete basic.unitPrice;
   delete basic.guideMarkupRate;
+  delete basic.guidePrice;
   return defHttp.post({ url, params: basic }, { successMessageMode: showTip ? 'success' : 'none' });
 };
 
@@ -99,13 +100,13 @@ export async function saveMaterialPrices(params: {
   id: string;
   costPrice?: number | string;
   unitPrice?: number | string;
-  guideMarkupRate?: number | string;
+  guidePrice?: number | string;
 }) {
   if (!usePermission().hasPermission(MATERIAL_PRICE_PERMISSION)) throw new Error('无价格维护权限');
-  const { id, costPrice, unitPrice, guideMarkupRate } = params;
+  const { id, costPrice, unitPrice, guidePrice } = params;
   if (!id?.trim()) throw new Error('缺少物料 ID');
   const prices = Object.fromEntries(
-    Object.entries({ costPrice, unitPrice, guideMarkupRate }).filter(([, value]) => value != null && value !== '')
+    Object.entries({ costPrice, unitPrice, guidePrice }).filter(([, value]) => value != null && value !== '')
   );
   if (!Object.keys(prices).length) throw new Error('请至少填写一项价格信息');
   const response = await defHttp.post(
