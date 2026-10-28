@@ -140,7 +140,7 @@ ref="serviceFeePickerRef" picker-only :model-value="serviceFees" :ready="feesRea
   import MaterialPlanTable from '../components/MaterialPlanTable.vue';
   import ServiceFeeTable from '../components/ServiceFeeTable.vue';
   import QuotationServiceFeeCell from '../components/QuotationServiceFeeCell.vue';
-  import { quotationSummary, quotationTotals, serviceFeePayload, serviceFeeApprovalItems, serviceFeePrice } from '../serviceFee';
+  import { quotationSummary, quotationTotals, serviceFeePayload, serviceFeeApprovalItems } from '../serviceFee';
   import QuotationGrantModal from './QuotationGrantModal.vue';
   import QuotationHistoryModal from './QuotationHistoryModal.vue';
   import { quotationListStatusMap as statusMeta } from '../Plan.data';
@@ -220,11 +220,9 @@ ref="serviceFeePickerRef" picker-only :model-value="serviceFees" :ready="feesRea
         : ['guidePrice', '_error'].includes(key) && canEditServiceFeePricing.value;
       if (allowed) row[key] = value;
     }
-    // 新选来源行的默认指导价随成本联动，不开放手动定价权限。
-    if (!directEntry.value && Object.prototype.hasOwnProperty.call(patch, 'costPrice') && !row.id && row.serviceFeeId
-      && canModify.value && (!record.value.id || caps.value.editBase) && !canEditServiceFeePricing.value) {
-      try { row.guidePrice = serviceFeePrice(row.costPrice, row.markupRate); row._error = ''; }
-      catch (error: any) { row.guidePrice = null; row._error = error.message; }
+    // 成本变化只反算比例，不覆盖已经带入或手动维护的指导价格。
+    if (Object.prototype.hasOwnProperty.call(patch, 'costPrice') && access.value.canManage) {
+      row.markupRate = derivedGuidanceRate(row.costPrice, row.guidePrice);
     }
   }
   const feesReady = ref(false);

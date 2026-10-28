@@ -508,7 +508,7 @@
         _unitLoading: true,
         plannedQty: 1,
         ...(props.mode === 'quotation' && props.basePriceEditable ? { basePrice: props.directQuotation ? 0 : material.costPrice ?? 0 } : {}),
-        ...(props.mode === 'quotation' && props.directQuotation ? { finalPrice: '0.00' } : {}),
+        ...(props.mode === 'quotation' ? { finalPrice: Number(material.guidePrice ?? 0).toFixed(2), _sourceGuidePrice: material.guidePrice ?? 0, markupRate: derivedGuidanceRate(props.directQuotation ? 0 : material.costPrice ?? 0, material.guidePrice ?? 0) } : {}),
         remark: '',
       };
       rows.value.push(row);
@@ -670,7 +670,7 @@
         unitId: item._unitValue,
         remark: item.remark,
         ...(props.basePriceEditable ? quotationPricePayload({ basePrice: item.basePrice }) : {}),
-        ...(props.pricingEditable ? quotationPricePayload({ finalPrice: item.finalPrice }) : {}),
+        ...(props.pricingEditable ? quotationPricePayload({ finalPrice: item.finalPrice ?? 0 }) : !item.id && item._sourceGuidePrice != null ? quotationPricePayload({ finalPrice: item._sourceGuidePrice }) : {}),
       }));
     }
     if (props.mode === 'plan' || props.mode === 'rework') {
@@ -771,16 +771,13 @@
     if (key === 'markupRate' && props.rateVisible === false) return;
     if (key === 'basePrice' ? !props.basePriceEditable : !props.priceVisible || !props.pricingEditable) return;
     row._priceError = undefined;
-    row[key] = hasPrice(value) ? value : null;
-    if (!hasPrice(value)) {
-      if (key === 'finalPrice') row.markupRate = null;
-      return;
-    }
+    value = hasPrice(value) ? value : 0;
+    row[key] = value;
     try {
-      decimalPrice(value, key === 'basePrice' ? '成本价' : key === 'markupRate' ? '加价比例' : '终价', key === 'markupRate' ? 4 : 2, key === 'markupRate' ? -100 : 0);
+      decimalPrice(value, key === 'basePrice' ? '成本价' : key === 'markupRate' ? '加价比例' : '终价', 2, key === 'markupRate' ? -100 : 0);
       if (!props.directQuotation && props.pricingEditable) {
         if (key === 'markupRate') row.finalPrice = guidancePrice(row.basePrice, value);
-        if (key === 'basePrice' && props.rateVisible !== false && hasPrice(row.markupRate)) row.finalPrice = guidancePrice(value, row.markupRate);
+        if (key === 'basePrice' && props.rateVisible !== false) row.markupRate = derivedGuidanceRate(value, row.finalPrice);
         if (key === 'finalPrice' && props.rateVisible !== false) row.markupRate = derivedGuidanceRate(row.basePrice, value);
       }
       if (props.directQuotation && hasPrice(row.basePrice) && hasPrice(row.finalPrice)) {
