@@ -9,7 +9,6 @@ export const saveOrUpdate = (values, isUpdate) => {
     plateNumber: values.plateNumber?.trim(),
     principal: values.principal?.trim(),
     ...(values.driveMode ? { driveMode: values.driveMode } : {}),
-    ...(values.currentMileage != null && values.currentMileage !== '' ? { currentMileage: values.currentMileage } : {}),
   };
   return defHttp.post({ url: isUpdate ? '/vehicle/edit' : '/vehicle/add', params }, { successMessageMode: 'success' });
 };
