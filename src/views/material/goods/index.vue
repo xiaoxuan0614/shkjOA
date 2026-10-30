@@ -4,7 +4,7 @@
     <BasicTable @register="registerTable" :rowSelection="rowSelection">
       <!-- 表格标题栏 -->
       <template #tableTitle>
-        <a-button type="primary" v-auth="'mtl:goods:add'" @click="handleAdd" preIcon="ant-design:plus-outlined"> 新增 </a-button>
+        <a-button v-if="hasPermission(MATERIAL_ADD_PERMISSION)" type="primary" @click="handleAdd" preIcon="ant-design:plus-outlined"> 新增 </a-button>
         <a-button @click="openBrandModal(true, {})">品牌管理</a-button>
         <a-button preIcon="ant-design:import-outlined" @click="openImportModal(true, {})">导入</a-button>
         <a-dropdown>
@@ -64,7 +64,7 @@
   import GoodsPriceModal from './components/GoodsPriceModal.vue';
   import { usePermission } from '/@/hooks/web/usePermission';
   import { useUserStore } from '/@/store/modules/user';
-  import { MATERIAL_PRICE_PERMISSION } from './Goods.api';
+  import { MATERIAL_ADD_PERMISSION, MATERIAL_PRICE_PERMISSION } from './Goods.api';
   import JImportModal from '/@/components/Form/src/jeecg/components/JImportModal.vue';
   import { columns, searchFormSchema } from './Goods.data';
   import { list, deleteOne, batchDelete, queryById, importExcel, importTemplate } from './Goods.api';
@@ -135,6 +135,7 @@
    * 新增事件：打开新增物料弹窗(物料编码自动生成)
    */
   function handleAdd() {
+    if (!hasPermission(MATERIAL_ADD_PERMISSION)) return;
     openModal(true, { isUpdate: false, showFooter: true });
   }
 
