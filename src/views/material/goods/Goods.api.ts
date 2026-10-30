@@ -4,6 +4,8 @@ import { useMessage } from '/@/hooks/web/useMessage';
 
 const { createConfirm } = useMessage();
 
+export const MATERIAL_ADD_PERMISSION = 'mtl:goods:add';
+
 /**
  * 物料库存 - 接口定义
  *
@@ -65,6 +67,9 @@ export const batchDelete = (params, handleSuccess) => {
  * 保存或者更新
  */
 export const saveOrUpdate = (params, isUpdate, showTip = true) => {
+  if (!isUpdate && !usePermission().hasPermission(MATERIAL_ADD_PERMISSION)) {
+    return Promise.reject(new Error('无新增物料权限'));
+  }
   const url = isUpdate ? Api.edit : Api.save;
   const basic = { ...params };
   // 基本信息维护不得携带价格，避免回显或默认值覆盖独立维护的价格。

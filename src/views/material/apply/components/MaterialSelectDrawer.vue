@@ -39,7 +39,7 @@
           </template>
           <a-button type="primary" @click="handleSearch">筛选</a-button>
           <a-button @click="handleReset">重置</a-button>
-          <a-button v-if="!isProjectMode && !laborOnly" type="primary" class="material-select__add-btn" @click="handleAddMaterial">
+          <a-button v-if="!isProjectMode && !laborOnly && hasPermission(MATERIAL_ADD_PERMISSION)" type="primary" class="material-select__add-btn" @click="handleAddMaterial">
             <Icon icon="ant-design:plus-outlined" />
             新增物料
           </a-button>
@@ -127,11 +127,14 @@
   import { initDictOptions } from '/@/utils/dict/index';
   import { invalidateMaterialMap } from '../../material.util';
   import { useMessage } from '/@/hooks/web/useMessage';
+  import { usePermission } from '/@/hooks/web/usePermission';
+  import { MATERIAL_ADD_PERMISSION } from '../../goods/Goods.api';
   import { renderMaterialSpecification } from '../../materialSpecification';
 
   // Emits声明
   const emit = defineEmits(['register', 'success']);
   const { createMessage } = useMessage();
+  const { hasPermission } = usePermission();
   const props = withDefaults(
     defineProps<{
       sourceMode?: 'all' | 'project';
@@ -472,6 +475,7 @@
 
   // 新增物料: 打开弹窗
   function handleAddMaterial() {
+    if (isProjectMode.value || props.laborOnly || !hasPermission(MATERIAL_ADD_PERMISSION)) return;
     openAddModal(true, { isUpdate: false, showFooter: true });
   }
 

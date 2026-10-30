@@ -107,13 +107,15 @@
   import { BasicForm, useForm } from '/@/components/Form/index';
   import { useMessage } from '/@/hooks/web/useMessage';
   import { formSchema } from '../Goods.data';
-  import { saveOrUpdate } from '../Goods.api';
+  import { saveOrUpdate, MATERIAL_ADD_PERMISSION } from '../Goods.api';
+  import { usePermission } from '/@/hooks/web/usePermission';
   import { loadUnitOptions, updateUnitDictionary } from '../../material.util';
   import { UniqueRowSelect, useUniqueRowOptions, validateEditableRows } from '/@/components/EditableTable';
   import BrandManageModal from './BrandManageModal.vue';
   import { initDictOptions } from '/@/utils/dict';
 
   const { createMessage } = useMessage();
+  const { hasPermission } = usePermission();
   const emit = defineEmits(['register', 'success', 'brandsUpdated']);
   const props = defineProps<{ brandOptions?: { label: string; value: string }[] }>();
   const brandManager = ref<InstanceType<typeof BrandManageModal>>();
@@ -199,6 +201,11 @@
   const { canAdd: canAddUnit } = useUniqueRowOptions(unitList, unitOptionList, { field: 'unitName', rowKey: 'uid' });
 
   const [register, { setModalProps, closeModal }] = useModalInner(async (data) => {
+    if (!data?.isUpdate && data?.showFooter && !hasPermission(MATERIAL_ADD_PERMISSION)) {
+      createMessage.warning('无新增物料权限');
+      closeModal();
+      return;
+    }
     brandDropdownOpen.value = false;
     await resetFields();
     unitDropdownUid.value = undefined;
@@ -306,6 +313,11 @@
 
   /** 提交：第一行即基准单位，按当前行序组装(含 sortNo)一并保存 */
   async function handleSubmit() {
+    if (readOnly.value) return;
+    if (!isUpdate.value && !hasPermission(MATERIAL_ADD_PERMISSION)) {
+      createMessage.warning('无新增物料权限');
+      return;
+    }
     try {
       const values = await validate();
       if (!validateUnits()) return;
