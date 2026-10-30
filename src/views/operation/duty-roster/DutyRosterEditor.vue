@@ -18,19 +18,23 @@
         <a-button v-if="isLocked && canManage" type="primary" :disabled="busy" @click="startEditing">
           <template #icon><Icon icon="ant-design:edit-outlined" /></template>修改排班
         </a-button>
-        <a-button v-else-if="canManage" type="primary" :disabled="!rosterRows.length || busy" :loading="saving" @click="saveRoster">
+        <a-button v-else-if="canManage && wizardStep === 3" type="primary" :disabled="!rosterRows.length || busy" :loading="saving" @click="saveRoster">
           <template #icon><Icon icon="ant-design:lock-outlined" /></template>保存并锁定
         </a-button>
       </div>
     </header>
 
-    <section class="config-panel" aria-labelledby="config-title">
+    <nav class="wizard-heading" aria-label="排班步骤">
+      <a-steps size="small" :current="wizardStep" :items="wizardItems" @change="goToStep" />
+      <p class="wizard-caption">第 {{ wizardStep + 1 }} / 4 步 · {{ wizardDescriptions[wizardStep] }}</p>
+    </nav>
+    <section v-show="wizardStep < 3" class="config-panel" aria-labelledby="config-title">
       <div class="section-heading">
-        <div><h2 id="config-title">排班设置</h2><p class="section-note">先核对规则，再生成初稿；每天的实际安排仍由你决定。</p></div>
+        <div><h2 id="config-title">{{ wizardTitles[wizardStep] }}</h2></div>
         <a-tag>{{ rotationUsers.length }} 人参与</a-tag>
       </div>
-      <a-steps class="roster-steps" size="small" :current="flowStep" :items="[{ title: '填写规则与人员' }, { title: '核对规则并生成' }, { title: '调整排班并保存' }]" />
-      <div class="config-grid">
+
+      <div v-show="wizardStep === 0" class="config-grid">
         <div class="field month-field">
           <label for="duty-month">值班月份</label>
           <a-date-picker
@@ -73,82 +77,65 @@
           />
           <a-button v-if="userError" type="link" :loading="userLoading" :disabled="saving" @click="loadUsers">重新加载人员</a-button>
         </div>
-        <a-button
-          v-if="generationRule !== 'text' || isLocked"
-          class="generate-button"
-          :disabled="!editable || !usersReady || !selectedUserIds.length || (generationRule === 'text' && (!textRuleCanGenerate || !ruleConfirmed))"
-          :loading="generating"
-          @click="applyAutoRoster"
-        >
-          <template #icon><Icon icon="ant-design:calendar-outlined" /></template>{{ rosterRows.length ? '重新生成排班表' : '生成排班表' }}
-        </a-button>
-      </div>
-      <div v-if="generationRule === 'text' && !isLocked" class="text-rule-panel">
-        <div class="rule-input-area">
-          <div class="rule-input-heading"><label for="duty-rule-text">用文字描述你的排班规则</label></div>
-          <p id="rule-writing-help" class="rule-writing-help">选一个模板开始，分别写清工作日、周末、夜班后休息和轮值顺序。每条规则单独一行，更容易检查。</p>
-          <div class="rule-templates" aria-label="排班逻辑模板">
-            <a-button
-              v-for="example in ruleTemplates"
-              :key="example.label"
-              size="small"
-              :disabled="!editable"
-              @click="fillRuleExample(example.text)"
-              >{{ example.label }}</a-button
-            >
-          </div>
-          <a-textarea
-            id="duty-rule-text"
-            aria-describedby="rule-writing-help"
-            v-model:value="ruleText"
-            :rows="7"
-            :maxlength="500"
-            show-count
-            :disabled="!editable"
-            placeholder="例如：工作日白班4人，夜班1人；周末白班1人，夜班1人；夜班后次日上午休息，下午上班；按选人顺序轮值。"
-            @change="invalidateTextRule"
-          />
-          <div class="rule-input-footer"
-            ><span>按模板可识别常用规则；指定人员、请假等安排请在生成后调整。</span>
-            <a-button type="primary" :disabled="!editable || !usersReady || !selectedUserIds.length" :loading="checkingRule" @click="checkRuleText"
-              >理解并检查规则</a-button
-            >
-          </div>
-        </div>
-        <div class="rule-check-area" aria-live="polite">
-          <div class="check-heading"><h3>核对规则</h3><a-tag :color="checkingRule ? 'blue' : textRuleCanGenerate ? 'green' : ruleAnalysis?.errors.length ? 'orange' : 'default'">{{ checkingRule ? '检查中' : textRuleCanGenerate ? '检查通过' : ruleAnalysis?.errors.length ? '需要调整' : '待检查' }}</a-tag></div>
-          <ul v-if="ruleAnalysis?.summary.length" class="rule-summary-list">
-            <li v-for="line in ruleAnalysis.summary" :key="line">{{ line }}</li>
-          </ul>
-          <p v-else class="rule-check-note">检查后这里会列出系统识别的班次、休息和轮值方式。无法识别的内容会逐条提示，不会自动忽略。</p>
-          <h3 class="feasibility-heading">整月排班检查</h3>
-          <p v-if="ruleWasEdited" class="rule-check-note">规则或人员顺序已变化，请重新检查。</p>
-          <p v-if="checkingRule" class="rule-check-note">正在检查参与人数、整月安排和跨月休息…</p>
-          <ul v-else-if="ruleAnalysis?.errors.length" class="rule-error-list">
-            <li v-for="error in ruleAnalysis.errors" :key="error">{{ error }}</li>
-          </ul>
-          <template v-else-if="textRuleCanGenerate && ruleAnalysis">
 
-            <p class="rule-check-note"
-              >已检查本月 {{ ruleAnalysis.rows?.length }} 天，按节假日安排
-              {{ ruleAnalysis.holidayDates?.length || 0 }} 天。生成后仍可调整人员，不会因为偏离规则而禁止保存。</p
-            >
-            <p v-if="ruleAnalysis.holidayDates?.length" class="rule-holiday-dates">{{ ruleAnalysis.holidayDates.map(formatDate).join('、') }}</p>
-          </template>
-          <p v-else class="rule-check-note">会检查参与人数、相互冲突的要求、跨月衔接及每一天是否可排。</p>
-          <div class="confirm-generation">
-            <a-checkbox v-model:checked="ruleConfirmed" :disabled="!editable || !textRuleCanGenerate">以上理解符合我的安排</a-checkbox>
-            <a-button type="primary" block :disabled="!editable || !textRuleCanGenerate || !ruleConfirmed" :loading="generating" @click="applyAutoRoster">{{ rosterRows.length ? '确认规则并重新生成' : '确认规则并生成排班' }}</a-button>
-          </div>
-        </div>
       </div>
-      <p v-if="generationRule === 'rotation'" class="rule-description">按选人顺序轮值：工作日白班4人不占轮次，夜班取1人；周末白班、夜班各依次取1人。昨晚夜班人员次日上午休息、下午上班，不补人。首次从第1人开始；有上月末夜班时接着往后排。生成后可手动修改。</p>
-      <div v-if="rotationUsers.length" class="rotation-order">
-        <span class="order-label">轮值顺序</span>
-        <span v-for="(person, index) in rotationUsers" :key="person?.userId || index" class="person-order"
-          ><span class="order-index">{{ index + 1 }}</span
-          >{{ person?.name || '未命名人员' }}<button v-if="editable" type="button" class="order-move" :disabled="index === 0" :aria-label="`${person?.name}前移`" @click="movePerson(index, -1)">←</button><button v-if="editable" type="button" class="order-move" :disabled="index === rotationUsers.length - 1" :aria-label="`${person?.name}后移`" @click="movePerson(index, 1)">→</button></span
-        >
+      <div v-if="wizardStep === 1 && generationRule === 'text' && !isLocked" class="simple-rules">
+        <div class="rule-section">
+          <h3>每天人数 <span>0 表示不安排该班次</span></h3>
+          <div class="demand-row"><strong>工作日</strong><label>白班 <a-input-number v-model:value="ruleForm.day" aria-label="工作日白班人数" :min="0" :max="100" :precision="0" :disabled="!editable" @change="invalidateTextRule" /> 人</label><label>夜班 <a-input-number v-model:value="ruleForm.night" aria-label="工作日夜班人数" :min="0" :max="100" :precision="0" :disabled="!editable" @change="invalidateTextRule" /> 人</label></div>
+          <div class="demand-row"><strong>周末</strong><label>白班 <a-input-number v-model:value="ruleForm.weekendDay" aria-label="周末白班人数" :min="0" :max="100" :precision="0" :disabled="!editable" @change="invalidateTextRule" /> 人</label><label>夜班 <a-input-number v-model:value="ruleForm.weekendNight" aria-label="周末夜班人数" :min="0" :max="100" :precision="0" :disabled="!editable" @change="invalidateTextRule" /> 人</label></div>
+          <div class="demand-row"><strong>节假日</strong><a-checkbox v-model:checked="ruleForm.holidays" :disabled="!editable" @change="invalidateTextRule">识别法定假日与调休</a-checkbox><a-select v-if="ruleForm.holidays" v-model:value="ruleForm.holidaySeparate" aria-label="节假日人数设置" :disabled="!editable" :options="[{label:'沿用周末人数',value:false},{label:'单独设置人数',value:true}]" @change="invalidateTextRule" /></div>
+          <div v-if="ruleForm.holidays && ruleForm.holidaySeparate" class="demand-row"><strong>假日人数</strong><label>白班 <a-input-number v-model:value="ruleForm.holidayDay" aria-label="节假日白班人数" :min="0" :max="100" :precision="0" :disabled="!editable" @change="invalidateTextRule" /> 人</label><label>夜班 <a-input-number v-model:value="ruleForm.holidayNight" aria-label="节假日夜班人数" :min="0" :max="100" :precision="0" :disabled="!editable" @change="invalidateTextRule" /> 人</label></div>
+          <p class="inline-note">{{ ruleForm.holidays ? '法定放假按假日安排，调休上班按工作日安排。' : '按自然星期区分工作日和周末。' }}</p>
+        </div>
+        <div class="rule-section">
+          <h3>休息与班次</h3>
+          <div class="demand-row"><strong>夜班后</strong><a-radio-group v-model:value="ruleForm.nightRest" :disabled="!editable" :options="[{label:'不休息',value:'none'},{label:'次日上午休息',value:'morning'},{label:'次日全天休息',value:'full'}]" @change="invalidateTextRule" /></div>
+          <div v-if="ruleForm.nightRest==='morning'" class="demand-row"><strong>上午缺岗</strong><a-select v-model:value="ruleForm.coverMorning" aria-label="上午休息补班方式" :disabled="!editable" :options="[{label:'不补人，下午正常上班',value:false},{label:'另排人员补足上午人数',value:true}]" @change="invalidateTextRule" /></div>
+          <p v-if="ruleForm.nightRest==='morning'" class="inline-note">{{ ruleForm.coverMorning ? '白班人数为上午在岗人数；昨夜夜班人员下午返岗，因此白班名单可能多于设定人数。' : '昨夜夜班人员若排入次日白班，计入白班人数，上午休息、下午上班。' }}</p>
+          <p v-if="ruleForm.nightRest==='full'" class="inline-note">昨夜夜班人员次日白班、夜班均不安排；缺人会提示，不自动减少人数。</p>
+          <div class="demand-row"><strong>同日白夜班</strong><a-radio-group v-model:value="ruleForm.overlap" :disabled="!editable" :options="[{label:'允许同一人',value:true},{label:'必须不同人',value:false}]" @change="invalidateTextRule" /></div>
+        </div>
+
+      </div>
+      <div v-if="wizardStep === 2 && generationRule === 'text' && !isLocked">
+        <a-collapse :active-key="['exceptions']" ghost class="exception-section"><a-collapse-panel key="exceptions" :header="`指定日期例外（${ruleForm.exceptions.length}条）`">
+          <p class="inline-note">指定日期优先于节假日及周末，休息规则仍生效。选择同一天即可设置单日例外。</p>
+          <div v-for="(exception,index) in ruleForm.exceptions" :key="index" class="exception-row">
+            <a-range-picker v-model:value="exception.dates" value-format="YYYY-MM-DD" :aria-label="`特殊日期第${index+1}条范围`" :disabled="!editable" @change="invalidateTextRule" />
+            <label>白班 <a-input-number v-model:value="exception.day" :aria-label="`特殊日期第${index+1}条白班人数`" :min="0" :max="100" :precision="0" :disabled="!editable" @change="invalidateTextRule" /></label>
+            <label>夜班 <a-input-number v-model:value="exception.night" :aria-label="`特殊日期第${index+1}条夜班人数`" :min="0" :max="100" :precision="0" :disabled="!editable" @change="invalidateTextRule" /></label>
+            <a-button type="link" danger :disabled="!editable" @click="ruleForm.exceptions.splice(index,1);invalidateTextRule()">移除</a-button>
+          </div>
+          <a-button :disabled="!editable" @click="ruleForm.exceptions.push({dates:[],day:1,night:1});invalidateTextRule()">添加特殊日期</a-button>
+        </a-collapse-panel></a-collapse>
+      </div>
+      <p v-if="wizardStep > 0 && generationRule === 'rotation'" class="rule-description">按选人顺序轮值：工作日白班4人不占轮次，夜班取1人；周末白班、夜班各依次取1人。昨晚夜班人员次日上午休息、下午上班，不补人。首次从第1人开始；有上月末夜班时接着往后排。生成后可手动修改。</p>
+      <div v-if="wizardStep === 0 && rotationUsers.length" class="order-panel">
+        <h3>轮值顺序 <a-tag>{{ rotationUsers.length }} 人</a-tag></h3>
+        <p class="section-note">按编号循环，前移 / 后移可调整顺序。全员白班不占轮次，其余班次先白班后夜班。</p>
+        <ol class="ordered-people">
+          <li v-for="(person,index) in rotationUsers" :key="person?.userId || index">
+            <span class="order-index">{{ index + 1 }}</span><strong>{{ person?.name || '未命名人员' }}</strong>
+            <span v-if="editable" class="order-actions"><a-button size="small" :disabled="index===0" :aria-label="`${person?.name}前移一位`" @click="movePerson(index,-1)">前移</a-button><a-button size="small" :disabled="index===rotationUsers.length-1" :aria-label="`${person?.name}后移一位`" @click="movePerson(index,1)">后移</a-button></span>
+          </li>
+        </ol>
+        <div v-if="generationRule==='text'" class="demand-row"><strong>本月起排</strong><a-radio-group v-model:value="ruleForm.start" :disabled="!editable" :options="[{label:'接着上月排',value:'continue'},{label:'指定起排人员',value:'person'}]" @change="invalidateTextRule" /><a-select v-if="ruleForm.start==='person'" v-model:value="ruleForm.startUserId" aria-label="起排人员" placeholder="选择起排人员" :disabled="!editable" :options="rotationUsers.filter(Boolean).map(p=>({label:p?.name,value:p?.userId}))" @change="invalidateTextRule" /></div>
+        <p class="inline-note">{{ rotationStartHint }}</p>
+      </div>
+      <div v-if="wizardStep === 2 && generationRule==='text' && !isLocked" class="rule-review" aria-live="polite">
+        <p>{{ ruleSummary }}</p><p class="inline-note">规则用于本次生成。服务器目前只保存每日人员，重新打开时不会恢复这些规则或半天休息标记。</p>
+        <a-alert v-if="ruleAnalysis?.errors.length" type="warning" show-icon :message="ruleAnalysis.errors.join('；')" />
+        <p v-if="textRuleCanGenerate" class="check-success">已检查 {{ ruleAnalysis?.rows?.length }} 天，可以生成。生成后可逐日修改，保存不受生成规则限制。</p>
+        <div class="review-actions"><a-button :disabled="!editable || !usersReady || !selectedUserIds.length" :loading="checkingRule" @click="checkRuleText">检查规则</a-button><a-checkbox v-model:checked="ruleConfirmed" :disabled="!editable || !textRuleCanGenerate">已核对规则</a-checkbox><a-button type="primary" :disabled="!editable || !textRuleCanGenerate || !ruleConfirmed" :loading="generating" @click="applyAutoRoster">{{ rosterRows.length ? '重新生成排班' : '生成排班' }}</a-button></div>
+      </div>
+      <p v-if="wizardStep > 0 && generationRule === 'manual'" class="inline-note">手动排班将生成本月空表，下一步逐日选择白班、夜班人员，无需填写生成规则。</p>
+      <div class="wizard-actions">
+        <a-button v-if="wizardStep > 0" :disabled="busy" @click="goToStep(wizardStep - 1)">上一步</a-button>
+        <span class="wizard-spacer" />
+        <a-button v-if="rosterRows.length" :disabled="busy" @click="goToStep(3)">返回现有排班</a-button>
+        <a-button v-if="wizardStep < 2" type="primary" :disabled="busy || !selectedUserIds.length || !usersReady" @click="goToStep(wizardStep + 1)">下一步：{{ wizardTitles[wizardStep + 1] }}</a-button>
+        <a-button v-if="wizardStep === 2 && generationRule !== 'text'" type="primary" :disabled="!editable || !usersReady || !selectedUserIds.length" :loading="generating" @click="applyAutoRoster">{{ rosterRows.length ? '重新生成排班' : '生成排班' }}</a-button>
       </div>
     </section>
 
@@ -157,8 +144,8 @@
     </a-alert>
 
     <a-alert v-if="boundaryError" class="feedback" type="warning" :message="boundaryError" show-icon />
-    <section class="roster-panel" aria-labelledby="roster-title">
-      <div class="table-heading">
+    <section v-show="wizardStep === 3" class="roster-panel" aria-labelledby="roster-title">
+      <div class="table-heading"><a-button v-if="canManage && !isLocked" :disabled="busy" @click="goToStep(0)">返回设置人员与规则</a-button>
         <div class="table-title"
           ><h2 id="roster-title">{{ selectedMonth.format('YYYY年M月') }}排班</h2><span class="day-count">{{ rosterRows.length }} 天</span></div
         >
@@ -222,7 +209,7 @@
                 .join('、') || '—'
             }}</span>
           </template>
-          <template v-else-if="column.dataIndex === 'morningRest'"><span class="rest-name">{{ boundaryError && record.date.endsWith('-01') ? '待确认上月末夜班' : personNames(morningRest(record)) }}</span></template>
+          <template v-else-if="column.dataIndex === 'morningRest'"><span class="rest-name">{{ appliedNightRest === null ? '未记录休息规则' : boundaryError && record.date.endsWith('-01') ? '待确认上月末夜班' : personNames(morningRest(record)) }}</span></template>
           <template v-else-if="column.dataIndex === 'phone'"
             ><span class="contact-phone" :class="{ 'empty-value': !getNightUsers(record).length }">{{
               getNightUsers(record)
@@ -255,7 +242,8 @@
   import { Icon } from '/@/components/Icon';
   import { useMessage } from '/@/hooks/web/useMessage';
   import { loadDutyRosterUsers, queryDutyRoster, saveDutyRoster } from './dutyRoster.api';
-  import { SEQUENTIAL_RULE_EXAMPLE, parseDutyRule, checkTextDutyRule, type RuleCheck } from './dutyRoster.textRule';
+  import type { RuleCheck } from './dutyRoster.textRule';
+  import { defaultAdvancedRule, advancedSummary, checkAdvancedRule } from './dutyRoster.advancedRule';
   import { rotateDutyRoster, createDutyRosterPayload, getRestUsers, getNightUsers, getMorningRestUsers } from './dutyRoster.rules';
   import { exportDutyRosterExcel } from './dutyRosterExcel';
   import type { DutyPerson, DutyRosterDay, DutyRosterResult, GenerationRule } from './dutyRoster.store';
@@ -264,15 +252,8 @@
 
   const { createMessage } = useMessage();
   const WEEKDAYS = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
-  const RULE_EXAMPLE = SEQUENTIAL_RULE_EXAMPLE;
-  const ruleTemplates = [
-    { label: '顺序轮值 · 夜班后休半天', text: SEQUENTIAL_RULE_EXAMPLE },
-    { label: '常规轮值', text: '平时白班2人，夜班1人；夜班后休息一天；周末按平时排班。' },
-    { label: '节假日单人值班', text: '平时白班2人，夜班1人；节假日1人值24小时；夜班后休息一天；周末按平时排班。' },
-    { label: '多人夜班', text: '平时白班2人，夜班2人；夜班后休息一天；周末按平时排班。' },
-  ];
   const ruleOptions = [
-    { label: '自定义排班逻辑', value: 'text' },
+    { label: '自定义规则', value: 'text' },
     { label: '四人轮值 · 工作日白4夜1 / 周末白1夜1', value: 'rotation' },
     { label: '手动排班 · 生成空表', value: 'manual' },
   ];
@@ -289,13 +270,21 @@
   const emit = defineEmits<{ (event: 'back'): void }>();
   const selectedMonth = ref<Dayjs>(dayjs(props.month).startOf('month'));
   const generationRule = ref<GenerationRule>('text');
-  const ruleText = ref(RULE_EXAMPLE);
+  const ruleForm = ref(defaultAdvancedRule());
+  const appliedNightRest = ref<'none' | 'morning' | 'full' | null>(null);
+  const ruleSummary = computed(() => advancedSummary(ruleForm.value));
   const checkingRule = ref(false);
   const ruleAnalysis = ref<RuleCheck | null>(null);
   const checkedRuleContext = ref('');
   const ruleConfirmed = ref(false);
-  const ruleWasEdited = computed(() => !!checkedRuleContext.value && checkedRuleContext.value !== ruleContext.value);
-  const flowStep = computed(() => isLocked.value || rosterRows.value.length ? 2 : textRuleCanGenerate.value ? 1 : 0);
+  const wizardStep = ref(0);
+  const wizardTitles = ['人员与顺序', '日常人数与休息', '特殊日期与核对', '排班调整与保存'];
+  const wizardDescriptions = ['选择参与人员，确定轮值顺序', '设置工作日、周末及夜班后休息', '补充特殊日期，检查后生成', '逐日调整实际安排，确认后保存'];
+  const wizardItems = computed(() => wizardTitles.map((title,index) => ({ title, disabled: busy.value || (isLocked.value && index !== 3) || (index === 3 && !rosterRows.value.length && !monthSaved.value) || (index > 0 && index < 3 && !selectedUserIds.value.length) })));
+  function goToStep(index: number) {
+    if (index < 0 || index > 3 || wizardItems.value[index].disabled) return;
+    wizardStep.value = index;
+  }
   const rotationUsers = ref<(DutyPerson | null)[]>([]);
   const rosterRows = ref<DutyRosterDay[]>([]);
   const persons = ref<DutyPerson[]>([]);
@@ -337,7 +326,16 @@
               : '未生成'
   );
   const selectedUserIds = computed(() => personIds(rotationUsers.value));
-  const ruleContext = computed(() => JSON.stringify([ruleText.value, selectedMonth.value.format('YYYY-MM'), rotationUsers.value]));
+  const ruleContext = computed(() => JSON.stringify([ruleForm.value, selectedMonth.value.format('YYYY-MM'), rotationUsers.value]));
+  const rotationStartHint = computed(() => {
+    if (generationRule.value === 'manual') return '手动排班无需自动轮值，名单仅用于选择参与人员。';
+    if (generationRule.value==='text' && ruleForm.value.start==='person') return `从${rotationUsers.value.find(p=>p?.userId===ruleForm.value.startUserId)?.name || '指定人员（待选择）'}开始；上月夜班后的休息仍然生效。`;
+    if (boundaryError.value) return '上月数据读取失败，检查成功后再确认起始人员。';
+    const last = getNightUsers(previousLastRow.value).at(-1);
+    const index = rotationUsers.value.findIndex(person => !!last?.userId && person?.userId === last.userId);
+    if (index >= 0) return `上月最后一名夜班人员为${last?.name}，本月从${rotationUsers.value[(index + 1) % rotationUsers.value.length]?.name}接着排。`;
+    return `没有可衔接的上月末夜班人员时，从第1位${rotationUsers.value[0]?.name || ''}开始；以检查结果为准。`;
+  });
   const textRuleCanGenerate = computed(
     () => !!ruleAnalysis.value?.rows && !ruleAnalysis.value.errors.length && checkedRuleContext.value === ruleContext.value
   );
@@ -414,6 +412,7 @@
     return [0, 6].includes(dayjs(date).day());
   }
   function morningRest(row: DutyRosterDay) {
+    if (appliedNightRest.value !== 'morning') return [];
     const previousDate = dayjs(row.date).subtract(1, 'day').format('YYYY-MM-DD');
     return getMorningRestUsers(row, rosterRows.value.find(day => day.date === previousDate) || (previousLastRow.value?.date === previousDate ? previousLastRow.value : undefined));
   }
@@ -432,14 +431,17 @@
     savedVersion.value = result.version;
     monthSaved.value = result.saved;
     isLocked.value = result.saved;
+    wizardStep.value = result.saved || result.days.length ? 3 : 0;
     dirty.value = false;
   }
   async function applyMonth(month: Dayjs) {
     const request = ++monthRequest;
     invalidateTextRule();
     selectedMonth.value = month.startOf('month');
+    appliedNightRest.value = null;
     currentPage.value = 1;
     monthLoading.value = true;
+    wizardStep.value = 0;
     monthReady.value = false;
     monthError.value = '';
     rosterRows.value = [];
@@ -518,21 +520,10 @@
     invalidateTextRule();
     markDirty();
   }
-  function fillRuleExample(text: string) {
-    if (editable.value) {
-      ruleText.value = text;
-      invalidateTextRule();
-    }
-  }
   async function checkRuleText() {
     if (!editable.value || !usersReady.value) return;
-    const parsed = parseDutyRule(ruleText.value);
     const context = ruleContext.value;
     invalidateTextRule();
-    if (parsed.errors.length) {
-      ruleAnalysis.value = parsed;
-      return;
-    }
     const selected = rotationUsers.value.filter((person): person is DutyPerson => !!person?.userId);
     if (selected.some((person) => !persons.value.some((current) => current.userId === person.userId))) {
       ruleAnalysis.value = { errors: ['参与人员包含已不属于运维部的成员，请先重新选择人员'], summary: [] };
@@ -547,15 +538,11 @@
         .filter(Boolean);
       previousLastRow.value = previous.days.find(row => row.date === previousMonth.endOf('month').format('YYYY-MM-DD'));
       boundaryError.value = '';
-      const result = checkTextDutyRule(
-        ruleText.value,
+      const result = checkAdvancedRule(
+        ruleForm.value,
         buildMonthRows(),
         selected,
-        lastNight,
-        previous.days
-          .find((row) => row.date === previousMonth.endOf('month').format('YYYY-MM-DD'))
-          ?.dayUsers.map((person) => person?.userId || '')
-          .filter(Boolean) || []
+        lastNight
       );
       if (context !== ruleContext.value) return;
       ruleAnalysis.value = result;
@@ -577,8 +564,9 @@
     try {
       const baseRows = buildMonthRows();
       if (generationRule.value === 'text') {
-        if (!textRuleCanGenerate.value || !ruleConfirmed.value) throw new Error('请先检查规则并确认识别结果，再生成排班');
+        if (!textRuleCanGenerate.value || !ruleConfirmed.value) throw new Error('请先检查人数和轮值顺序，确认后再生成排班');
         rosterRows.value = JSON.parse(JSON.stringify(ruleAnalysis.value!.rows));
+        appliedNightRest.value = ruleForm.value.nightRest;
       } else if (generationRule.value === 'rotation') {
         if (selected.length !== 4) throw new Error('四人轮值需要选择4人，生成后可手动修改每天人数');
         const previousMonth = selectedMonth.value.subtract(1, 'month');
@@ -588,11 +576,14 @@
         const previousNights = getNightUsers(previousLastRow.value);
         const lastNight = previousNights.at(-1)?.userId;
         rosterRows.value = rotateDutyRoster(baseRows, selected, lastNight);
+        appliedNightRest.value = 'morning';
       } else {
         rosterRows.value = baseRows;
+        appliedNightRest.value = null;
       }
       currentPage.value = 1;
       dirty.value = true;
+      wizardStep.value = 3;
       createMessage.success('排班表已生成，可按实际情况逐日调整');
     } catch (error) {
       createMessage.error((error as Error).message);
@@ -681,6 +672,42 @@
 </script>
 
 <style lang="less" scoped>
+  .wizard-heading { padding:18px 22px;background:#fff;border:1px solid #e2e7ef;border-radius:10px;margin-bottom:16px; }
+  .wizard-caption { margin:14px 0 0;color:#667085;font-size:13px; }
+  .wizard-actions { display:flex;align-items:center;gap:12px;border-top:1px solid #edf0f5;margin-top:20px;padding-top:18px;flex-wrap:wrap; }
+  .wizard-spacer { flex:1; }
+  @media(max-width:640px){.wizard-heading{padding:14px}.wizard-spacer{display:none}}
+
+  .simple-rules { border-top:1px solid #edf0f5; }
+  .rule-section { padding:18px 0;border-bottom:1px solid #edf0f5; }
+  .rule-section h3 { font-size:15px;margin:0 0 14px;font-weight:600; }
+  .rule-section h3 span { font-size:12px;font-weight:400;color:#667085;margin-left:10px; }
+  .demand-row,.exception-row { display:flex;align-items:center;gap:20px;flex-wrap:wrap;margin:10px 0; }
+  .demand-row>strong { width:90px;flex-shrink:0;font-weight:500; }
+  .demand-row label,.exception-row label { display:flex;align-items:center;gap:8px; }
+  .demand-row :deep(.ant-input-number),.exception-row :deep(.ant-input-number) { width:76px; }
+  .demand-row :deep(.ant-select) { min-width:185px; }
+  .inline-note { color:#667085;font-size:13px;line-height:1.7;margin:8px 0; }
+  .rule-review { margin-top:18px;border-top:1px solid #edf0f5;padding-top:16px; }
+  .rule-review>p { font-size:13px;line-height:1.8; }
+  .review-actions { display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-top:12px; }
+  .check-success { color:#237b4b; }
+  .exception-section { margin-top:10px; }
+  .order-panel { background:transparent!important;border:0!important;border-bottom:1px solid #edf0f5!important;padding:16px 0!important;margin-top:0!important; }
+  .ordered-people { display:flex!important;flex-wrap:wrap; }
+  .ordered-people li { padding:8px 10px!important; }
+  @media(max-width:640px){.demand-row,.exception-row{gap:10px}.demand-row>strong{width:100%}.review-actions{gap:10px}}
+
+  .shift-count-grid { display:grid;grid-template-columns:minmax(100px,1fr) 1fr 1fr;gap:14px;align-items:center;margin:16px 0; }
+  .shift-count-grid small { display:block;color:#596a80;font-size:12px; }
+  .shift-count-grid :deep(.ant-input-number) { width:100%; }
+  .order-panel { margin-top:22px;padding:18px;background:#f7f9fc;border:1px solid #e2e7ef;border-radius:8px; }
+  .order-panel h3 { margin:0 0 8px;font-size:15px; }
+  .ordered-people { list-style:none;padding:0;margin:14px 0;display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px; }
+  .ordered-people li { display:flex;align-items:center;gap:10px;background:white;border:1px solid #e2e7ef;padding:12px;border-radius:6px; }
+  .order-actions { display:flex;gap:6px;margin-left:auto; }
+  .order-start { color:#25364e;margin:12px 0 6px; }
+
   .roster-steps { max-width: 880px; margin: 10px 0 26px; }
   .section-heading .section-note { margin: 6px 0 0; }
   .check-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }

@@ -75,9 +75,9 @@ const operation: AppRouteModule = {
     },
     {
       path: 'maintenance-preview',
-      name: 'MaintenanceMockManagement',
+      name: 'MaintenanceManagement',
       component: () => import('/@/views/operation/maintenance/index.vue'),
-      meta: { title: '维保管理（Mock）', roles: ['admin'], ignoreKeepAlive: true },
+      meta: { title: '维保管理', ignoreKeepAlive: true },
     },
     {
       path: 'detail',

@@ -2,13 +2,13 @@
   <div class="plan-position">
     <!-- 实施位置 -->
     <div class="plan-position__group-title">
-      <span>实施位置</span>
+      <span>实施位置（至少1个，最多3个）</span>
       <a-button
         v-if="editable"
         type="primary"
         size="small"
         preIcon="ant-design:plus-outlined"
-        :disabled="!canWrite"
+        :disabled="!canWrite || positionList.length >= 3"
         :title="canWrite ? '添加实施位置' : '位置信息加载完成后才能添加'"
         @click="addPosition"
       >
@@ -51,7 +51,7 @@
         </template>
         <template v-else-if="column.key === 'action'">
           <template v-if="editable">
-            <a-popconfirm title="确认移除该位置？保存本页后生效" @confirm="removePosition(record)">
+            <a-popconfirm :disabled="positionList.length <= 1" title="确认移除该位置？保存本页后生效" @confirm="removePosition(record)">
               <a-button type="link" danger size="small" :disabled="!canWrite">删除</a-button>
             </a-popconfirm>
           </template>
@@ -174,12 +174,12 @@
   }
 
   function addPosition() {
-    if (!canWrite.value) return;
+    if (!canWrite.value || positionList.value.length >= 3) return;
     positionList.value.push({ _key: ++positionSeed, locationName: '', longitude: undefined, latitude: undefined, description: '' });
   }
 
   function removePosition(record: any) {
-    if (canWrite.value) positionList.value = positionList.value.filter((item) => item._key !== record._key);
+    if (canWrite.value && positionList.value.length > 1) positionList.value = positionList.value.filter((item) => item._key !== record._key);
   }
 
   watch(
@@ -196,6 +196,7 @@
   defineExpose({
     getData() {
       if (!loaded.value || loading.value || loadFailed.value) throw new Error('位置信息未完整加载，请刷新后再保存');
+      if (positionList.value.length < 1 || positionList.value.length > 3) throw new Error('实施位置至少1个，最多3个');
       positionList.value.forEach(validateRow);
       return positionList.value.map(toPayload);
     },

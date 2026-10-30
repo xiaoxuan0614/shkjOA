@@ -8,6 +8,7 @@ export interface ShiftDemand {
 }
 export interface TextDutyRule {
   sequential?: boolean;
+  flexibleDay?: boolean;
   weekend?: ShiftDemand;
   morningRest?: boolean;
   normal: ShiftDemand;
@@ -217,15 +218,31 @@ function classifyDate(date: string, rule: TextDutyRule): boolean {
   return rule.weekendHoliday && [0, 6].includes(dayjs(date).day());
 }
 
+export interface DutyRuleForm { day: number | null; night: number | null; weekendDay: number | null; weekendNight: number | null }
+/** 表单直接构造规则，不经过自然语言识别。 */
+export function buildDutyRule(form: DutyRuleForm): RuleInterpretation {
+  const fields = [['工作日白班', form.day], ['工作日夜班', form.night], ['周末白班', form.weekendDay], ['周末夜班', form.weekendNight]] as const;
+  const errors = fields.filter(([, n]) => n == null || !Number.isInteger(n) || n < 0 || n > 100).map(([name]) => `${name}请填写0至100的整数`);
+  if (errors.length) return { errors, summary: [] };
+  const normal = { day: form.day!, night: form.night! }, weekend = { day: form.weekendDay!, night: form.weekendNight! };
+  return { errors: [], rule: { normal, weekend, holiday: normal, usesHolidays: false, weekendHoliday: false, restAfterNight: false, restAfterFullDay: false, sequential: true, flexibleDay: true, morningRest: true }, summary: [
+    `工作日白班${normal.day}人、夜班${normal.night}人；白班全员时不占轮次，否则先排白班再排夜班`,
+    `周末白班${weekend.day}人、夜班${weekend.night}人；白夜班不同人，先白班再夜班`,
+    '夜班后次日上午休息、下午上班；如当天安排白班，仍计入白班人数，不补人',
+    '周一至周五按工作日，周六周日按周末；特殊节假日请生成后调整',
+    '按下方顺序循环；有上月末夜班时从最后一名夜班人员的下一位接排，否则从第1位开始',
+  ] };
+}
+
 /** 按月实际模拟，人数和前一日夜班休息约束无解时不产生部分排班。 */
 export function checkTextDutyRule(
-  text: string,
+  text: string | RuleInterpretation,
   rows: DutyRosterDay[],
   users: DutyPerson[],
   previousNightUserId?: string | string[] | null,
   previousDayUserIds?: string[]
 ): RuleCheck {
-  const parsed = parseDutyRule(text);
+  const parsed = typeof text === 'string' ? parseDutyRule(text) : text;
   if (!parsed.rule) return parsed;
   const rule = parsed.rule;
   const errors: string[] = [];
@@ -236,15 +253,15 @@ export function checkTextDutyRule(
     errors.push('该年份暂无内置法定节假日数据，请先去掉节假日差异规则或使用其他生成方式，不会将未知节假日按平日生成');
   if (errors.length) return { ...parsed, errors };
   if (rule.sequential) {
-    if (rule.normal.day !== users.length) return { ...parsed, errors: [`这类顺序轮值的工作日白班为全体参与人员：规则写${rule.normal.day}人，当前选了${users.length}人，请调整人数或规则`] };
-    if (rule.normal.night > users.length || rule.weekend!.day + rule.weekend!.night > users.length) return { ...parsed, errors: ['参与人数不足：工作日夜班不能超过参与人数，周末白班和夜班需要不同人员，请增加人员或减少班次人数'] };
+    if (!rule.flexibleDay && rule.normal.day !== users.length) return { ...parsed, errors: [`这类顺序轮值的工作日白班为全体参与人员：规则写${rule.normal.day}人，当前选了${users.length}人，请调整人数或规则`] };
+    if (rule.normal.day > users.length || rule.normal.night > users.length || rule.weekend!.day + rule.weekend!.night > users.length || (rule.flexibleDay && rule.normal.day < users.length && rule.normal.day + rule.normal.night > users.length)) return { ...parsed, errors: ['参与人数不足：每班人数不能超过所选人数；周末及非全员白班日的白夜班由不同人轮值，白班加夜班人数不能超过所选人数'] };
     const previousIds = Array.isArray(previousNightUserId) ? previousNightUserId : previousNightUserId ? [previousNightUserId] : [];
     const lastIndex = users.findIndex(user => user.userId === previousIds.at(-1));
     let cursor = lastIndex >= 0 ? lastIndex + 1 : 0;
     const take = (count: number) => Array.from({ length: count }, () => ({ ...users[cursor++ % users.length] }));
     const generated = rows.map(row => {
       const weekend = [0, 6].includes(dayjs(row.date).day());
-      const dayUsers = weekend ? take(rule.weekend!.day) : users.map(user => ({ ...user }));
+      const dayUsers = weekend ? take(rule.weekend!.day) : rule.flexibleDay && rule.normal.day < users.length ? take(rule.normal.day) : users.map(user => ({ ...user }));
       const nightUsers = take(weekend ? rule.weekend!.night : rule.normal.night);
       const nightUser = nightUsers[0] || null;
       const occupied = new Set([...dayUsers, ...nightUsers].map(user => user.userId));

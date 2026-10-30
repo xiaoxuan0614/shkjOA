@@ -22,8 +22,9 @@
       @select="onSelectLocation"
     />
     <a-form ref="formRef" :model="form" :rules="rules" layout="vertical">
-      <a-form-item label="经度" name="longitude"><a-input v-model:value="form.longitude" placeholder="自动填充" /></a-form-item>
-      <a-form-item label="纬度" name="latitude"><a-input v-model:value="form.latitude" placeholder="自动填充" /></a-form-item>
+      <p>经纬度填写完整后，停止输入片刻即可自动定位地图，无需补0。</p>
+      <a-form-item label="经度" name="longitude"><a-input v-model:value="form.longitude" @blur="syncCoordinates" @press-enter="syncCoordinates" placeholder="自动填充" /></a-form-item>
+      <a-form-item label="纬度" name="latitude"><a-input v-model:value="form.latitude" @blur="syncCoordinates" @press-enter="syncCoordinates" placeholder="自动填充" /></a-form-item>
       <a-form-item label="实施位置" name="locationName"><a-input v-model:value="form.locationName" placeholder="自动填充" /></a-form-item>
       <a-form-item label="位置描述" name="description"
         ><a-textarea v-model:value="form.description" placeholder="请输入位置描述" :rows="3"
@@ -37,7 +38,7 @@
   import { message } from 'ant-design-vue';
   import AMapLocationMap from '/@/components/jeecg/AMapLocationMap.vue';
   import type { AmapPoi } from '/@/components/jeecg/AMapPlaceSearch.vue';
-  import { addPosition, editPosition } from '../ProjectDetail.api';
+  import { addPosition, editPosition, getPositions } from '../ProjectDetail.api';
 
   interface PositionRecord {
     id?: string;
@@ -82,8 +83,31 @@
     { immediate: true }
   );
 
-  function onSelectLocation(poi: AmapPoi | null) {
-    if (!props.open) return;
+  const pendingCoordinateInput = ref(false);
+watch(() => [form.longitude, form.latitude, props.open], (_value, _oldValue, onCleanup) => {
+  pendingCoordinateInput.value = !!props.open && (coordinate(form?.longitude) !== mapLng.value || coordinate(form?.latitude) !== mapLat.value);
+  if (!pendingCoordinateInput.value) return;
+  const timer = setTimeout(syncCoordinates, 600);
+  onCleanup(() => clearTimeout(timer));
+});
+
+function syncCoordinates() {
+  if (!props.open || saving.value) return;
+  const nextLng=coordinate(form.longitude), nextLat=coordinate(form.latitude);
+  if(nextLng == null || nextLat == null || Math.abs(nextLng)>180 || Math.abs(nextLat)>90){pendingCoordinateInput.value=false;return;}
+  if(nextLng===mapLng.value && nextLat===mapLat.value)return;
+  pendingCoordinateInput.value=false;
+  mapAddress.value='';
+  mapLng.value=nextLng;
+  mapLat.value=nextLat;
+}
+
+function onSelectLocation(poi: AmapPoi | null) {
+  if (pendingCoordinateInput.value) return;
+    if (!props.open || saving.value) return;
+    mapLng.value=poi?.lng ?? null;
+    mapLat.value=poi?.lat ?? null;
+    mapAddress.value=poi?.address || poi?.name || '';
     form.longitude = poi?.lng == null ? '' : String(poi.lng);
     form.latitude = poi?.lat == null ? '' : String(poi.lat);
     form.locationName = poi?.name || poi?.address || '';
@@ -112,7 +136,13 @@
     try {
       const payload = { periodId: props.projectId, ...form, ...(props.record?.id ? { id: props.record.id } : {}) };
       if (props.record) await editPosition(payload);
-      else await addPosition(payload);
+      else {
+        const latest:any=await getPositions({periodId:props.projectId,pageNo:1,pageSize:1});
+        const count=Number(latest?.total);
+        if(!Number.isSafeInteger(count)||count<0)throw new Error('无法确认位置数量，请刷新重试');
+        if(count>=3)throw new Error('每个项目最多3个位置，请刷新列表');
+        await addPosition(payload);
+      }
       message.success(props.record ? '编辑成功' : '新增成功');
       emit('update:open', false);
       emit('success');

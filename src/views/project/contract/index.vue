@@ -173,105 +173,12 @@
           </template>
         </BasicForm>
 
-        <!-- 回款计划(节点 + 比例, 金额 = 项目金额 × 比例) -->
-        <div class="contract-page__payback">
-          <div class="contract-page__payback-title">
-            <span>回款计划</span>
-            <a-button
-              type="primary"
-              size="small"
-              preIcon="ant-design:plus-outlined"
-              :disabled="!canAddPayback"
-              :title="canAddPayback ? '添加款项' : '所有可用回款项均已添加'"
-              @click="addPaybackRow"
-            >
-              添加款项
-            </a-button>
-          </div>
-          <a-table
-            :columns="paybackColumns"
-            :data-source="paybackRows"
-            :row-key="(record) => record._key"
-            :pagination="false"
-            :scroll="{ x: 780 }"
-            size="middle"
-            bordered
-          >
-            <template #headerCell="{ column }">
-              <template v-if="column.key === 'rollbackTime'">
-                <span class="contract-page__payback-cycle-title">
-                  回款周期
-                  <span v-if="column.required" class="contract-page__required" aria-hidden="true">*</span>
-                  <a-tooltip title="阶段任务完成后回款的周期">
-                    <Icon icon="ant-design:question-circle-outlined" size="14" />
-                  </a-tooltip>
-                </span>
-              </template>
-              <template v-else>
-                <span>
-                  {{ column.title }}
-                  <span v-if="column.required" class="contract-page__required" aria-hidden="true">*</span>
-                </span>
-              </template>
-            </template>
-            <template #bodyCell="{ column, record }">
-              <template v-if="column.key === 'index'">{{ record._key }}</template>
-              <template v-else-if="column.key === 'node'">
-                <UniqueRowSelect
-                  v-model="record.node"
-                  :rows="paybackRows"
-                  :row="record"
-                  :options="paybackNodeOptions"
-                  field="node"
-                  placeholder="请选择回款项"
-                  :error="getPaybackError(record, 'node')"
-                  @change="() => handlePaybackNodeChange(record)"
-                />
-              </template>
-              <template v-else-if="column.key === 'ratio'">
-                <div class="contract-page__cell-field">
-                  <a-input-number
-                    v-model:value="record.ratio"
-                    :min="0"
-                    :max="100"
-                    :precision="2"
-                    addon-after="%"
-                    style="width: 100%"
-                    placeholder="请输入比例"
-                    :status="getPaybackError(record, 'ratio') ? 'error' : undefined"
-                    @change="() => handlePaybackRatioChange(record)"
-                  />
-                  <div v-if="getPaybackError(record, 'ratio')" class="contract-page__cell-error" role="alert">
-                    {{ getPaybackError(record, 'ratio') }}
-                  </div>
-                </div>
-              </template>
-              <template v-else-if="column.key === 'rollbackTime'">
-                <div class="contract-page__cell-field">
-                  <a-input-number
-                    v-model:value="record.rollbackTime"
-                    :min="0"
-                    :precision="0"
-                    addon-after="天"
-                    style="width: 100%"
-                    placeholder="请输入周期"
-                    :status="getPaybackError(record, 'rollbackTime') ? 'error' : undefined"
-                    @change="() => clearPaybackError(record, 'rollbackTime')"
-                  />
-                  <div v-if="getPaybackError(record, 'rollbackTime')" class="contract-page__cell-error" role="alert">
-                    {{ getPaybackError(record, 'rollbackTime') }}
-                  </div>
-                </div>
-              </template>
-              <template v-else-if="column.key === 'amount'">
-                <b>{{ record.amount != null ? record.amount.toFixed(2) : '—' }} 元</b>
-              </template>
-              <template v-else-if="column.key === 'action'">
-                <a-button type="link" danger size="small" @click="removePaybackRow(record._key)">删除</a-button>
-              </template>
-            </template>
-          </a-table>
-        </div>
+        <PaymentPlanEditor
+          :rows="paybackRows" :node-options="paybackNodeOptions" :row-key="record => record._key"
+          :can-add="canAddPayback" :error="getPaybackError"
+          @add="addPaybackRow" @remove="record => removePaybackRow(record._key)"
+          @change="handlePaymentPlanChange"
+        />
       </template>
     </a-card>
 
@@ -406,9 +313,10 @@
   import { CONTRACT_WORKFLOW_ENABLED, currentContractApproval, contractApprovalActions, type ContractApprovalActions } from './approval.api';
   import { readContractProjectContext } from './projectContext';
   import Big from 'big.js';
+  import PaymentPlanEditor from '/@/components/PaymentPlan/PaymentPlanEditor.vue';
   import { useRoute, useRouter } from 'vue-router';
   import { BasicForm, useForm } from '/@/components/Form/index';
-  import { UniqueRowSelect, useUniqueRowOptions, validateEditableRows } from '/@/components/EditableTable';
+  import { useUniqueRowOptions, validateEditableRows } from '/@/components/EditableTable';
   import { Icon } from '/@/components/Icon';
   import { useMessage } from '/@/hooks/web/useMessage';
   import { usePermission } from '/@/hooks/web/usePermission';
@@ -930,6 +838,12 @@
 
   function calcPaybackAmount(record: any, contractAmount = getFieldsValue().contractAmount) {
     record.amount = calculatePaybackAmount(contractAmount, record.ratio);
+  }
+
+  function handlePaymentPlanChange(record: Recordable, field: string) {
+    if (field === 'node') handlePaybackNodeChange(record);
+    else if (field === 'ratio') handlePaybackRatioChange(record);
+    else clearPaybackError(record, field);
   }
 
   function handlePaybackRatioChange(record: Recordable) {

@@ -1,9 +1,12 @@
 <template>
   <div class="detail-position">
+    <p>每个项目至少保留1个位置，最多3个。</p>
     <div class="detail-position__toolbar">
-      <a-button type="primary" preIcon="ant-design:plus-outlined" @click="openAdd">新增位置</a-button>
+      <a-button :disabled="loading || !positions.length" @click="openMap()">查看全部位置</a-button>
+      <a-button type="primary" preIcon="ant-design:plus-outlined" :disabled="loading || !!loadError || positions.length >= 3" @click="openAdd">新增位置</a-button>
     </div>
-    <a-table :columns="columns" :data-source="positions" :pagination="false" size="middle" bordered>
+    <a-alert v-if="loadError" type="error" :message="loadError" show-icon />
+    <a-table :loading="loading" :columns="columns" :data-source="positions" :pagination="false" size="middle" bordered>
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'action'">
           <a-button
@@ -15,25 +18,14 @@
             >查看地图</a-button
           >
           <a-button type="link" size="small" @click="openEdit(record)">编辑</a-button>
-          <a-popconfirm title="是否确认删除" @confirm="handleDelete(record)">
-            <a-button type="link" size="small" danger>删除</a-button>
+          <a-popconfirm :disabled="positions.length <= 1 || deleting" title="是否确认删除" @confirm="handleDelete(record)">
+            <a-button type="link" size="small" danger :disabled="positions.length <= 1 || deleting">删除</a-button>
           </a-popconfirm>
         </template>
       </template>
     </a-table>
 
-    <a-modal v-model:open="mapOpen" :title="mapRecord?.locationName || '实施位置'" :footer="null" :width="760" destroy-on-close>
-      <template v-if="mapRecord">
-        <AMapLocationMap
-          :lng="coordinate(mapRecord.longitude)"
-          :lat="coordinate(mapRecord.latitude)"
-          :address="mapRecord.locationName || ''"
-          height="380px"
-          disabled
-        />
-        <p v-if="mapRecord.description" class="detail-position__description">{{ mapRecord.description }}</p>
-      </template>
-    </a-modal>
+    <LocationViewModal v-model:open="mapOpen" :records="positions" :selected-id="mapRecord?.id" title="实施位置总览" />
 
     <!-- 新增/编辑弹窗 -->
     <PositionModal v-model:open="editorOpen" :project-id="projectId" :record="editingRecord" @success="load" />
@@ -41,11 +33,11 @@
 </template>
 
 <script lang="ts" setup>
-  import { ref, watch } from 'vue';
+  import { ref, watch, onBeforeUnmount } from 'vue';
   import { useMessage } from '/@/hooks/web/useMessage';
   import { getPositions, deletePosition } from '../ProjectDetail.api';
   import PositionModal from './PositionModal.vue';
-  import AMapLocationMap from '/@/components/jeecg/AMapLocationMap.vue';
+  import LocationViewModal from '/@/components/jeecg/LocationViewModal.vue';
 
   const props = defineProps<{
     projectId: string;
@@ -67,11 +59,27 @@
     { title: '操作', key: 'action', width: 210, align: 'center' },
   ];
 
+  const loading=ref(false), loadError=ref(''), deleting=ref(false);
+  let loadSequence=0;
   async function load() {
-    const res: any = await getPositions({ periodId: props.projectId, pageNo: 1, pageSize: 100 });
-    const list = res?.records || res || [];
-    positions.value = list || [];
+    const seq=++loadSequence, periodId=props.projectId;
+    positions.value=[];mapOpen.value=false;mapRecord.value=null;loading.value=true;loadError.value='';
+    try {
+      const all:any[]=[];
+      for(let pageNo=1;pageNo<=1000;pageNo++) {
+        const result:any=await getPositions({periodId,pageNo,pageSize:100});
+        if(seq!==loadSequence)return;
+        const total=Number(result?.total);
+        if(!Array.isArray(result?.records)||!Number.isSafeInteger(total)||total<0)throw new Error('位置分页信息异常，请刷新重试');
+        all.push(...result.records);
+        if(all.length>=total){positions.value=all;return;}
+        if(!result.records.length)throw new Error('位置未读取完整，请刷新重试');
+      }
+      throw new Error('位置数量超出读取范围，请联系管理员');
+    }catch(e){if(seq===loadSequence)loadError.value=(e as Error).message;}
+    finally{if(seq===loadSequence)loading.value=false;}
   }
+  onBeforeUnmount(()=>{++loadSequence;});
 
   function coordinate(raw: unknown): number | null {
     if (raw == null || String(raw).trim() === '') return null;
@@ -85,13 +93,13 @@
     return lng != null && lat != null && Math.abs(lng) <= 180 && Math.abs(lat) <= 90;
   }
 
-  function openMap(record: any) {
-    if (!validCoordinates(record)) return;
-    mapRecord.value = { ...record };
+  function openMap(record?: any) {
+    mapRecord.value = record ? { ...record } : null;
     mapOpen.value = true;
   }
 
   function openAdd() {
+    if(loading.value || loadError.value || positions.value.length>=3)return;
     editingRecord.value = null;
     editorOpen.value = true;
   }
@@ -102,9 +110,17 @@
   }
 
   async function handleDelete(record: any) {
-    await deletePosition({ id: record.id });
-    createMessage.success(`删除位置「${record.locationName}」成功`);
-    load();
+    if(deleting.value)return;
+    deleting.value=true;
+    try {
+      const latest:any=await getPositions({periodId:props.projectId,pageNo:1,pageSize:1});
+      const count=Number(latest?.total);
+      if(!Number.isSafeInteger(count)||count<0)throw new Error('无法确认位置数量，请刷新重试');
+      if(count<=1)throw new Error('每个项目至少保留1个位置，不能删除最后一个');
+      await deletePosition({ id: record.id });
+      createMessage.success(`删除位置「${record.locationName}」成功`);
+      await load();
+    }catch(e){createMessage.error((e as Error).message);}finally{deleting.value=false;}
   }
 
   watch(
@@ -118,11 +134,8 @@
   .detail-position {
     &__toolbar {
       margin-bottom: 12px;
-    }
-    &__description {
-      margin: 12px 0 0;
-      color: #595959;
-      overflow-wrap: anywhere;
+      display: flex;
+      gap: 12px;
     }
   }
 </style>

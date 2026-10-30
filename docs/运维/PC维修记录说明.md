@@ -1,3 +1,21 @@
+### 2026-10-30 报价与完工分区
+
+RepairPriceRecords替换通用字段表。报价记录按版本展示报价方式、中文阶段（保留repair_quotation_status字典与中文兜底）、送审金额、客户确认金额和提交时间，展开仅按quotationId读取对应报价明细，同时展示已有无需报价原因、客户沟通备注和失效原因。完工记录按提交次数显示状态、采用报价版本、金额和时间，展开查看完工说明、金额依据、调整原因及退回处理。审批状态优先按applicationId精确关联applications.applicationStatus，历史才回退approvalStatus；未知状态显示中文缺失提示，不套合同数字状态协议。金额两位小数，0与缺失区分，不前端重算历史金额，不显示ID。
+
+已刷新Apifox核对契约；版本隔离、申请结论优先级、零值/缺失金额、SFC、ESLint及界面检测通过。本次未完成浏览器展开联调，未提交业务数据。无菜单权限变动；回访评价及业务附件仍移除。
+
+### 2026-10-30 人员与派单展示整理
+
+维修详情人员与派单去掉关联作业ID列，作业参与人员展示姓名、角色、人员类型、记录时间；角色仅按memberId关联本次可见协助成员快照，不用当前角色配置覆盖历史。协助成员展示姓名/角色名称、协助中或已退出、加入结束时间和退出原因。派单记录增加中文方式，首次无原负责人显示首次派单，时间统一可读格式。名称缺失或等于对应ID时提示未提供，不显示ID、不按姓名猜测关联。移除报价与完工下回访评价区块；此前业务附件标签保持移除。
+
+已刷新Apifox核对详情快照契约，名称/角色缺失与精确关联回归、SFC编译、ESLint及diff检查通过。无菜单权限、后端写接口或回访数据删除。
+
+### 2026-10-30 维修工单物料记录可读性调整
+
+工单详情物料记录改为数量总览、领还料记录、使用记录、损坏/遗失核销四个视图。数量总览按需调用 GET /repair/materialAccount/page（orderId、pageNo、pageSize=10、可选keyword），显示名称/编码/型号、单位、实际领用、已确认使用、已归还、还料待处理、已核销和剩余待处置；点击名称查看其他数量。confirmedUseQty与remainingReturnQty分别读取，不用consumedQty替代已确认使用，不从前端推算结清。历史记录优先按pickLinkId精确关联名称与单位，无资料则说明缺失；移除数据库ID列、翻译业务状态。保留既有读取权限，不新增办理按钮。
+
+新增接口参数、同物料历史单位、零值/缺失值、按需加载、重复请求及切换工单竞态专项通过，SFC编译、ESLint及界面检测通过。菜单配置无变化。本地页面已核实使用记录名称、单位和中文状态；总账首次HTTP 502后重载恢复，已显示3项真实物料，并验证点击名称的数量明细（已确认/待确认分开）。未执行领还料等写操作。
+
 ### 2026-10-29 维修审批统一业务提交接口
 
 PC InstanceDrawer 对 businessType=REPAIR_OPS_APPLICATION 的通过/驳回统一 POST /repair/application/review，覆盖报价（含市场节点）、完结、关闭、内协、外协、转单；移动端 RepairApprovalPopup 同步，OpsWorkflow/repairOrderApi 原已使用此接口。提交 applicationId=businessId、instanceId、taskId、approve、comment、requestId，不传 action/version。内协选人和转单接收人仍按场景追加；驳回不传人员字段。完结驳回未选 returnType 时沿用后端默认 MATERIAL_SUPPLEMENT，移动工作台原有 returnType 选择保留。
@@ -81,3 +99,9 @@ GET /repair/collaboration/assignmentOptions?applicationId=申请ID&departmentId=
 2026-10-29 维修完结审批隐藏无可见内容的分区及其标题，移除“本次审批快照未提供可见的”提示；已有“无需报价”业务状态继续展示。专项回归、ESLint通过；菜单和API影响已检查，无接口或权限变化。
 
 2026-10-29 维修记录详情的维修作业Tab迁移至GET /repair/work/page（orderId/pageNo/pageSize=10），使用返回total分页，首次进入Tab加载；切换Tab及关闭单条详情保留页码，切工单重置并丢弃旧请求。点击查看详情才请求GET /repair/work/detail（同时传orderId/recordId），校验响应记录归属。详情展示本次故障、维修内容、人员、外协、车辆、用料、附件；签到签退中文状态/异常说明取分页响应，不自行计算异常。公共路径附件走现有预览工具，维修附件ID走原鉴权下载。工单详情不再读取workRecords，操作时间线仍用order/logs。API参数、ID防错、SFC编译、ESLint、diff通过；未完成真实浏览器工单分页和详情联调，未提交业务。菜单两份配置文档已检查，无菜单及角色授权变化。
+
+### 2026-10-30 维修详情保障类型回显
+
+PC与移动端接入 /repair/order/detail 的 order、products[] 中 coverageType/coverageTypeName，优先显示接口中文名称，支持全包、半包、质保、混合、无有效保障和未知。整单与逐产品分别展示；移除移动端旧 warrantyTypeSnapshot/warrantyType 回退，不从当前合同或收费方式推算。只改详情展示，无列表补查、菜单或权限变更。
+
+保障以报修时快照为准，后续合同终止、到期或续签不改写历史维修保障。缺失或未识别值展示未知；NONE与UNKNOWN分别显示，不混同无需报价。列表接口未新增这些字段，不逐行补拉详情。

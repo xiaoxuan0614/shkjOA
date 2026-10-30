@@ -1,9 +1,9 @@
 <template>
   <div class="roster-list">
-    <a-drawer v-model:open="showRest" title="休息与转派" width="min(1100px, 100vw)" :destroy-on-close="true"><RestAssignment /></a-drawer>
+    <a-drawer v-model:open="showRest" title="休息与转派" width="min(1100px, 100vw)" :destroy-on-close="true" :closable="!restLocked" :mask-closable="false" :keyboard="false"><RestAssignment @lock-change="restLocked=$event" /></a-drawer>
     <BasicTable @register="registerTable" :row-selection="null">
       <template #tableTitle>
-        <a-button v-if="canEdit" class="mr-2" @click="showRest = true">休息与转派</a-button>
+        <a-button v-if="restAccess" class="mr-2" @click="showRest = true">休息与转派</a-button>
         <a-button v-if="canAdd" type="primary" preIcon="ant-design:plus-outlined" @click="showCreate = true">新增</a-button>
       </template>
       <template #bodyCell="{ column, record }">
@@ -31,7 +31,10 @@
 </template>
 <script setup lang="ts">
   import RestAssignment from '../rest-assignment/RestAssignment.vue';
-  import { ref } from 'vue';
+  import { ref, onMounted } from 'vue';
+  import { restApi } from '../rest-assignment/restAssignment.api';
+  const restAccess=ref(false),restLocked=ref(false);
+  onMounted(async()=>{try{restAccess.value=(await restApi('GET','/repair/rest/options')).canManage===true;}catch{restAccess.value=false;}});
   import { useRouter } from 'vue-router';
   import dayjs, { type Dayjs } from 'dayjs';
   import { BasicTable, type BasicColumn } from '/@/components/Table';

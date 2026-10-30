@@ -5,7 +5,7 @@
       <div ref="mapRef" class="amap-location-map__map"></div>
 
       <!-- 定位 pin(绝对定位覆盖在地图中心, tip 即地图中心点) -->
-      <div class="amap-location-map__pin">
+      <div v-if="!browseOnly" class="amap-location-map__pin">
         <div class="amap-location-map__pin-pulse"></div>
         <svg class="amap-location-map__pin-svg" width="40" height="52" viewBox="0 0 40 52" xmlns="http://www.w3.org/2000/svg">
           <ellipse cx="20" cy="49" rx="11" ry="3" fill="rgba(0,0,0,0.18)" />
@@ -21,7 +21,7 @@
       </div>
 
       <!-- 顶部搜索 -->
-      <div v-if="!disabled" class="amap-location-map__search">
+      <div v-if="!disabled && !browseOnly" class="amap-location-map__search">
         <AMapPlaceSearch :value="searchKeyword" :disabled="disabled" placeholder="搜索地点，拖动地图可微调定位" @select="onSearchSelect" />
       </div>
 
@@ -60,6 +60,8 @@
       height?: string;
       /** 只读 */
       disabled?: boolean;
+      /** 可平移缩放的只读地图，标记固定于已有坐标，不触发选点 */
+      browseOnly?: boolean;
       /** 无已有坐标时自动定位当前设备，失败则回退天安门 */
       autoLocate?: boolean;
     }>(),
@@ -87,6 +89,15 @@
   const errorMsg = ref('');
 
   let map: any = null;
+  let fixedMarker: any = null;
+  let mapSdk: any = null;
+  function syncFixedMarker() {
+    fixedMarker?.setMap(null);
+    fixedMarker = null;
+    if (!map || !mapSdk || !props.browseOnly || props.lng == null || props.lat == null) return;
+    fixedMarker = new mapSdk.Marker({ position: [props.lng, props.lat], draggable: false, clickable: false, anchor: 'bottom-center' });
+    map.add(fixedMarker);
+  }
   let geocoder: any = null;
   let mapReady = false;
   let isUnmounted = false;
@@ -100,6 +111,7 @@
   }
 
   function emitLocation(currentLng: number, currentLat: number, currentAddress: string, currentName = currentAddress) {
+    if (props.disabled || props.browseOnly) return;
     lng.value = currentLng;
     lat.value = currentLat;
     address.value = currentAddress;
@@ -149,7 +161,7 @@
   }
 
   function handleMapMoveEnd() {
-    if (!map || !mapReady || props.disabled) return;
+    if (!map || !mapReady || props.disabled || props.browseOnly) return;
     const center = map.getCenter();
     const currentLng = center.getLng();
     const currentLat = center.getLat();
@@ -184,6 +196,7 @@
           pendingPoi = null;
         }
       }
+      syncFixedMarker();
       lng.value = normalizedLng;
       lat.value = normalizedLat;
       if (map && nextLng != null && nextLat != null) {
@@ -192,21 +205,24 @@
           suppressedCenterKey = coordinateKey(nextLng, nextLat);
           map.setCenter([nextLng, nextLat], true);
         }
-        if (changed && !props.disabled && !props.address) reverseGeocode(nextLng, nextLat);
+        if (changed && !props.disabled && !props.browseOnly && !props.address) reverseGeocode(nextLng, nextLat);
       }
-    }
+    },
+    { flush: 'post' }
   );
 
   watch(
-    () => props.disabled,
-    (disabled) => {
+    () => [props.disabled, props.browseOnly] as const,
+    ([disabled, browseOnly]) => {
+      geocodeSeq++;
+      syncFixedMarker();
       if (!map) return;
       map.setStatus({
-        dragEnable: !disabled,
-        zoomEnable: !disabled,
-        scrollWheel: !disabled,
-        doubleClickZoom: !disabled,
-        keyboardEnable: !disabled,
+        dragEnable: !disabled || !!browseOnly,
+        zoomEnable: !disabled || !!browseOnly,
+        scrollWheel: !disabled || !!browseOnly,
+        doubleClickZoom: !disabled || !!browseOnly,
+        keyboardEnable: !disabled || !!browseOnly,
       });
     }
   );
@@ -223,7 +239,7 @@
 
   /** 搜索选中: 地图飞过去并直接使用 POI 地址，不再重复逆地理编码 */
   function onSearchSelect(poi: AmapPoi | null) {
-    if (props.disabled) return;
+    if (props.disabled || props.browseOnly) return;
     if (!poi) {
       clearLocation();
       return;
@@ -254,7 +270,7 @@
 
     let deviceLocation: { lng: number; lat: number; address: string } | null = null;
     const hasCurrentProps = props.lng != null && props.lat != null;
-    if (!hasCurrentProps && props.autoLocate) {
+    if (!hasCurrentProps && props.autoLocate && !props.disabled && !props.browseOnly) {
       try {
         deviceLocation = await getCurrentAMapLocation();
       } catch {
@@ -278,7 +294,9 @@
         viewMode: '2D',
         showBuildingBlock: true,
       });
-      if (props.disabled) {
+      mapSdk = AMap;
+      syncFixedMarker();
+      if (props.disabled && !props.browseOnly) {
         map.setStatus({
           dragEnable: false,
           zoomEnable: false,
@@ -288,7 +306,7 @@
         });
       }
       // 只读地图只需要底图和坐标，避免初始化搜索/逆地理编码能力。
-      if (!props.disabled) geocoder = new AMap.Geocoder({ radius: 1000, extensions: 'base' });
+      if (!props.disabled && !props.browseOnly) geocoder = new AMap.Geocoder({ radius: 1000, extensions: 'base' });
     } catch {
       map?.destroy?.();
       map = null;
@@ -311,7 +329,7 @@
       lat.value = propLocation.lat;
       address.value = propLocation.address;
       searchKeyword.value = propLocation.address;
-      if (!props.disabled && !propLocation.address) reverseGeocode(propLocation.lng, propLocation.lat);
+      if (!props.disabled && !props.browseOnly && !propLocation.address) reverseGeocode(propLocation.lng, propLocation.lat);
       return;
     }
     if (deviceLocation) {
@@ -333,6 +351,8 @@
       map.destroy();
       map = null;
     }
+    fixedMarker = null;
+    mapSdk = null;
     geocoder = null;
   });
 </script>

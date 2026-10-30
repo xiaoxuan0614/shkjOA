@@ -1,6 +1,7 @@
 <template>
   <div>
     <BasicTable @register="registerTable" :row-selection="null">
+      <template #tableTitle><a-space v-if="!reports" wrap><a-button @click="showDispatchRules=true">报修派单规则（Mock）</a-button><a-space v-if="restAccess"><a-button @click="restTab='rest';showRest=true">休息与转派</a-button><a-button type="primary" @click="restTab='schedule';showRest=true">待调度 / 执行计划</a-button></a-space></a-space></template>
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'action'"><a-button type="link" @click="selectedId = String(record.id)">查看详情</a-button></template>
         <template v-else-if="column.dataIndex === 'projectName'">{{ projectName(record) }}</template>
@@ -9,11 +10,19 @@
         <template v-else>{{ display(record[column.dataIndex]) }}</template>
       </template>
     </BasicTable>
+    <a-drawer v-model:open="showRest" title="休息与调度" width="min(1100px,100vw)" :destroy-on-close="true" :closable="!restLocked" :mask-closable="false" :keyboard="false"><RestAssignment :initial-tab="restTab" @lock-change="restLocked=$event" @changed="tableContext[1].reload()" /></a-drawer>
+    <a-drawer v-model:open="showDispatchRules" title="报修派单规则" width="min(1120px,100vw)" :destroy-on-close="true"><DispatchRules /></a-drawer>
     <RepairDetail :id="selectedId" @close="selectedId = ''" />
   </div>
 </template>
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, onMounted } from 'vue';
+import DispatchRules from '../dispatch-rules/DispatchRules.vue';
+const showDispatchRules=ref(false);
+import RestAssignment from '../rest-assignment/RestAssignment.vue';
+import { restApi } from '../rest-assignment/restAssignment.api';
+const showRest=ref(false),restTab=ref('rest'),restAccess=ref(false),restLocked=ref(false);
+onMounted(async()=>{try{restAccess.value=(await restApi('GET','/repair/rest/options')).canManage===true;}catch{restAccess.value=false;}});
 import { BasicTable, type BasicColumn } from '/@/components/Table';
 import { useListPage } from '/@/hooks/system/useListPage';
 import { type FormSchema } from '/@/components/Form';

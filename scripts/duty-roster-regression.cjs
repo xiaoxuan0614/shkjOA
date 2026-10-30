@@ -124,7 +124,7 @@ function result(month, extra = {}) {
   const pageSource = fs.readFileSync(`${directory}DutyRosterEditor.vue`, 'utf8');
   const setup = pageSource.match(/<script lang="ts" setup>([\s\S]*?)<\/script>/)[1].replace("  defineOptions({ name: 'OperationDutyRoster' });", '').replace('defineProps<{ month?: string }>()', '({})').replace("defineEmits<{ (event: 'back'): void }>()", '(() => {})');
   const expose =
-    '\nexport { ruleConfirmed, movePerson, morningRest, applyMonth, generateRoster, applyAutoRoster, saveRoster, exportRoster, loadUsers, startEditing, handleDayUsersChange, handleNightUsersChange, handleSelectedUsersChange, handlePageChange, rosterRows, rotationUsers, persons, generationRule, isLocked, dirty, savedVersion, currentPage, pageSize, canManage, ruleText, ruleAnalysis, textRuleCanGenerate, checkRuleText };';
+    '\nexport { wizardStep, goToStep, ruleForm, ruleConfirmed, movePerson, morningRest, applyMonth, generateRoster, applyAutoRoster, saveRoster, exportRoster, loadUsers, startEditing, handleDayUsersChange, handleNightUsersChange, handleSelectedUsersChange, handlePageChange, rosterRows, rotationUsers, persons, generationRule, isLocked, dirty, savedVersion, currentPage, pageSize, canManage, ruleAnalysis, textRuleCanGenerate, checkRuleText };';
   const saved = new Map();
   const messages = [],
     confirmations = [];
@@ -162,6 +162,7 @@ function result(month, extra = {}) {
       return { useMessage: () => ({ createMessage: { warning: (m) => messages.push(m), error: (m) => messages.push(m), success() {} } }) };
     if (path === './dutyRoster.rules') return rules;
     if (path === './dutyRoster.textRule') return textRules;
+    if (path === './dutyRoster.advancedRule') return evaluate(fs.readFileSync('src/views/operation/duty-roster/dutyRoster.advancedRule.ts','utf8'), require);
     if (path === './dutyRoster.api') return mockApi;
     if (path === './dutyRosterExcel')
       return {
@@ -175,20 +176,28 @@ function result(month, extra = {}) {
   state.generationRule.value = 'text';
   await state.applyMonth(dayjs('2026-10'));
   state.handleSelectedUsersChange(['A','B','C']);
+  assert.equal(state.wizardStep.value,0);
+  state.goToStep(1);assert.equal(state.wizardStep.value,1);
+  state.ruleForm.value.nightRest='full';
+  state.goToStep(0);state.goToStep(2);assert.equal(state.ruleForm.value.nightRest,'full','切换步骤保留休息设置');
+  state.goToStep(3);assert.equal(state.wizardStep.value,2,'未生成不可进入排班页');
+  state.ruleForm.value.nightRest='morning';
+
   await state.generateRoster();
-  assert.equal(state.rosterRows.value.length, 0, '文字规则未检查不能生成');
-  state.ruleText.value = '平时白班2人，夜班1人；夜班后休息一天';
+  assert.equal(state.rosterRows.value.length, 0, '人数规则未检查不能生成');
+  state.ruleForm.value = {...state.ruleForm.value,day:2,night:1,weekendDay:1,weekendNight:1};
   await state.checkRuleText();
   assert.equal(state.textRuleCanGenerate.value, true);
   assert.equal(state.rosterRows.value.length, 0, '检查规则不覆盖已有表格');
-  state.ruleText.value = '平时白班3人，夜班1人';
-  assert.equal(state.textRuleCanGenerate.value, false, '文本改变后先前检查自动失效');
-  state.ruleText.value = '平时白班2人，夜班1人；夜班后休息一天';
+  state.ruleForm.value.day = 3;
+  assert.equal(state.textRuleCanGenerate.value, false, '人数改变后先前检查自动失效');
+  state.ruleForm.value = {...state.ruleForm.value,day:2,night:1,weekendDay:1,weekendNight:1};
   await state.checkRuleText();
   await state.generateRoster();
   assert.equal(state.rosterRows.value.length,0,'检查通过后仍需确认理解');
   state.ruleConfirmed.value=true;
   await state.generateRoster();
+  assert.equal(state.wizardStep.value,3,'生成成功跳转排班页');
   state.handleDayUsersChange(state.rosterRows.value[0], ['A']);
   assert.equal(state.ruleAnalysis.value.rows[0].dayUsers.length, 2, '生成表和检查结果不共享可变引用');
   const editedRows = JSON.stringify(state.rosterRows.value);

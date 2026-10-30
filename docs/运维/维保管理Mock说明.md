@@ -1,3 +1,5 @@
+> 2026-10-30：此文档仅保留历史说明。Mock已被正式接口替换，现行说明见 [维保管理接口对接说明](维保管理接口对接说明.md)。
+
 # 维保管理 Mock
 
 2026-10-29：PC运维管理下的管理员演示入口 `/operation/maintenance-preview`，组件 `operation/maintenance/index`。

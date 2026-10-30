@@ -45,3 +45,10 @@ export async function repairAttachment(id: string): Promise<Blob> {
   if (blob.type.includes('json')) throw new Error('附件不可用或没有访问权限');
   return blob;
 }
+
+export async function repairMaterialPage(orderId: string, pageNo = 1, keyword = '') {
+  if (!orderId) throw new Error('缺少维修工单ID');
+  const data = await defHttp.get<Row>({ url: '/repair/materialAccount/page', params: { orderId, pageNo, pageSize: 10, ...(keyword ? { keyword } : {}) } });
+  if (String(data?.orderId) !== orderId) throw new Error('物料记录与当前工单不匹配');
+  return normalizePage(data);
+}
