@@ -12,6 +12,7 @@ const directory = 'src/views/operation/duty-roster/';
 const rules = evaluate(fs.readFileSync(`${directory}dutyRoster.rules.ts`, 'utf8'));
 const textRules = evaluate(fs.readFileSync(`${directory}dutyRoster.textRule.ts`, 'utf8'));
 const users = ['A', 'B', 'C'].map((userId) => ({ userId, name: userId, phone: `00-${userId}` }));
+const fourUsers = [...users, {userId:'D',name:'D',phone:'00-D'}];
 const clone = (value) => JSON.parse(JSON.stringify(value));
 function rows(month) {
   const date = dayjs(month);
@@ -27,25 +28,25 @@ function result(month, extra = {}) {
   return { id: null, month, version: 0, saved: false, canManage: true, rotationUsers: [], days: [], ...extra };
 }
 (async () => {
-  const october = rules.rotateDutyRoster(rows('2026-10'), users);
-  assert.deepEqual(
-    october.slice(0, 3).map((r) => [r.dayUsers.map((u) => u.userId), r.nightUser.userId, r.restUser.userId]),
-    [
-      [['A', 'B'], 'A', 'C'],
-      [['B', 'C'], 'B', 'A'],
-      [['C', 'A'], 'C', 'B'],
-    ]
-  );
-  for (const month of ['2026-02', '2028-02', '2026-04', '2026-10']) {
-    const generated = rules.rotateDutyRoster(rows(month), users);
-    generated.slice(1).forEach((day, i) => assert.ok(!day.dayUsers.some((u) => u.userId === generated[i].nightUser.userId)));
+  const october = rules.rotateDutyRoster(rows('2026-10'), fourUsers);
+  const sample = rules.rotateDutyRoster(rows('2026-10').slice(25), fourUsers);
+  assert.deepEqual(sample.map(r => [r.dayUsers.map(u=>u.userId),r.nightUser.userId]), [
+    [['A','B','C','D'],'A'], [['A','B','C','D'],'B'], [['A','B','C','D'],'C'],
+    [['A','B','C','D'],'D'], [['A','B','C','D'],'A'], [['B'],'C']
+  ]);
+  const sampleNext = rules.rotateDutyRoster(rows('2026-11'),fourUsers,sample.at(-1).nightUser.userId);
+  assert.deepEqual(sampleNext[0].dayUsers.map(u=>u.userId),['D']); assert.equal(sampleNext[0].nightUser.userId,'A');
+  assert.equal(sampleNext[1].nightUser.userId,'B');
+  assert.deepEqual(rules.getMorningRestUsers(sampleNext[1],sampleNext[0]),[fourUsers[0]]);
+  assert.deepEqual(rules.getRestUsers(fourUsers,sampleNext[1]),[]);
+  for (const month of ['2026-02','2028-02','2026-04','2026-10']) {
+    const generated=rules.rotateDutyRoster(rows(month),fourUsers);
+    generated.forEach(day=>assert.equal(day.dayUsers.length,[0,6].includes(dayjs(day.date).day())?1:4));
   }
-  const november = rules.rotateDutyRoster(rows('2026-11'), users, october.at(-1).nightUser.userId);
-  assert.deepEqual(
-    november[0].dayUsers.map((u) => u.userId),
-    ['B', 'C']
-  );
-  assert.throws(() => rules.rotateDutyRoster(rows('2026-10'), users.slice(0, 2)), /需要选择3名/);
+  const november = rules.rotateDutyRoster(rows('2026-11'),fourUsers,october.at(-1).nightUser.userId);
+  assert.equal(november[0].dayUsers.length,1);
+  assert.throws(()=>rules.rotateDutyRoster(rows('2026-10'),users),/需要选择4名/);
+  assert.deepEqual(rules.rotateDutyRoster(rows('2026-10'),[fourUsers[2],fourUsers[0],fourUsers[3],fourUsers[1]])[0].nightUser,fourUsers[2]);
   const adjusted = clone(october);
   adjusted[0].dayUsers = [users[0]];
   adjusted[0].nightUsers = [users[2]];
@@ -123,7 +124,7 @@ function result(month, extra = {}) {
   const pageSource = fs.readFileSync(`${directory}DutyRosterEditor.vue`, 'utf8');
   const setup = pageSource.match(/<script lang="ts" setup>([\s\S]*?)<\/script>/)[1].replace("  defineOptions({ name: 'OperationDutyRoster' });", '').replace('defineProps<{ month?: string }>()', '({})').replace("defineEmits<{ (event: 'back'): void }>()", '(() => {})');
   const expose =
-    '\nexport { applyMonth, generateRoster, applyAutoRoster, saveRoster, exportRoster, loadUsers, startEditing, handleDayUsersChange, handleNightUsersChange, handleSelectedUsersChange, handlePageChange, rosterRows, rotationUsers, persons, generationRule, isLocked, dirty, savedVersion, currentPage, pageSize, canManage, ruleText, ruleAnalysis, textRuleCanGenerate, checkRuleText };';
+    '\nexport { ruleConfirmed, movePerson, morningRest, applyMonth, generateRoster, applyAutoRoster, saveRoster, exportRoster, loadUsers, startEditing, handleDayUsersChange, handleNightUsersChange, handleSelectedUsersChange, handlePageChange, rosterRows, rotationUsers, persons, generationRule, isLocked, dirty, savedVersion, currentPage, pageSize, canManage, ruleText, ruleAnalysis, textRuleCanGenerate, checkRuleText };';
   const saved = new Map();
   const messages = [],
     confirmations = [];
@@ -134,10 +135,11 @@ function result(month, extra = {}) {
     readonly = false,
     deferred;
   const mockApi = {
-    loadDutyRosterUsers: async () => ({ canManage: !readonly, persons: clone(users) }),
+    loadDutyRosterUsers: async () => ({ canManage: !readonly, persons: clone(fourUsers) }),
     queryDutyRoster: async (month) => {
-      if (deferred && month === '2026-08')
+      if (deferred && !deferred.requested && month === '2026-08')
         return new Promise((resolve) => {
+          deferred.requested = true;
           deferred.resolve = resolve;
         });
       return clone(saved.get(month) || result(month, { canManage: !readonly }));
@@ -172,6 +174,7 @@ function result(month, extra = {}) {
   await state.loadUsers();
   state.generationRule.value = 'text';
   await state.applyMonth(dayjs('2026-10'));
+  state.handleSelectedUsersChange(['A','B','C']);
   await state.generateRoster();
   assert.equal(state.rosterRows.value.length, 0, '文字规则未检查不能生成');
   state.ruleText.value = '平时白班2人，夜班1人；夜班后休息一天';
@@ -183,15 +186,27 @@ function result(month, extra = {}) {
   state.ruleText.value = '平时白班2人，夜班1人；夜班后休息一天';
   await state.checkRuleText();
   await state.generateRoster();
+  assert.equal(state.rosterRows.value.length,0,'检查通过后仍需确认理解');
+  state.ruleConfirmed.value=true;
+  await state.generateRoster();
   state.handleDayUsersChange(state.rosterRows.value[0], ['A']);
   assert.equal(state.ruleAnalysis.value.rows[0].dayUsers.length, 2, '生成表和检查结果不共享可变引用');
+  const editedRows = JSON.stringify(state.rosterRows.value);
+  state.movePerson(0, 1);
+  assert.equal(state.ruleConfirmed.value, false, '人员调序清除确认');
+  assert.equal(state.textRuleCanGenerate.value, false, '人员调序后须重新检查');
+  assert.equal(JSON.stringify(state.rosterRows.value), editedRows, '人员调序不覆盖人工修改');
   await state.applyMonth(dayjs('2026-10'));
   assert.equal(state.textRuleCanGenerate.value, false, '月份刷新需重新检查');
   state.generationRule.value = 'rotation';
+  state.handleSelectedUsersChange(['A','B','C','D']);
   await state.generateRoster();
   assert.equal(state.rosterRows.value.length, 31);
   state.handleDayUsersChange(state.rosterRows.value[0], ['A']);
   state.handleNightUsersChange(state.rosterRows.value[0], 'C');
+  assert.deepEqual(state.morningRest(state.rosterRows.value[1]).map(p=>p.userId),['C'],'修改昨夜夜班自动更新次日上午休息');
+  state.handleDayUsersChange(state.rosterRows.value[1], ['A','B','D']);
+  assert.deepEqual(state.morningRest(state.rosterRows.value[1]),[],'没有排当天白班的不误标半天休息');
 
   await state.saveRoster();
   assert.equal(saveCount, 1);
@@ -225,10 +240,11 @@ function result(month, extra = {}) {
   state.applyAutoRoster();
   assert.equal(confirmations.length, 1, '重新生成需要确认覆盖人工调整');
   await state.applyMonth(dayjs('2026-11'));
+  state.handleSelectedUsersChange(['A','B','C','D']);
   await state.generateRoster();
   assert.deepEqual(
     state.rosterRows.value[0].dayUsers.map((u) => u.userId),
-    ['B', 'C']
+    november[0].dayUsers.map(u=>u.userId)
   );
   state.generationRule.value = 'manual';
   await state.generateRoster();

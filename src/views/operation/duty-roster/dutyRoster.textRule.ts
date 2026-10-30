@@ -7,6 +7,9 @@ export interface ShiftDemand {
   night: number;
 }
 export interface TextDutyRule {
+  sequential?: boolean;
+  weekend?: ShiftDemand;
+  morningRest?: boolean;
   normal: ShiftDemand;
   holiday: ShiftDemand;
   usesHolidays: boolean;
@@ -38,11 +41,50 @@ function normalize(text: string) {
     .replace(/夜(?=\d)/g, '夜班');
 }
 
+export const SEQUENTIAL_RULE_EXAMPLE = '工作日白班4人，夜班1人；\n周末白班1人，夜班1人；\n夜班后次日上午休息，下午上班，不补人；\n按选人顺序轮值，周末白班也占轮次，跨月接上月。';
+
+/** 明确的顺序轮值语法；不把未识别内容交给模糊推断。 */
+function parseSequentialRule(text: string): RuleInterpretation {
+  const errors: string[] = [];
+  const demands: Record<string, Partial<ShiftDemand>> = { normal: {}, weekend: {} };
+  let scope = 'normal', morning = false, afternoon = false, ordered = false;
+  for (const part of text.split(/[，,；;。\n]+/).filter(Boolean)) {
+    let clause = normalize(part);
+    if (/^(?:夜班后)?(?:次日)?上午休息$/.test(clause)) { morning = true; continue; }
+    if (/^下午(?:上班|正常上班)$/.test(clause)) { afternoon = true; continue; }
+    if (/^(?:按(?:选人|选择|人员)?顺序(?:循环)?轮值|依次轮值)$/.test(clause)) { ordered = true; continue; }
+    if (/^(?:不补人|周末白班也占轮次|跨月接上月)$/.test(clause)) continue;
+    const category = clause.match(/^(工作日|平时|平日|周末)/);
+    if (category) { scope = category[1] === '周末' ? 'weekend' : 'normal'; clause = clause.slice(category[0].length); }
+    clause = clause.replace(/(白班|夜班)(\d+)(?:人|名)?/g, (_, shift, count) => {
+      const key = shift === '白班' ? 'day' : 'night';
+      if (demands[scope][key] != null && demands[scope][key] !== Number(count)) errors.push(`${part}与前面的安排冲突`);
+      demands[scope][key] = Number(count); return '';
+    });
+    if (clause) errors.push(`未能明确理解“${part}”，请参考顺序轮值模板；休半天请写明上午休息、下午上班`);
+  }
+  for (const [key, name] of [['normal','工作日'],['weekend','周末']]) {
+    if (demands[key].day == null || demands[key].night == null) errors.push(`请写全${name}白班和夜班人数`);
+    if (Object.values(demands[key]).some(n => !Number.isInteger(n) || n < 0 || n > 100)) errors.push(`${name}人数需为0至100的整数`);
+  }
+  if (!morning || !afternoon) errors.push('请明确“夜班后次日上午休息，下午上班”');
+  if (!ordered) errors.push('请明确“按选人顺序轮值”');
+  if (errors.length) return { errors: [...new Set(errors)], summary: [] };
+  const rule: TextDutyRule = { normal: demands.normal as ShiftDemand, weekend: demands.weekend as ShiftDemand, holiday: demands.normal as ShiftDemand, usesHolidays: false, weekendHoliday: false, restAfterNight: false, restAfterFullDay: false, sequential: true, morningRest: true };
+  return { rule, errors: [], summary: [
+    `工作日：全体参与人员白班${rule.normal.day}人，夜班${rule.normal.night}人；白班不占轮次`,
+    `周末：白班${rule.weekend!.day}人，夜班${rule.weekend!.night}人；先白班后夜班，均占轮次`,
+    '夜班后：次日上午休息、下午上班；仍计入当天白班，不补人',
+    '按选人顺序循环，跨月接上月末；按自然星期区分工作日和周末，不另作节假日调休',
+  ] };
+}
+
 /** 本地可解释语法，未识别的约束必须报出，不能忽略后声称合理。 */
 export function parseDutyRule(text: string): RuleInterpretation {
   const errors: string[] = [];
   if (!text.trim()) return { errors: ['请先输入排班逻辑'], summary: [] };
   if (text.length > 500) return { errors: ['排班逻辑请控制在500字以内'], summary: [] };
+  if (/半天|上午休息|(?:^|[，,；;。\n])\s*周末\s*(?:白班|白天|早班)/.test(text)) return parseSequentialRule(text);
   const demands: Record<'normal' | 'holiday', Partial<ShiftDemand>> = { normal: {}, holiday: {} };
   let scope: 'normal' | 'holiday' = 'normal';
   let nightMustAttendDay = false;
@@ -193,6 +235,24 @@ export function checkTextDutyRule(
   if (rule.usesHolidays && rows.length && !HolidayUtil.getHolidays(dayjs(rows[0].date).year()).length)
     errors.push('该年份暂无内置法定节假日数据，请先去掉节假日差异规则或使用其他生成方式，不会将未知节假日按平日生成');
   if (errors.length) return { ...parsed, errors };
+  if (rule.sequential) {
+    if (rule.normal.day !== users.length) return { ...parsed, errors: [`这类顺序轮值的工作日白班为全体参与人员：规则写${rule.normal.day}人，当前选了${users.length}人，请调整人数或规则`] };
+    if (rule.normal.night > users.length || rule.weekend!.day + rule.weekend!.night > users.length) return { ...parsed, errors: ['参与人数不足：工作日夜班不能超过参与人数，周末白班和夜班需要不同人员，请增加人员或减少班次人数'] };
+    const previousIds = Array.isArray(previousNightUserId) ? previousNightUserId : previousNightUserId ? [previousNightUserId] : [];
+    const lastIndex = users.findIndex(user => user.userId === previousIds.at(-1));
+    let cursor = lastIndex >= 0 ? lastIndex + 1 : 0;
+    const take = (count: number) => Array.from({ length: count }, () => ({ ...users[cursor++ % users.length] }));
+    const generated = rows.map(row => {
+      const weekend = [0, 6].includes(dayjs(row.date).day());
+      const dayUsers = weekend ? take(rule.weekend!.day) : users.map(user => ({ ...user }));
+      const nightUsers = take(weekend ? rule.weekend!.night : rule.normal.night);
+      const nightUser = nightUsers[0] || null;
+      const occupied = new Set([...dayUsers, ...nightUsers].map(user => user.userId));
+      const restUsers = users.filter(user => !occupied.has(user.userId)).map(user => ({ ...user }));
+      return { ...row, dayUsers, nightUsers, nightUser, restUsers, restUser: restUsers[0] || null };
+    });
+    return { ...parsed, rows: generated, holidayDates: [], errors: [] };
+  }
   const nightCounts = users.map(() => 0),
     dayCounts = users.map(() => 0);
   const previousIds = Array.isArray(previousNightUserId) ? previousNightUserId : previousNightUserId ? [previousNightUserId] : [];

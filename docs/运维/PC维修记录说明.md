@@ -1,3 +1,17 @@
+### 2026-10-29 维修审批统一业务提交接口
+
+PC InstanceDrawer 对 businessType=REPAIR_OPS_APPLICATION 的通过/驳回统一 POST /repair/application/review，覆盖报价（含市场节点）、完结、关闭、内协、外协、转单；移动端 RepairApprovalPopup 同步，OpsWorkflow/repairOrderApi 原已使用此接口。提交 applicationId=businessId、instanceId、taskId、approve、comment、requestId，不传 action/version。内协选人和转单接收人仍按场景追加；驳回不传人员字段。完结驳回未选 returnType 时沿用后端默认 MATERIAL_SUPPLEMENT，移动工作台原有 returnType 选择保留。
+
+仍按工作流当前任务及 actions 控制可办理权限，详情/表单/权限读取继续使用工作流接口；撤回及其他流程操作不改为 review。未确认的网络提交保留原始载荷与 requestId 重试；明确业务失败允许更正重提。已通过 PC 路由、转单、内协、工作流回归和移动审批弹窗/协助专项；未提交真实审批、未部署。两份菜单配置指南已核查，无新增菜单或角色授权。
+
+2026-10-28 展示精简：维修报价审核待办仅保留故障范围、报价信息（明细与合计），移除客户、项目、分期和备注。展示专项通过；菜单配置及业务/API影响已检查，无接口或权限变更。
+
+### 2026-10-28 PC维修报价审核待办详情
+
+InstanceDrawer按REPAIR_OPS_APPLICATION/repair_ops_quotation使用RepairQuotationSnapshot，展示本次送审的客户、项目、分期、故障及维修范围、备注，以及报价项目/数量/单价/金额表格和合计。仅读取instance/form权限投影后的快照，不补查当前工单替代历史报价；未返回的信息显示为空，HIDDEN字段不展示。按form.scope.faultScope与form.items读取，支持对象/JSON及扁平路径投影；明细使用Big逐行HALF_UP两位后求和，价格缺失或相关字段隐藏时不推算合计。保留审批进程、原办理动作与查看维修单详情入口。
+
+已刷新Apifox核对报价提交、维修流程模板和实例详情。报价展示专项、通用详情/工作流回归及定向ESLint通过；未完成真实浏览器报价待办验收，未提交审批。菜单配置已检查，无新增菜单、权限或接口。
+
 # PC 维修记录（一期）
 
 ### 2026-10-27 PC维修转单待办审批
@@ -57,3 +71,13 @@ GET /repair/collaboration/assignmentOptions?applicationId=申请ID&departmentId=
 实际页面验证：PC首页REPAIR_COLLABORATION_ASSIGN已打开指定人员弹窗；候选接口返回NoClassDefFoundError: org/jeecg/modules/repair/RepairOpsDepartmentCollaboration，需后端修复运行时类加载。未提交真实指派。scripts/repair-assignment-regression.cjs覆盖类型路由、部门匹配、请求体、幂等重试及成功刷新，已通过。
 
 2026-10-27 双端待办展示修正：title作为待办名称，summary仅作下方小字描述，空描述不占位；title为空显示未命名待办。PC保留前置彩色todoType标签，title独立作为主标题；移动端保留原彩色标识，首页及完整列表共享修正。办理逻辑、查询参数及权限不变，菜单配置已检查无需调整。
+
+2026-10-29 维修完结审批：专用快照分区展示报修信息、完结说明、可展开维修记录、物料情况及审批记录。仅读取授权字段投影，隐藏字段不显示；缺失分区提示未提供，不拿实时工单补充历史依据。金额两位小数。顶部查看维修单沿用RepairDetail详情抽屉，可关闭返回原审批上下文，使用orderId而非申请ID。原审批动作和驳回必填保持不变。Apifox已刷新；当前提审明确提供finalAmount/description/amountChangeReason，其他内容取决于实际快照字段。附件沿用原快照展示能力，未新增照片预览。专项、入口、报价及通用详情回归、ESLint通过；真实完结待办浏览器联调未完成，未提交审批。两份菜单配置文档已检查，无菜单授权变化。
+
+2026-10-29 按用户确认，维修完结申请内容移除重复审批记录，仅保留现有审批进程Tab。完结快照及通用详情回归通过；菜单文档和API影响已检查，无菜单、权限或接口变化。
+
+2026-10-29 查看维修单入口移至申请内容Tab顶部，使用主按钮突出展示，移除抽屉标题栏重复入口；保留原禁用条件、详情打开及返回机制。入口与完结快照回归通过。菜单及API文档影响已检查，无菜单、权限或接口变更。
+
+2026-10-29 维修完结审批隐藏无可见内容的分区及其标题，移除“本次审批快照未提供可见的”提示；已有“无需报价”业务状态继续展示。专项回归、ESLint通过；菜单和API影响已检查，无接口或权限变化。
+
+2026-10-29 维修记录详情的维修作业Tab迁移至GET /repair/work/page（orderId/pageNo/pageSize=10），使用返回total分页，首次进入Tab加载；切换Tab及关闭单条详情保留页码，切工单重置并丢弃旧请求。点击查看详情才请求GET /repair/work/detail（同时传orderId/recordId），校验响应记录归属。详情展示本次故障、维修内容、人员、外协、车辆、用料、附件；签到签退中文状态/异常说明取分页响应，不自行计算异常。公共路径附件走现有预览工具，维修附件ID走原鉴权下载。工单详情不再读取workRecords，操作时间线仍用order/logs。API参数、ID防错、SFC编译、ESLint、diff通过；未完成真实浏览器工单分页和详情联调，未提交业务。菜单两份配置文档已检查，无菜单及角色授权变化。

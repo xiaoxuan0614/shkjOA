@@ -2,10 +2,10 @@
   <RepairAssignmentModal ref="repairAssignment" @processed="emit('processed')" />
   <a-drawer
     :open="open"
-    title="审批详情"
+    :title="isRepairCompletion ? '维修完结审批' : '审批详情'"
     width="min(900px, 96vw)"
-    :mask-closable="!busy && !uploading && !((mergedApproval || isTransferApproval) && pendingRequest)"
-    :closable="!busy && !uploading && !((mergedApproval || isTransferApproval) && pendingRequest)"
+    :mask-closable="!busy && !uploading && !(isRepairApproval && pendingRequest)"
+    :closable="!busy && !uploading && !(isRepairApproval && pendingRequest)"
     @close="emit('close')"
   >
     <a-alert v-if="error" type="error" :message="error" show-icon
@@ -28,7 +28,7 @@
         <a-tabs v-model:active-key="detailTab" class="detail-tabs">
           <a-tab-pane key="application" tab="申请内容">
         <div v-if="isRepairApproval" class="repair-detail-link">
-          <a-button :disabled="!linkedRepairId || loading || busy || uploading || !!error || !!metadataError" @click="repairDetailId = linkedRepairId">查看维修单详情</a-button>
+          <a-button type="primary" :disabled="!linkedRepairId || loading || busy || uploading || !!error || !!metadataError" @click="repairDetailId = linkedRepairId">查看维修单详情</a-button>
           <span v-if="!linkedRepairId && !loading" class="hint">未获取到可查看的维修单编号</span>
         </div>
         <section v-if="isInternalCollaboration" class="collaboration-summary" aria-label="受邀部门及协助原因">
@@ -38,7 +38,11 @@
             <p><span class="hint">需要协助原因：</span>{{ department.reason }}</p>
           </div>
         </section>
-        <a-descriptions v-if="!isInternalCollaboration" bordered :column="1"
+        <RepairQuotationSnapshot v-if="isRepairQuotation" :visible="visibleSnapshot" :permissions="detail.fieldPermissions" />
+        <template v-if="isRepairCompletion">
+          <RepairCompletionSnapshot :visible="visibleSnapshot" :fields="fields" :permissions="detail.fieldPermissions" :no-quotation="completionNoQuotation" />
+        </template>
+        <a-descriptions v-if="!isInternalCollaboration && !isRepairQuotation && !isRepairCompletion" bordered :column="1"
           ><a-descriptions-item
             v-for="row in contentRows"
             :key="row.field.key"
@@ -46,7 +50,7 @@
             ><BusinessSnapshotValue :field="row.field" :value="row.value" :fields="fields" :permissions="detail.fieldPermissions" :allow-file-preview="detail.businessType === 'PROJECT_CONTRACT'" /></a-descriptions-item
           ></a-descriptions
         >
-        <a-empty v-if="!isInternalCollaboration && !contentRows.length && !loading && !metadataError" description="暂无可查看的申请内容" />
+        <a-empty v-if="!isInternalCollaboration && !isRepairQuotation && !isRepairCompletion && !contentRows.length && !loading && !metadataError" description="暂无可查看的申请内容" />
           </a-tab-pane>
           <a-tab-pane key="progress" tab="审批进程"><ApprovalProgress :instance="detail" compact /></a-tab-pane>
         </a-tabs>
@@ -72,23 +76,25 @@
           :disabled="busy || loading || !!metadataError"
           @click="chooseAction(undefined, 'RESUBMIT')"
           >修改重提</a-button
-        ><a-button :disabled="busy || !!((mergedApproval || isTransferApproval) && pendingRequest)" @click="emit('close')">关闭</a-button></div
+        ><a-button :disabled="busy || !!(isRepairApproval && pendingRequest)" @click="emit('close')">关闭</a-button></div
       ></template
     >
     <a-modal
-      v-model:open="confirmOpen"
+      :open="confirmOpen && !repairDetailId"
+      @cancel="confirmOpen = false"
       :title="actionLabels[pendingAction] || pendingAction"
       :confirm-loading="busy"
       :ok-button-props="{
         disabled: uploading || (pendingAction === 'APPROVE' && isInternalCollaboration && (candidatesLoading || !!candidatesError || (mergedApproval && !!reviewCandidates?.departments.some(d => !d.members.length)))) || (pendingAction === 'RETURN' && (!!returnTargetError || !availableReturnOptions.some((o) => o.value === targetNode))),
       }"
-      :mask-closable="!busy && !uploading && !((mergedApproval || isTransferApproval) && pendingRequest)"
-      :closable="!busy && !uploading && !((mergedApproval || isTransferApproval) && pendingRequest)"
-      :cancel-button-props="{ disabled: busy || uploading || !!((mergedApproval || isTransferApproval) && pendingRequest) }"
+      :mask-closable="!busy && !uploading && !(isRepairApproval && pendingRequest)"
+      :closable="!busy && !uploading && !(isRepairApproval && pendingRequest)"
+      :cancel-button-props="{ disabled: busy || uploading || !!(isRepairApproval && pendingRequest) }"
       ok-text="确认"
       cancel-text="取消"
       @ok="submitAction"
     >
+      <a-button v-if="isRepairApproval" :disabled="!linkedRepairId || busy || uploading || !!pendingRequest" style="margin-bottom:16px" @click="repairDetailId = linkedRepairId">查看维修单</a-button>
       <a-config-provider :component-disabled="busy || !!pendingRequest"
         ><a-form layout="vertical">
           <a-form-item v-if="pendingAction === 'RETURN'" label="退回目标" required
@@ -161,6 +167,8 @@
   import { parseApprovalCandidates, approvalAssignments, type ApprovalCandidates } from '/@/views/todo/collaborationApproval';
   import { repairDetail } from '/@/views/operation/repair/repair.api';
   import { useUserStore } from '/@/store/modules/user';
+  import RepairQuotationSnapshot from './RepairQuotationSnapshot.vue';
+  import RepairCompletionSnapshot from './RepairCompletionSnapshot.vue';
   import BusinessSnapshotValue from './BusinessSnapshotValue.vue';
   import { visibleTaskButtons } from '../taskPresentation';
   import { applicationRows } from '../snapshotPresentation';
@@ -173,6 +181,7 @@
   import { readInitialDetail } from '../instanceInitialDetail';
   const RepairDetail = defineAsyncComponent(() => import('/@/views/operation/repair/RepairDetail.vue'));
   const repairDetailId = ref('');
+  const completionNoQuotation = ref(false);
   import {
     commentInstance,
     editInstanceData,
@@ -334,6 +343,8 @@
         .map((field) => [field.key, fieldValue(detail.value?.snapshot, field.key)])
     )
   );
+  const isRepairQuotation = computed(() => detail.value?.businessType === 'REPAIR_OPS_APPLICATION' && detail.value?.processKey === 'repair_ops_quotation');
+  const isRepairCompletion = computed(() => detail.value?.businessType === 'REPAIR_OPS_APPLICATION' && detail.value?.processKey === 'repair_ops_completion');
   const isInternalCollaboration = computed(() => detail.value?.businessType === 'REPAIR_OPS_APPLICATION' && detail.value?.processKey === 'repair_ops_collaboration');
   const isTransferApproval = computed(() => detail.value?.businessType === 'REPAIR_OPS_APPLICATION' && detail.value?.processKey === 'repair_ops_transfer');
   const requestedTransferTarget = computed(() => {
@@ -364,6 +375,7 @@
     if (!props.open || !props.instanceId || busy.value || actionPreparing.value) return;
     const current = ++generation;
     loading.value = true;
+    completionNoQuotation.value = false;
     error.value = '';
     actions.value = undefined;
     fields.value = [];
@@ -373,6 +385,11 @@
       if (current !== generation) return;
       detail.value = data;
       actions.value = allowed;
+      if (data.businessType === 'REPAIR_OPS_APPLICATION' && data.processKey === 'repair_ops_completion' && data.snapshot?.orderId) {
+        const repair = await repairDetail(String(data.snapshot.orderId));
+        if (current !== generation) return;
+        completionNoQuotation.value = repair.order?.quotationRequired === false;
+      }
       try {
         const schema = await instanceForm(props.instanceId);
         if (current !== generation) return;
@@ -537,6 +554,16 @@
       try { if (mergedApproval.value) approvalAssignments(reviewCandidates.value, reviewChosen.value, action === 'APPROVE'); }
       catch (e: any) { actionError.value = e.message; return; }
     }
+    if (isRepairApproval.value && ['APPROVE', 'REJECT'].includes(action) && !pendingRequest.value) {
+      if (!props.instanceId || !detail.value?.businessId || !pendingTask.value) {
+        actionError.value = '缺少维修申请或审批任务信息，请刷新';
+        return;
+      }
+      if (comment.value.trim().length > 1000) {
+        actionError.value = '审批意见最多1000字';
+        return;
+      }
+    }
     const submittedInstanceId = props.instanceId;
     if (isTransferApproval.value && ['APPROVE', 'REJECT'].includes(action) && !pendingRequest.value) {
       try {
@@ -554,6 +581,7 @@
       if (!pendingRequest.value) {
         if (isInternalCollaboration.value && ['APPROVE', 'REJECT'].includes(action)) pendingRequest.value = { ...base, applicationId: detail.value!.businessId, taskId: pendingTask.value, approve: action === 'APPROVE', ...(mergedApproval.value ? approvalAssignments(reviewCandidates.value, reviewChosen.value, action === 'APPROVE') : {}) };
         else if (isTransferApproval.value && ['APPROVE', 'REJECT'].includes(action)) pendingRequest.value = { ...base, applicationId: detail.value!.businessId, taskId: pendingTask.value, approve: action === 'APPROVE', ...transferReviewFields(action === 'APPROVE', transferTarget.value, requestedTransferTarget.value, transferOptions.value) };
+        else if (isRepairApproval.value && ['APPROVE', 'REJECT'].includes(action)) pendingRequest.value = { ...base, applicationId: detail.value!.businessId, taskId: pendingTask.value, approve: action === 'APPROVE' };
         else if (['APPROVE', 'REJECT', 'WITHDRAW', 'COMPLETE'].includes(action)) pendingRequest.value = { ...base, taskId: pendingTask.value, action };
         else if (action === 'COMMENT') pendingRequest.value = { ...base, mentionUserIds: [...targetUsers.value] };
         else if (action === 'RESUBMIT')
@@ -574,7 +602,7 @@
       }
       const payload = pendingRequest.value;
       if (['APPROVE', 'REJECT', 'WITHDRAW', 'COMPLETE'].includes(action)) {
-        if ((isInternalCollaboration.value || isTransferApproval.value) && ['APPROVE', 'REJECT'].includes(action)) await reviewCollaboration(payload);
+        if (isRepairApproval.value && ['APPROVE', 'REJECT'].includes(action)) await reviewCollaboration(payload);
         else await handleInstance(payload as Parameters<typeof handleInstance>[0]);
         if (props.instanceId !== submittedInstanceId || !props.open) return;
         if (nextAssignment) assignmentContext = nextAssignment;
@@ -589,7 +617,7 @@
       confirmOpen.value = false;
       emit('processed');
     } catch (e) {
-      if ((mergedApproval.value || isTransferApproval.value) && (e as any).definite) { pendingRequest.value = undefined; requestId = newId('action'); }
+      if (isRepairApproval.value && (e as any).definite) { pendingRequest.value = undefined; requestId = newId('action'); }
       actionError.value = (e as Error).message;
     } finally {
       busy.value = false;

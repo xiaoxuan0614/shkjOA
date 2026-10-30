@@ -2,21 +2,25 @@ import type { DutyPerson, DutyRosterDay, DutyRosterPayload } from './dutyRoster.
 
 /** 生成规则只用于初稿，不约束人工调整或保存。 */
 export function rotateDutyRoster(rows: DutyRosterDay[], users: DutyPerson[], previousNightUserId?: string | null): DutyRosterDay[] {
-  if (users.length !== 3 || users.some((user) => !user.userId) || new Set(users.map((user) => user.userId)).size !== 3) {
-    throw new Error('三人轮值需要选择3名不同的运维人员，也可选择自定义排班');
+  if (users.length !== 4 || users.some((user) => !user.userId) || new Set(users.map((user) => user.userId)).size !== 4) {
+    throw new Error('四人轮值需要选择4名不同的运维人员；生成后可自由调整每天人数');
   }
   const previousIndex = previousNightUserId ? users.findIndex((user) => user.userId === previousNightUserId) : -1;
-  const start = previousIndex >= 0 ? (previousIndex + 1) % 3 : 0;
-  return rows.map((row, index) => {
-    const current = (start + index) % 3;
-    return {
-      ...row,
-      dayUsers: [{ ...users[current] }, { ...users[(current + 1) % 3] }],
-      nightUser: { ...users[current] },
-      nightUsers: [{ ...users[current] }],
-      restUser: { ...users[(current + 2) % 3] },
-    };
+  let cursor = previousIndex >= 0 ? (previousIndex + 1) % users.length : 0;
+  const next = () => ({ ...users[cursor++ % users.length] });
+  return rows.map((row) => {
+    const weekday = new Date(`${row.date}T12:00:00Z`).getUTCDay();
+    const dayUsers = [0, 6].includes(weekday) ? [next()] : users.map(user => ({ ...user }));
+    const nightUser = next();
+    const restUsers = getRestUsers(users, { dayUsers, nightUser });
+    return { ...row, dayUsers, nightUser, nightUsers: [nightUser], restUsers, restUser: restUsers[0] || null };
   });
+}
+
+/** 昨晚夜班且今天仍排白班的人：上午休息、下午上班，不计全天休息。 */
+export function getMorningRestUsers(row: Pick<DutyRosterDay, 'dayUsers'>, previousRow?: Pick<DutyRosterDay, 'nightUsers' | 'nightUser'>): DutyPerson[] {
+  const dayIds = new Set(row.dayUsers.map(person => person?.userId).filter(Boolean));
+  return getNightUsers(previousRow).filter(person => !!person?.userId && dayIds.has(person.userId)).map(person => ({ ...person }));
 }
 
 export function getNightUsers(row?: Pick<DutyRosterDay, 'nightUsers' | 'nightUser'>): DutyPerson[] {

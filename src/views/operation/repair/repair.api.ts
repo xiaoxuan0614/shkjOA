@@ -21,6 +21,16 @@ export async function repairDetail(id: string) {
 export async function repairLogs(id: string, pageNo: number) {
   return normalizePage(await defHttp.get({ url: '/repair/order/logs', params: { id, pageNo, pageSize: 20 } }));
 }
+export async function repairWorkPage(orderId: string, pageNo = 1) {
+  if (!orderId) throw new Error('缺少维修工单ID');
+  return normalizePage(await defHttp.get({ url: '/repair/work/page', params: { orderId, pageNo, pageSize: 10 } }));
+}
+export async function repairWorkDetail(orderId: string, recordId: string) {
+  if (!orderId || !recordId) throw new Error('缺少工单或作业记录ID');
+  const data = await defHttp.get<Row>({ url: '/repair/work/detail', params: { orderId, recordId } });
+  if (String(data?.orderId) !== orderId || String(data?.recordId) !== recordId) throw new Error('维修作业详情响应不匹配');
+  return data;
+}
 export function display(value: unknown): string {
   if (value === null || value === undefined || value === '') return '—';
   if (typeof value === 'boolean') return value ? '是' : '否';

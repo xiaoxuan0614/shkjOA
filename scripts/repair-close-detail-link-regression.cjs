@@ -19,6 +19,8 @@ const source = fs.readFileSync('src/views/workflow/components/InstanceDrawer.vue
 assert.ok(source.includes('查看维修单详情'));
 assert.ok(source.includes('repairApprovalOrderId(detail.value, visibleSnapshot.value)'));
 assert.ok(source.includes('v-if="isRepairApproval"'));
+assert.ok(source.includes('v-if="isRepairCompletion"'));
+assert.ok(!source.includes('<template #extra>'));
 assert.ok(source.includes('<RepairDetail v-if="repairDetailId" :id="repairDetailId" @close="repairDetailId = \'\'" />'));
 assert.ok(source.includes('props.open, props.instanceId, linkedRepairId.value'));
 console.log('PASS all repair approval detail links, identity, visibility and lifecycle');

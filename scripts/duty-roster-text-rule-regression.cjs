@@ -107,3 +107,17 @@ const crossFull = checkTextDutyRule('平时白班1人夜班1人；上24小时后
 assert.ok(!crossFull.rows[0].dayUsers.some(p => p.userId === 'A'));
 assert.deepEqual(parseDutyRule(natural.replace('那转天', '，第二天')).errors, []);
 console.log('PASS 用户原文、工作日及周末、节假日举例、24小时休息与跨月交集');
+const sequenceText=moduleExports.SEQUENTIAL_RULE_EXAMPLE;
+const sequenceUsers=[...users,{userId:'D',name:'D',phone:null}];
+const sequence=checkTextDutyRule(sequenceText,rows('2026-10').slice(25),sequenceUsers);
+assert.deepEqual(sequence.errors,[]);
+assert.deepEqual(sequence.rows.map(r=>r.nightUser.userId),['A','B','C','D','A','C']);
+assert.equal(sequence.rows.at(-1).dayUsers[0].userId,'B');
+assert.equal(checkTextDutyRule(sequenceText,rows('2026-11'),sequenceUsers,'C').rows[0].dayUsers[0].userId,'D');
+assert.ok(checkTextDutyRule(sequenceText,rows('2026-11'),users).errors.length);
+assert.ok(parseDutyRule(sequenceText+'每天必须安排张三').errors.length);
+assert.ok(parseDutyRule(sequenceText.replace('夜班后次日上午休息，下午上班','夜班后休息半天')).errors.length,'ambiguous half day requires explicit clarification');
+assert.ok(parseDutyRule(sequenceText+'工作日白班2人').errors.length);
+assert.ok(checkTextDutyRule(sequenceText.replace('周末白班1人','周末白班4人'),rows('2026-11'),sequenceUsers).errors.length);
+assert.equal(parseDutyRule(sequenceText).rule.morningRest,true);
+console.log('PASS 顺序轮值文字模板、跨月、人数不足、未知/歧义/矛盾规则拒绝');

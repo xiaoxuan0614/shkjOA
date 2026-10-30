@@ -20,6 +20,7 @@
             </a-descriptions>
             <h3>报修附件</h3><FileLinks :files="rows('reportAttachments')" />
           </a-tab-pane>
+          <a-tab-pane key="work" tab="维修作业"><RepairWorkRecords :order-id="id" :active="tab === 'work'" :members="rows('members')" :material-links="rows('materialLinks')" /></a-tab-pane>
           <a-tab-pane v-for="group in groups" :key="group.key" :tab="group.title">
             <section v-for="table in group.tables" :key="table.key" class="repair-section">
               <h3>{{ table.title }}</h3>
@@ -46,6 +47,7 @@ import { computed, ref, watch, onBeforeUnmount } from 'vue';
 import { display, hours, projectName, repairDetail, repairLogs, workStates, type Row } from './repair.api';
 import DictValue from '/@/components/DictValue.vue';
 import FileLinks from './RepairFiles.vue';
+import RepairWorkRecords from './RepairWorkRecords.vue';
 const props = defineProps<{ id: string }>();
 defineEmits(['close']);
 const data = ref<Row | null>(null), busy = ref(false), error = ref(''), tab = ref('report');
@@ -55,7 +57,6 @@ const order = computed(() => data.value?.order || {});
 const rows = (key: string): Row[] => Array.isArray(data.value?.[key]) ? data.value![key] : [];
 const reportFields = [['customerNameSnapshot','客户'],['reporterNameDisplay','报修人'],['reportTimeDisplay','报修时间'],['serviceAddress','服务地址'],['contactPerson','联系人'],['contactPhone','联系电话'],['faultDescription','故障现象'],['reportRemark','备注']];
 const groups = [
-  { key: 'work', title: '维修作业', tables: [ { key: 'workRecords', title: '每次维修记录', fields: [['recordNo','记录编号'],['operatorNameSnapshot','作业人员'],['repairMethod','维修方式'],['recordStatus','作业状态'],['effectiveStartedAt','有效开始时间'],['effectiveEndedAt','有效结束时间'],['durationSeconds','工时'],['faultDescription','故障现象'],['repairDescription','维修内容'],['vehiclePlateSnapshot','使用车辆']] } ] },
   { key: 'people', title: '人员与派单', tables: [
     { key: 'workPersons', title: '作业参与人员', fields: [['workRecordId','关联作业ID'],['personNameSnapshot','人员'],['personType','人员类型']] },
     { key: 'members', title: '协助成员', fields: [['userNameSnapshot','姓名'],['roleNameSnapshot','角色'],['personType','人员类型'],['memberStatus','状态'],['effectiveFrom','生效时间'],['effectiveTo','结束时间'],['exitReason','退出原因']] },

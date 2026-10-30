@@ -1,7 +1,9 @@
 <template>
   <div class="roster-list">
+    <a-drawer v-model:open="showRest" title="休息与转派" width="min(1100px, 100vw)" :destroy-on-close="true"><RestAssignment /></a-drawer>
     <BasicTable @register="registerTable" :row-selection="null">
       <template #tableTitle>
+        <a-button v-if="canEdit" class="mr-2" @click="showRest = true">休息与转派</a-button>
         <a-button v-if="canAdd" type="primary" preIcon="ant-design:plus-outlined" @click="showCreate = true">新增</a-button>
       </template>
       <template #bodyCell="{ column, record }">
@@ -28,6 +30,7 @@
   </div>
 </template>
 <script setup lang="ts">
+  import RestAssignment from '../rest-assignment/RestAssignment.vue';
   import { ref } from 'vue';
   import { useRouter } from 'vue-router';
   import dayjs, { type Dayjs } from 'dayjs';
@@ -51,6 +54,7 @@
   ];
   const router = useRouter();
   const { canAdd, canEdit, canExport } = useDutyRosterPermissions();
+  const showRest = ref(false);
   const showCreate = ref(false);
   const creating = ref(false);
   const newMonth = ref<Dayjs>(dayjs());

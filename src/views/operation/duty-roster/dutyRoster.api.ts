@@ -29,7 +29,9 @@ function normalizeRoster(result: DutyRosterResult): DutyRosterResult {
     restUser: row.restUser ?? null,
   }));
   const participants = new Map<string, DutyPerson>();
-  for (const person of [...(result.rotationUsers ?? []), ...days.flatMap((row) => [...row.dayUsers, ...row.nightUsers, ...row.restUsers])]) {
+  // 默认四人规则的工作日白班保留选人顺序，避免月初周末按班次合并打乱轮值顺序。
+  const orderedDay = days.find(row => row.dayUsers.length === 4 && ![0, 6].includes(new Date(`${row.date}T12:00:00Z`).getUTCDay()));
+  for (const person of [...(result.rotationUsers ?? []), ...(orderedDay?.dayUsers ?? []), ...days.flatMap((row) => [...row.dayUsers, ...row.nightUsers, ...row.restUsers])]) {
     if (person?.userId && !participants.has(person.userId)) participants.set(person.userId, { ...person });
   }
   return { ...result, days, rotationUsers: [...participants.values()], version: 0 };
